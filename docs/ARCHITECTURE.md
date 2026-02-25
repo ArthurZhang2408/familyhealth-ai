@@ -91,7 +91,7 @@ graph TB
 | Database | PostgreSQL 16 + pgvector | Persistent storage, vector similarity |
 | Memory | Mem0 (self-hosted) | Episodic memory — vector store |
 | LLM Primary | Google Gemini API | Diagnosis, report analysis, embeddings |
-| LLM Secondary | Qwen via OpenRouter (`qwen/qwen-2.5-72b-instruct`) | Chat, extraction, summarization |
+| LLM Secondary | Qwen via Ollama Cloud (`qwen3.5:35b`) | Chat, extraction, summarization |
 | Deployment | Railway (backend), Expo EAS (mobile) | Hosting |
 
 ---
@@ -535,9 +535,9 @@ mem0_config = {
     "llm": {
         "provider": "openai",
         "config": {
-            "model": "qwen/qwen-2.5-72b-instruct",
+            "model": "qwen3.5:35b",
             "api_key": QWEN_API_KEY,
-            "openai_base_url": "https://openrouter.ai/api/v1",
+            "openai_base_url": "https://ollama.com/v1",
             "temperature": 0.1,
             "max_tokens": 2000,
         },
@@ -956,10 +956,10 @@ GEMINI_FLASH_MODEL=gemini-2.0-flash
 EMBEDDING_MODEL=models/text-embedding-004
 EMBEDDING_DIMS=768
 
-# LLM — Qwen via OpenRouter (chat, extraction)
-QWEN_API_KEY=your-openrouter-key
-QWEN_BASE_URL=https://openrouter.ai/api/v1
-QWEN_MODEL=qwen/qwen-2.5-72b-instruct
+# LLM — Qwen via Ollama Cloud (chat, extraction, mem0 internal LLM)
+QWEN_API_KEY=your-ollama-api-key
+QWEN_BASE_URL=https://ollama.com/v1
+QWEN_MODEL=qwen3.5:35b
 
 # App
 APP_ENV=development

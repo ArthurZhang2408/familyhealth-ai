@@ -22,10 +22,10 @@ class Settings(BaseSettings):
     gemini_diagnosis_model: str = "gemini-2.5-pro"
     gemini_flash_model: str = "gemini-2.0-flash"
 
-    # LLM — Qwen via OpenRouter
+    # LLM — Qwen via Ollama Cloud
     qwen_api_key: str = ""
-    qwen_base_url: str = "https://openrouter.ai/api/v1"
-    qwen_model: str = "qwen/qwen-2.5-72b-instruct"
+    qwen_base_url: str = "https://ollama.com/v1"
+    qwen_model: str = "qwen3.5:35b"
 
     # Embeddings (Gemini for Mem0 vector store — reuses gemini_api_key)
     embedding_model: str = "models/text-embedding-004"
