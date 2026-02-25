@@ -3,7 +3,7 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import auth, chat, diagnosis, memory, profiles, reports
+from app.api import action_log, auth, chat, diagnosis, memory, profiles, reports
 from app.core.config import settings
 from app.core.database import engine
 from app.core.exceptions import AppError, app_error_handler
@@ -41,6 +41,7 @@ app.include_router(diagnosis.router, prefix=API_V1)
 app.include_router(reports.router, prefix=API_V1)
 app.include_router(chat.router, prefix=API_V1)
 app.include_router(memory.router, prefix=API_V1)
+app.include_router(action_log.router, prefix=API_V1)
 
 
 @app.on_event("startup")

@@ -545,13 +545,16 @@ Append-only `action_log` table. Every significant action is recorded with full p
 |-|-|-|
 | `profile_created` | New profile | `{ "name": "Mom", "relationship": "parent" }` |
 | `profile_updated` | Profile edit | `{ "fields_changed": ["allergies"], "old": [...], "new": [...] }` |
+| `profile_deleted` | Soft-delete | `{ "name": "Mom", "relationship": "parent" }` |
 | `diagnosis_started` | New session | `{ "session_id": "...", "chief_complaint": "..." }` |
+| `diagnosis_message` | Diagnosis turn | `{ "session_id": "...", "role": "user", "message_preview": "..." }` |
 | `diagnosis_resolved` | Session closed | `{ "session_id": "...", "differential": [...] }` |
 | `report_uploaded` | Report upload | `{ "report_id": "...", "file_type": "blood_test" }` |
 | `report_analyzed` | Analysis done | `{ "report_id": "...", "findings_count": 5 }` |
-| `memory_fact_extracted` | Mem0 update | `{ "facts": ["hemoglobin 14.2 g/dL"], "source": "report" }` |
-| `memory_deleted` | Admin action | `{ "memory_id": "...", "reason": "user request" }` |
 | `chat_message` | Chat interaction | `{ "topic": "nutrition", "message_preview": "..." }` |
+| `memory_updated` | Mem0 memory changed | `{ "memory_id": "...", "source": "diagnosis" }` |
+| `memory_extracted` | New facts extracted | `{ "facts": ["hemoglobin 14.2 g/dL"], "source": "report" }` |
+| `memory_deleted` | Admin action | `{ "memory_id": "...", "reason": "user request" }` |
 
 ### Runtime Memory Flow
 
