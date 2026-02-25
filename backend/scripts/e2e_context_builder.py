@@ -137,108 +137,110 @@ async def run() -> None:
     # -- Step 1: Create profile -------------------------------------------------
     print("\n[1/5] Creating test profile in PostgreSQL...")
     profile_id: uuid.UUID | None = None
-    async with async_session_factory() as db:
-        profile = Profile(id=uuid.uuid4(), **PROFILE_DATA)
-        profile_id = profile.id
-        db.add(profile)
-        await db.commit()
-        print(f"  Created profile: {profile.name} (id={profile_id})")
-
-    # -- Step 2: Seed memories --------------------------------------------------
-    print("\n[2/5] Seeding episodic memories via Mem0 (real embeddings)...")
     memory_service = get_memory_service()
-    total_facts = 0
-    for i, conv in enumerate(SEED_CONVERSATIONS, 1):
-        result = await memory_service.add(
-            profile_id,
-            conv["messages"],
-            category=conv["category"],
-            source=conv["source"],
-        )
-        facts = result.get("results", [])
-        total_facts += len(facts)
-        print(f"  Conversation {i}: extracted {len(facts)} fact(s)")
-        for fact in facts:
-            event = fact.get("event", "?")
-            memory = fact.get("memory", "?")
-            print(f"    - [{event}] {memory}")
+    all_passed = True
 
-    if total_facts == 0:
-        print(
-            "\n  WARNING: Mem0/Qwen extracted 0 facts (free-tier flakiness)."
-            "\n  Memory retrieval checks will be skipped."
-            "\n  Profile formatting is still fully tested."
-        )
-
-    # -- Step 3: Build context --------------------------------------------------
-    print(f'\n[3/5] Building context for query: "{TEST_QUERY}"')
-    builder = ContextBuilder(memory_service)
-
-    for interaction_type in ("chat", "diagnosis"):
-        budget = 1000 if interaction_type == "chat" else 2000
-        print(f"\n  --- interaction_type={interaction_type}," f" memory_budget={budget} ---")
-
+    try:
         async with async_session_factory() as db:
-            result = await builder.build(
-                db,
+            profile = Profile(id=uuid.uuid4(), **PROFILE_DATA)
+            profile_id = profile.id
+            db.add(profile)
+            await db.commit()
+            print(f"  Created profile: {profile.name} (id={profile_id})")
+
+        # -- Step 2: Seed memories ----------------------------------------------
+        print("\n[2/5] Seeding episodic memories via Mem0...")
+        total_facts = 0
+        for i, conv in enumerate(SEED_CONVERSATIONS, 1):
+            result = await memory_service.add(
                 profile_id,
-                TEST_QUERY,
-                interaction_type,
-                memory_budget=budget,
+                conv["messages"],
+                category=conv["category"],
+                source=conv["source"],
+            )
+            facts = result.get("results", [])
+            total_facts += len(facts)
+            print(f"  Conversation {i}: extracted {len(facts)} fact(s)")
+            for fact in facts:
+                event = fact.get("event", "?")
+                memory = fact.get("memory", "?")
+                print(f"    - [{event}] {memory}")
+
+        if total_facts == 0:
+            print(
+                "\n  WARNING: Mem0 extracted 0 facts (free-tier flakiness)."
+                "\n  Memory retrieval checks will be skipped."
+                "\n  Profile formatting is still fully tested."
             )
 
-        print(f"\n  Memories retrieved: {result.memories_used}")
-        print(f"  Token counts: {result.token_counts}")
-        print(f"\n  {'─' * 60}")
-        print(f"  SYSTEM PROMPT ({interaction_type}):")
-        print(f"  {'─' * 60}")
-        for line in result.system_prompt.split("\n"):
-            print(f"  {line}")
-        print(f"  {'─' * 60}")
+        # -- Step 3: Build context ----------------------------------------------
+        print(f'\n[3/5] Building context for query: "{TEST_QUERY}"')
+        builder = ContextBuilder(memory_service)
 
-    # -- Step 4: Verify key properties -----------------------------------------
-    print("\n[4/5] Verifying output...")
-    async with async_session_factory() as db:
-        result = await builder.build(db, profile_id, TEST_QUERY, "chat")
+        for itype in ("chat", "diagnosis"):
+            budget = 1000 if itype == "chat" else 2000
+            print(f"\n  --- interaction_type={itype}," f" memory_budget={budget} ---")
 
-    checks = [
-        ("Profile name present", "Chen Wei" in result.system_prompt),
-        (
-            "Allergy with severity",
-            "Penicillin" in result.system_prompt and "severe" in result.system_prompt,
-        ),
-        ("Medication with dosage", "Metformin 1000mg" in result.system_prompt),
-        ("Medical condition", "Type 2 Diabetes" in result.system_prompt),
-        ("Family history", "Heart Disease" in result.system_prompt),
-        ("Disclaimer present", "MEDICAL DISCLAIMER" in result.system_prompt),
-        ("Token counts populated", result.token_counts["total"] > 0),
-        ("Relationship shown", "parent" in result.system_prompt),
-    ]
+            async with async_session_factory() as db:
+                result = await builder.build(
+                    db,
+                    profile_id,
+                    TEST_QUERY,
+                    itype,
+                    memory_budget=budget,
+                )
 
-    # Memory retrieval is only checkable when Mem0 actually stored facts
-    if total_facts > 0:
-        checks.append(("Memories used > 0", result.memories_used > 0))
-    else:
-        checks.append(("Memories used (skipped — no facts stored)", True))
+            print(f"\n  Memories retrieved: {result.memories_used}")
+            print(f"  Token counts: {result.token_counts}")
+            print(f"\n  {'─' * 60}")
+            print(f"  SYSTEM PROMPT ({itype}):")
+            print(f"  {'─' * 60}")
+            for line in result.system_prompt.split("\n"):
+                print(f"  {line}")
+            print(f"  {'─' * 60}")
 
-    all_passed = True
-    for name, passed in checks:
-        status = "PASS" if passed else "FAIL"
-        if not passed:
-            all_passed = False
-        print(f"  [{status}] {name}")
+        # -- Step 4: Verify key properties --------------------------------------
+        print("\n[4/5] Verifying output...")
+        async with async_session_factory() as db:
+            result = await builder.build(db, profile_id, TEST_QUERY, "chat")
 
-    # -- Step 5: Cleanup --------------------------------------------------------
-    print("\n[5/5] Cleaning up...")
-    await memory_service.delete_all(profile_id)
-    print("  Deleted Mem0 memories")
+        checks = [
+            ("Profile name present", "Chen Wei" in result.system_prompt),
+            (
+                "Allergy with severity",
+                "Penicillin" in result.system_prompt and "severe" in result.system_prompt,
+            ),
+            ("Medication with dosage", "Metformin 1000mg" in result.system_prompt),
+            ("Medical condition", "Type 2 Diabetes" in result.system_prompt),
+            ("Family history", "Heart Disease" in result.system_prompt),
+            ("Disclaimer present", "MEDICAL DISCLAIMER" in result.system_prompt),
+            ("Token counts populated", result.token_counts["total"] > 0),
+            ("Relationship shown", "parent" in result.system_prompt),
+        ]
 
-    async with async_session_factory() as db:
-        profile = await db.get(Profile, profile_id)
-        if profile:
-            await db.delete(profile)
-            await db.commit()
-    print("  Deleted test profile")
+        if total_facts > 0:
+            checks.append(("Memories used > 0", result.memories_used > 0))
+        else:
+            checks.append(("Memories used (skipped — no facts stored)", True))
+
+        for name, passed in checks:
+            status = "PASS" if passed else "FAIL"
+            if not passed:
+                all_passed = False
+            print(f"  [{status}] {name}")
+
+    finally:
+        # -- Step 5: Cleanup (always runs) --------------------------------------
+        print("\n[5/5] Cleaning up...")
+        if profile_id:
+            await memory_service.delete_all(profile_id)
+            print("  Deleted Mem0 memories")
+            async with async_session_factory() as db:
+                profile = await db.get(Profile, profile_id)
+                if profile:
+                    await db.delete(profile)
+                    await db.commit()
+            print("  Deleted test profile")
 
     print("\n" + "=" * 70)
     if all_passed:

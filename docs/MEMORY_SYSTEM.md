@@ -438,15 +438,13 @@ async def retrieve_memories(
     """Retrieve relevant episodic memories for an interaction."""
 
     if interaction_type == "diagnosis":
-        # For diagnosis: retrieve medical history, symptoms, medications, past diagnoses
-        # Use higher limit because diagnosis needs broad medical context
+        # Diagnosis needs the broadest context — no category filter.
+        # Higher limit and lowest threshold to cast the widest net.
         memories = memory_service.search(
             profile_id,
             query,
-            limit=15,
-            categories=["medical_history", "medications", "allergies",
-                         "diagnoses", "symptoms", "lab_results", "vitals"],
-            threshold=0.4,   # lower threshold = cast wider net
+            limit=20,
+            threshold=0.05,
         )
 
     elif interaction_type == "report_analysis":
@@ -456,7 +454,7 @@ async def retrieve_memories(
             query,
             limit=10,
             categories=["lab_results", "vitals", "medications", "medical_history"],
-            threshold=0.5,
+            threshold=0.1,
         )
 
     elif interaction_type == "chat":
@@ -465,7 +463,7 @@ async def retrieve_memories(
             profile_id,
             query,
             limit=10,
-            threshold=0.5,
+            threshold=0.1,
         )
 
     else:
@@ -473,6 +471,8 @@ async def retrieve_memories(
 
     return memories
 ```
+
+> **Note on thresholds:** The design originally specified higher thresholds (0.4–0.5), but Gemini's 768-dimensional embeddings produce lower cosine similarity scores than 1536d models. Thresholds were tuned down to 0.05–0.1 based on real retrieval testing.
 
 ### Memory Object Shape
 

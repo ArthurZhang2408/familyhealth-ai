@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import logging
 from dataclasses import dataclass
 from datetime import datetime
@@ -153,7 +152,7 @@ def format_profile_section(profile_context: dict) -> str:
     lines += ["", "## Family Medical History"]
     if family:
         for condition_name, members in family.items():
-            lines.append(f"- {condition_name}: {', '.join(members)}")
+            lines.append(f"- {condition_name}: {', '.join(str(m) for m in members)}")
     else:
         lines.append("None reported")
 
@@ -178,7 +177,7 @@ def format_memories_section(memories: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def _extract_date_prefix(timestamp: str | datetime) -> str:
+def _extract_date_prefix(timestamp: str | datetime | None) -> str:
     """Turn a timestamp into a ``[Mon YYYY] `` prefix, or empty string."""
     if not timestamp:
         return ""
@@ -237,12 +236,13 @@ class ContextBuilder:
         Raises:
             ValueError: If the profile does not exist.
         """
-        # Parallel fetch: profile from DB + memories from Mem0
-        # Memory retrieval is best-effort — if Mem0 is unavailable we still
-        # return a useful context built from the structured profile alone.
-        profile_coro = db.get(Profile, profile_id)
-        memories_coro = self._safe_retrieve_memories(profile_id, query, interaction_type)
-        profile, memories = await asyncio.gather(profile_coro, memories_coro)
+        # Fetch profile and memories sequentially. Memory retrieval is
+        # best-effort — if Mem0 is unavailable we still return a useful
+        # context built from the structured profile alone.
+        # NOTE: we intentionally avoid asyncio.gather here because the db
+        # session is not safe for concurrent coroutine use.
+        profile = await db.get(Profile, profile_id)
+        memories = await self._safe_retrieve_memories(profile_id, query, interaction_type)
 
         if profile is None:
             raise ValueError(f"Profile {profile_id} not found")
@@ -258,9 +258,14 @@ class ContextBuilder:
         profile_tokens = count_tokens(profile_section)
         memories_tokens = count_tokens(memories_section)
 
+        memories_injected = len(memories)
         if memories_tokens > memory_budget:
             memories_section = truncate_to_token_budget(memories_section, memory_budget)
             memories_tokens = count_tokens(memories_section)
+            # Count surviving lines (each memory is a "- " prefixed line)
+            memories_injected = sum(
+                1 for line in memories_section.splitlines() if line.startswith("- ")
+            )
 
         # Assemble final prompt
         prompt_template = template or DEFAULT_TEMPLATE
@@ -273,7 +278,7 @@ class ContextBuilder:
         return ContextResult(
             system_prompt=system_prompt,
             profile_context=profile_ctx,
-            memories_used=len(memories),
+            memories_used=memories_injected,
             token_counts={
                 "profile": profile_tokens,
                 "memories": memories_tokens,

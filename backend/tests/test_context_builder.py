@@ -179,7 +179,7 @@ def test_extract_date_prefix_empty() -> None:
 
 
 def test_extract_date_prefix_none() -> None:
-    assert _extract_date_prefix(None) == ""  # type: ignore[arg-type]
+    assert _extract_date_prefix(None) == ""
 
 
 def test_extract_date_prefix_datetime_object() -> None:
@@ -473,6 +473,33 @@ async def test_report_analysis_uses_lab_categories() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Unknown interaction type
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_unknown_interaction_type_falls_back_to_chat() -> None:
+    """Unknown interaction_type should fall through to chat-style retrieval."""
+    profile = _make_mock_profile()
+
+    mock_db = AsyncMock()
+    mock_db.get.return_value = profile
+
+    mock_mem0 = MagicMock()
+    mock_mem0.search.return_value = {"results": []}
+    memory_service = MemoryService(mock_mem0)
+
+    builder = ContextBuilder(memory_service)
+    result = await builder.build(mock_db, PROFILE_ID, "test", "unknown_type")
+
+    # Should not raise — falls through to chat branch in retrieve_memories
+    assert isinstance(result, ContextResult)
+    _, kwargs = mock_mem0.search.call_args
+    assert kwargs["limit"] == 10
+    assert kwargs.get("filters") is None
+
+
+# ---------------------------------------------------------------------------
 # Graceful degradation
 # ---------------------------------------------------------------------------
 
@@ -558,3 +585,5 @@ async def test_build_enforces_memory_budget() -> None:
     # Memory tokens should be within budget (with small tolerance for line-truncation)
     assert result.token_counts["memories"] <= 220
     assert "truncated for context limit" in result.system_prompt
+    # memories_used should reflect injected count, not retrieved count
+    assert result.memories_used < 30
