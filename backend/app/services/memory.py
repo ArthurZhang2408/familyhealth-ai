@@ -271,7 +271,7 @@ class MemoryService:
         *,
         limit: int = 10,
         categories: list[str] | None = None,
-        threshold: float = 0.5,
+        threshold: float = 0.1,
     ) -> list[dict]:
         """Search memories by semantic similarity."""
         filters = None

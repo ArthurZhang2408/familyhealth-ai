@@ -49,9 +49,7 @@ async def test_llm_router_routes_diagnosis_to_gemini() -> None:
 async def test_llm_router_routes_chat_to_qwen() -> None:
     gemini = AsyncMock(spec=LLMProvider)
     qwen = AsyncMock(spec=LLMProvider)
-    qwen.generate.return_value = LLMResponse(
-        content="hi", model="qwen/qwen-2.5-72b-instruct", usage={}
-    )
+    qwen.generate.return_value = LLMResponse(content="hi", model="qwen3.5:397b", usage={})
 
     router = _make_router(gemini=gemini, qwen=qwen)
     await router.route(_make_request(LLMTask.CHAT))
@@ -124,7 +122,7 @@ async def test_qwen_provider_generate(mock_client_cls: MagicMock) -> None:
     mock_choice.message.content = "Qwen response"
     mock_response = MagicMock()
     mock_response.choices = [mock_choice]
-    mock_response.model = "qwen/qwen-2.5-72b-instruct"
+    mock_response.model = "qwen3.5:397b"
     mock_response.usage.prompt_tokens = 15
     mock_response.usage.completion_tokens = 25
 
@@ -144,7 +142,7 @@ async def test_qwen_provider_generate(mock_client_cls: MagicMock) -> None:
 
     assert isinstance(result, LLMResponse)
     assert result.content == "Qwen response"
-    assert result.model == "qwen/qwen-2.5-72b-instruct"
+    assert result.model == "qwen3.5:397b"
     assert result.usage["prompt_tokens"] == 15
     assert result.usage["completion_tokens"] == 25
 

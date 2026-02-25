@@ -43,7 +43,7 @@ mem0_config = {
     "llm": {
         "provider": "openai",
         "config": {
-            "model": "qwen3.5:35b",
+            "model": "qwen3.5:397b",
             "api_key": QWEN_API_KEY,            # Ollama Cloud API key
             "openai_base_url": "https://ollama.com/v1",
             "temperature": 0.1,               # low temp for deterministic extraction
@@ -55,7 +55,7 @@ mem0_config = {
     "embedder": {
         "provider": "gemini",
         "config": {
-            "model": "models/text-embedding-004",
+            "model": "models/gemini-embedding-001",
             "api_key": GEMINI_API_KEY,
             "embedding_dims": 768,
         },

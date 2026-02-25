@@ -12,7 +12,7 @@ class QwenProvider(LLMProvider):
         self,
         api_key: str,
         base_url: str = "https://openrouter.ai/api/v1",
-        model: str = "qwen/qwen-2.5-72b-instruct",
+        model: str = "qwen3.5:397b",
     ) -> None:
         self._client = openai.AsyncOpenAI(api_key=api_key, base_url=base_url)
         self._model = model

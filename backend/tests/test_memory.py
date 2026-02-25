@@ -249,7 +249,7 @@ def test_build_mem0_config_uses_gemini_embedder() -> None:
     config = build_mem0_config(s)
     assert config["embedder"]["provider"] == "gemini"
     assert config["embedder"]["config"]["api_key"] == "test-gemini-key"
-    assert config["embedder"]["config"]["model"] == "models/text-embedding-004"
+    assert config["embedder"]["config"]["model"] == "models/gemini-embedding-001"
     assert config["vector_store"]["config"]["hnsw"] is True
 
 

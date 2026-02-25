@@ -103,7 +103,7 @@ async def retrieve_memories(
                 "lab_results",
                 "vitals",
             ],
-            threshold=0.4,
+            threshold=0.05,
         )
     elif interaction_type == "report_analysis":
         return await memory_service.search(
@@ -116,14 +116,14 @@ async def retrieve_memories(
                 "medications",
                 "medical_history",
             ],
-            threshold=0.5,
+            threshold=0.1,
         )
     else:  # chat
         return await memory_service.search(
             profile_id,
             query,
             limit=10,
-            threshold=0.5,
+            threshold=0.1,
         )
 
 

@@ -25,10 +25,10 @@ class Settings(BaseSettings):
     # LLM — Qwen via Ollama Cloud
     qwen_api_key: str = ""
     qwen_base_url: str = "https://ollama.com/v1"
-    qwen_model: str = "qwen3.5:35b"
+    qwen_model: str = "qwen3.5:397b"
 
     # Embeddings (Gemini for Mem0 vector store — reuses gemini_api_key)
-    embedding_model: str = "models/text-embedding-004"
+    embedding_model: str = "models/gemini-embedding-001"
     embedding_dims: int = 768
 
     # App

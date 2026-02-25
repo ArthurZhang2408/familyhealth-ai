@@ -91,7 +91,7 @@ graph TB
 | Database | PostgreSQL 16 + pgvector | Persistent storage, vector similarity |
 | Memory | Mem0 (self-hosted) | Episodic memory — vector store |
 | LLM Primary | Google Gemini API | Diagnosis, report analysis, embeddings |
-| LLM Secondary | Qwen via Ollama Cloud (`qwen3.5:35b`) | Chat, extraction, summarization |
+| LLM Secondary | Qwen via Ollama Cloud (`qwen3.5:397b`) | Chat, extraction, summarization |
 | Deployment | Railway (backend), Expo EAS (mobile) | Hosting |
 
 ---
@@ -527,7 +527,7 @@ mem0_config = {
     "embedder": {
         "provider": "gemini",
         "config": {
-            "model": "models/text-embedding-004",
+            "model": "models/gemini-embedding-001",
             "api_key": GEMINI_API_KEY,
             "embedding_dims": 768,
         },
@@ -535,7 +535,7 @@ mem0_config = {
     "llm": {
         "provider": "openai",
         "config": {
-            "model": "qwen3.5:35b",
+            "model": "qwen3.5:397b",
             "api_key": QWEN_API_KEY,
             "openai_base_url": "https://ollama.com/v1",
             "temperature": 0.1,
@@ -685,7 +685,7 @@ class GeminiProvider(LLMProvider):
 
 
 class QwenProvider(LLMProvider):
-    """Qwen via OpenRouter (qwen/qwen-2.5-72b-instruct) — used for chat, extraction, and summarization.
+    """Qwen via Ollama Cloud (qwen3.5:397b) — used for chat, extraction, and summarization.
 
     Lower cost, fast inference for high-volume tasks. OpenRouter provides an OpenAI-compatible API.
     """
@@ -953,13 +953,13 @@ SUPABASE_SERVICE_KEY=your-service-key
 GEMINI_API_KEY=your-gemini-key
 GEMINI_DIAGNOSIS_MODEL=gemini-2.5-pro
 GEMINI_FLASH_MODEL=gemini-2.0-flash
-EMBEDDING_MODEL=models/text-embedding-004
+EMBEDDING_MODEL=models/gemini-embedding-001
 EMBEDDING_DIMS=768
 
 # LLM — Qwen via Ollama Cloud (chat, extraction, mem0 internal LLM)
 QWEN_API_KEY=your-ollama-api-key
 QWEN_BASE_URL=https://ollama.com/v1
-QWEN_MODEL=qwen3.5:35b
+QWEN_MODEL=qwen3.5:397b
 
 # App
 APP_ENV=development
