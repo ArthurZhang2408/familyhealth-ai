@@ -43,8 +43,8 @@ mem0_config = {
     "llm": {
         "provider": "openai",
         "config": {
-            "model": "qwen3.5:397b",
-            "api_key": QWEN_API_KEY,            # Ollama Cloud API key
+            "model": "nemotron-3-nano:30b",     # lightweight, non-thinking model
+            "api_key": OLLAMA_API_KEY,           # Ollama Cloud API key
             "openai_base_url": "https://ollama.com/v1",
             "temperature": 0.1,               # low temp for deterministic extraction
             "max_tokens": 2000,
@@ -88,9 +88,16 @@ memory = Memory.from_config(mem0_config)
 
 **Note:** Ollama Cloud provides an OpenAI-compatible API, so the LLM config uses the `openai` provider type. Embeddings use the `gemini` provider — this reuses the existing Gemini API key.
 
-### Why Qwen for Mem0's Internal LLM
+### Why Nemotron for Mem0's Internal LLM
 
-Mem0 calls its configured LLM for two internal tasks: fact extraction (on `add()`) and update-vs-duplicate decisions (when new facts overlap with existing ones). These are high-volume, structured-output tasks — Qwen via Ollama Cloud (free tier) is cost-effective and fast. Gemini is reserved for user-facing diagnosis and report analysis where accuracy is paramount.
+Mem0 calls its configured LLM for two internal tasks: fact extraction (on `add()`) and update-vs-duplicate decisions (when new facts overlap with existing ones). These are high-volume, structured-output tasks that need a fast, reliable, non-thinking model. After benchmarking 11 models on Ollama Cloud, `nemotron-3-nano:30b` was selected:
+
+- **0.9s avg** response time (vs 21s for `qwen3.5:397b`, 2.6s for `gemma3:27b`)
+- **100% reliability** — returns valid JSON content every call
+- **Clean string output** — returns `{"facts": ["string", ...]}` format that Mem0 parses correctly
+- **Non-thinking** — no reasoning overhead, all output goes to `content` field
+
+The Mem0 LLM is configured separately from the user-facing chat model via the `MEM0_MODEL` env var / `settings.mem0_model`. Gemini is reserved for diagnosis and report analysis; Qwen `qwen3.5:397b` remains available for user-facing chat.
 
 ### Profile Scoping
 
@@ -131,7 +138,7 @@ class MemoryService:
         *,
         limit: int = 10,
         categories: list[str] | None = None,
-        threshold: float = 0.5,
+        threshold: float = 0.1,
     ) -> list[dict]:
         filters = None
         if categories:
@@ -438,15 +445,13 @@ async def retrieve_memories(
     """Retrieve relevant episodic memories for an interaction."""
 
     if interaction_type == "diagnosis":
-        # For diagnosis: retrieve medical history, symptoms, medications, past diagnoses
-        # Use higher limit because diagnosis needs broad medical context
+        # Diagnosis needs the broadest context — no category filter.
+        # Higher limit and lowest threshold to cast the widest net.
         memories = memory_service.search(
             profile_id,
             query,
-            limit=15,
-            categories=["medical_history", "medications", "allergies",
-                         "diagnoses", "symptoms", "lab_results", "vitals"],
-            threshold=0.4,   # lower threshold = cast wider net
+            limit=20,
+            threshold=0.05,
         )
 
     elif interaction_type == "report_analysis":
@@ -456,7 +461,7 @@ async def retrieve_memories(
             query,
             limit=10,
             categories=["lab_results", "vitals", "medications", "medical_history"],
-            threshold=0.5,
+            threshold=0.1,
         )
 
     elif interaction_type == "chat":
@@ -465,7 +470,7 @@ async def retrieve_memories(
             profile_id,
             query,
             limit=10,
-            threshold=0.5,
+            threshold=0.1,
         )
 
     else:
@@ -473,6 +478,8 @@ async def retrieve_memories(
 
     return memories
 ```
+
+> **Note on thresholds:** The design originally specified higher thresholds (0.4–0.5), but Gemini's 768-dimensional embeddings produce lower cosine similarity scores than 1536d models. Thresholds were tuned down to 0.05–0.1 based on real retrieval testing.
 
 ### Memory Object Shape
 
@@ -497,74 +504,67 @@ Each item returned from `memory_service.search()`:
 
 ## 5. System Prompt Assembly
 
-### Template
+### ContextBuilder
 
-The system prompt is assembled from three layers: static instructions, profile facts (Tier 1), and episodic memories (Tier 2). The template varies by interaction type.
+The system prompt is assembled by `ContextBuilder` (`app/services/context_builder.py`). It combines three layers: static instructions, profile facts (Tier 1), and episodic memories (Tier 2). The template varies by interaction type — callers pass a custom template or use the default.
 
-The diagnosis system prompt template is defined in `DIAGNOSIS_AGENT.md` Section 2. It follows the same assembly pattern shown below but with additional clinical protocol instructions. Structured state extraction uses a two-pass approach (see DIAGNOSIS_AGENT.md Section 3).
+The diagnosis system prompt template is defined in `DIAGNOSIS_AGENT.md` Section 2. It follows the same assembly pattern shown below but with additional clinical protocol instructions.
 
-### Prompt Assembly Code
+### How ContextBuilder Works
 
 ```python
-def assemble_system_prompt(
-    template: str,
-    profile_context: dict,
-    episodic_memories: list[dict],
-    token_budget: int,
-) -> str:
-    """Assemble the system prompt with profile facts and episodic memories."""
+class ContextBuilder:
+    def __init__(self, memory_service: MemoryService) -> None: ...
 
-    # Format profile facts (Tier 1) — always included in full
-    profile_section = {
-        "profile_name": profile_context["name"],
-        "age": profile_context["age"] or "Unknown",
-        "sex": profile_context["sex"] or "Not specified",
-        "blood_type": profile_context["blood_type"] or "Unknown",
-        "allergies": format_allergies(profile_context["allergies"]) or "None known",
-        "medications": format_medications(profile_context["current_medications"]) or "None",
-        "conditions": format_conditions(profile_context["medical_conditions"]) or "None known",
-        "family_history": format_family_history(profile_context["family_medical_history"]) or "None reported",
-    }
-
-    # Format episodic memories (Tier 2) — trimmed to token budget
-    memory_lines = []
-    for mem in episodic_memories:
-        category = mem.get("metadata", {}).get("category", "general")
-        line = f"- [{category}] {mem['memory']}"
-        memory_lines.append(line)
-
-    memories_text = "\n".join(memory_lines) if memory_lines else "No relevant history found."
-
-    # Apply token budget — truncate memories if they exceed the budget
-    memories_text = truncate_to_token_budget(memories_text, token_budget)
-
-    return template.format(**profile_section, episodic_memories=memories_text)
+    async def build(
+        self,
+        db: AsyncSession,
+        profile_id: UUID,
+        query: str,
+        interaction_type: str = "chat",
+        *,
+        memory_budget: int = 2000,
+        template: str | None = None,
+    ) -> ContextResult: ...
 ```
 
-### Chat Variant
+`build()` does:
+1. Loads the profile from PostgreSQL (`db.get(Profile, profile_id)`)
+2. Retrieves episodic memories from Mem0 (semantic search on `query`)
+3. Formats profile into rich structured sections (allergies with severity, medications with dosage/frequency, conditions with status)
+4. Formats memories as timestamped bullet list
+5. Applies token budget — profile always included, memories trimmed if over budget
+6. Returns `ContextResult` with the assembled prompt, raw context, memory count, and token breakdowns
 
-```python
-CHAT_SYSTEM_PROMPT = """You are a friendly health assistant for {profile_name}.
+Memory retrieval is best-effort — if Mem0 is unavailable, the builder returns a profile-only context.
 
-## MEDICAL DISCLAIMER
-You provide general health information, NOT medical diagnoses. Always recommend consulting
-a healthcare professional for specific medical concerns.
+### Output Format
 
-## PATIENT PROFILE
-- Age: {age} | Sex: {sex}
-- Allergies: {allergies}
-- Medications: {medications}
-- Conditions: {conditions}
+```
+## Patient Profile
+Name: Chen Wei | Age: 61 | Sex: female
+Relationship to user: parent
+Blood type: A+
 
-## RELEVANT CONTEXT
-{episodic_memories}
+## Known Allergies
+- Penicillin (severe — anaphylaxis risk)
+- Shellfish (mild — hives)
 
-## INSTRUCTIONS
-- Answer health questions conversationally and accurately.
-- Reference the patient's profile and history when relevant.
-- If the question involves symptoms that could indicate a serious condition,
-  recommend using the Diagnosis feature for a structured assessment.
-- Be concise. Don't lecture unless asked for detail."""
+## Current Medications
+- Metformin 1000mg, twice daily
+- Lisinopril 10mg, once daily
+
+## Medical Conditions
+- Type 2 Diabetes (diagnosed 2019, active)
+- Hypertension (diagnosed 2020, managed)
+
+## Family Medical History
+- Heart Disease: Father (heart attack at 55)
+- Diabetes: Maternal grandmother
+
+## Relevant History
+- [Feb 2026] HbA1c was 7.2%, doctor recommended increasing Metformin
+- [Jan 2026] Diagnosed with UTI, treated with Ciprofloxacin, resolved
 ```
 
 ---

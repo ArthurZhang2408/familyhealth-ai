@@ -146,7 +146,7 @@ def build_mem0_config(settings: Settings) -> dict:
         "llm": {
             "provider": "openai",
             "config": {
-                "model": settings.qwen_model,
+                "model": settings.mem0_model,
                 "api_key": settings.qwen_api_key,
                 "openai_base_url": settings.qwen_base_url,
                 "temperature": 0.1,
