@@ -311,7 +311,7 @@ class MemoryService:
     async def delete(self, profile_id: UUID, memory_id: str) -> None:
         """Delete a single memory, ensuring it belongs to the given profile."""
         mem = await asyncio.to_thread(self._mem0.get, memory_id)
-        if mem.get("user_id") != str(profile_id):
+        if not mem or mem.get("user_id") != str(profile_id):
             raise ValueError("Memory does not belong to this profile")
         await asyncio.to_thread(self._mem0.delete, memory_id)
 

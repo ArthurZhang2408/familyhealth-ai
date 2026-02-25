@@ -16,6 +16,7 @@ dependencies = [
     "python-multipart>=0.0.18,<1",
     "pgvector>=0.3,<1",
     "mem0ai>=0.1,<1",
+    "psycopg[binary,pool]>=3.1,<4",
     "google-genai>=1.0,<2",
     "openai>=1.0,<2",
     "tiktoken>=0.8,<1",
