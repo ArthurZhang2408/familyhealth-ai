@@ -77,6 +77,31 @@ async def test_profile_update_multiple_fields(client: AsyncClient) -> None:
     assert entry["payload"]["new"]["sex"] == "male"
 
 
+@pytest.mark.asyncio
+async def test_profile_update_jsonb_captures_old_values(client: AsyncClient) -> None:
+    """Verify JSONB fields (allergies) capture distinct old/new via deepcopy."""
+    profile = await _create_profile(
+        client,
+        name="Test",
+        relationship="parent",
+        allergies=[{"allergen": "Peanuts", "severity": "severe"}],
+    )
+    pid = profile["id"]
+    new_allergies = [
+        {"allergen": "Peanuts", "severity": "severe"},
+        {"allergen": "Latex", "severity": "mild"},
+    ]
+    await client.patch(f"{PROFILES}/{pid}", json={"allergies": new_allergies})
+    resp = await client.get(_activity_url(pid))
+    entry = resp.json()["items"][0]
+    assert entry["payload"]["fields_changed"] == ["allergies"]
+    # Old should have 1 allergy, new should have 2 — they must differ
+    assert len(entry["payload"]["old"]["allergies"]) == 1
+    assert len(entry["payload"]["new"]["allergies"]) == 2
+    assert entry["payload"]["old"]["allergies"][0]["allergen"] == "Peanuts"
+    assert entry["payload"]["new"]["allergies"][1]["allergen"] == "Latex"
+
+
 # ── Auto-logging on profile delete ───────────────────────────────────────────
 
 

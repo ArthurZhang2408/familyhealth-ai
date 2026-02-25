@@ -412,6 +412,7 @@ All data endpoints are nested under `/profiles/{pid}` to enforce profile scoping
 | GET | `/profiles/{pid}` | Get profile details |
 | PATCH | `/profiles/{pid}` | Update profile fields (partial update) |
 | DELETE | `/profiles/{pid}` | Soft-delete profile (30-day retention, Mem0 memories deleted immediately) |
+| GET | `/profiles/{pid}/activity` | Paginated activity feed (action log), filterable by `?action_type=` |
 
 ### Diagnosis
 

@@ -1,3 +1,6 @@
+import copy
+import logging
+
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,6 +14,8 @@ from app.schemas.common import PaginatedResponse
 from app.schemas.profile import ProfileCreate, ProfileResponse, ProfileUpdate
 from app.services.action_log import ActionLogService
 from app.services.profile import ProfileService
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/profiles", tags=["profiles"])
 
@@ -45,12 +50,15 @@ async def create_profile(
         profile = await svc.create(account.id, data)
     except ValueError as e:
         raise AppError(status_code=409, detail=str(e), code="CONFLICT")
-    await ActionLogService(db).log(
-        profile.id,
-        account.id,
-        ActionType.PROFILE_CREATED,
-        {"name": data.name, "relationship": data.relationship},
-    )
+    try:
+        await ActionLogService(db).log(
+            profile.id,
+            account.id,
+            ActionType.PROFILE_CREATED,
+            {"name": data.name, "relationship": data.relationship},
+        )
+    except Exception:
+        logger.exception("Failed to log profile_created for %s", profile.id)
     return ProfileResponse.model_validate(profile)
 
 
@@ -72,8 +80,8 @@ async def update_profile(
     svc = ProfileService(db)
     update_data = data.model_dump(exclude_unset=True)
     fields_changed = list(update_data.keys())
-    # Capture old values before mutation for audit trail
-    old_values = {f: getattr(profile, f) for f in fields_changed}
+    # Deep copy old values before mutation — JSONB fields are mutable references
+    old_values = {f: copy.deepcopy(getattr(profile, f)) for f in fields_changed}
     try:
         profile = await svc.update(profile, data)
     except ValueError as e:
@@ -81,12 +89,15 @@ async def update_profile(
         if "No fields" in msg:
             raise AppError(status_code=400, detail=msg, code="VALIDATION_ERROR")
         raise AppError(status_code=409, detail=msg, code="CONFLICT")
-    await ActionLogService(db).log(
-        profile.id,
-        profile.account_id,
-        ActionType.PROFILE_UPDATED,
-        {"fields_changed": fields_changed, "old": old_values, "new": update_data},
-    )
+    try:
+        await ActionLogService(db).log(
+            profile.id,
+            profile.account_id,
+            ActionType.PROFILE_UPDATED,
+            {"fields_changed": fields_changed, "old": old_values, "new": update_data},
+        )
+    except Exception:
+        logger.exception("Failed to log profile_updated for %s", profile.id)
     return ProfileResponse.model_validate(profile)
 
 
@@ -98,10 +109,13 @@ async def delete_profile(
 ) -> None:
     """Soft-delete profile (30-day retention)."""
     svc = ProfileService(db)
-    await ActionLogService(db).log(
-        profile.id,
-        account.id,
-        ActionType.PROFILE_DELETED,
-        {"name": profile.name, "relationship": profile.relationship},
-    )
+    try:
+        await ActionLogService(db).log(
+            profile.id,
+            account.id,
+            ActionType.PROFILE_DELETED,
+            {"name": profile.name, "relationship": profile.relationship},
+        )
+    except Exception:
+        logger.exception("Failed to log profile_deleted for %s", profile.id)
     await svc.soft_delete(profile)
