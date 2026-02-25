@@ -51,14 +51,13 @@ mem0_config = {
         },
     },
 
-    # ── Embeddings: Qwen via OpenRouter (OpenAI-compatible endpoint) ──
+    # ── Embeddings: Gemini (reuses existing Gemini API key) ──
     "embedder": {
-        "provider": "openai",
+        "provider": "gemini",
         "config": {
-            "model": "text-embedding-v3",
-            "api_key": QWEN_API_KEY,
-            "openai_base_url": "https://openrouter.ai/api/v1",
-            "embedding_dims": 1024,
+            "model": "models/text-embedding-004",
+            "api_key": GEMINI_API_KEY,
+            "embedding_dims": 768,
         },
     },
 
@@ -68,7 +67,7 @@ mem0_config = {
         "config": {
             "dbname": "mem0_db",
             "collection_name": "health_memories",
-            "embedding_model_dims": 1024,
+            "embedding_model_dims": 768,
             "host": PG_HOST,
             "port": PG_PORT,
             "user": PG_USER,
@@ -87,7 +86,7 @@ mem0_config = {
 memory = Memory.from_config(mem0_config)
 ```
 
-**Note:** OpenRouter provides an OpenAI-compatible API, so both the LLM and embedder configs use the `openai` / `openai_structured` provider type.
+**Note:** OpenRouter provides an OpenAI-compatible API, so the LLM config uses the `openai` provider type. Embeddings use the `gemini` provider since OpenRouter does not serve an embeddings endpoint — this reuses the existing Gemini API key.
 
 ### Why Qwen for Mem0's Internal LLM
 

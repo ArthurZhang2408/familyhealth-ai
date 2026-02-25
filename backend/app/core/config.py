@@ -19,10 +19,17 @@ class Settings(BaseSettings):
 
     # LLM — Gemini
     gemini_api_key: str = ""
+    gemini_diagnosis_model: str = "gemini-2.5-pro"
+    gemini_flash_model: str = "gemini-2.0-flash"
 
     # LLM — Qwen via OpenRouter
     qwen_api_key: str = ""
     qwen_base_url: str = "https://openrouter.ai/api/v1"
+    qwen_model: str = "qwen/qwen-2.5-72b-instruct"
+
+    # Embeddings (Gemini for Mem0 vector store — reuses gemini_api_key)
+    embedding_model: str = "models/text-embedding-004"
+    embedding_dims: int = 768
 
     # App
     app_env: str = "development"

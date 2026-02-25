@@ -10,7 +10,8 @@ AI-powered diagnosis, medical report analysis, and health chat.
 - **Database**: PostgreSQL 16 + pgvector extension
 - **Memory Layer**: Mem0 (self-hosted, open source)
 - **LLM - Primary (diagnosis, reports)**: Google Gemini API (gemini-2.0-flash or gemini-2.5-pro)
-- **LLM - Secondary (extraction, chat, embeddings)**: Qwen via OpenRouter (`qwen/qwen-2.5-72b-instruct`)
+- **LLM - Secondary (extraction, chat)**: Qwen via OpenRouter (`qwen/qwen-2.5-72b-instruct`)
+- **Embeddings**: Google Gemini (`models/text-embedding-004`, 768 dims) — reuses Gemini API key
 - **Frontend**: React Native (Expo) — mobile-first
 - **Auth**: Supabase Auth (handles accounts, supports Google/Apple sign-in)
 - **File Storage**: Supabase Storage (medical reports)

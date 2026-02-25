@@ -90,8 +90,8 @@ graph TB
 | Backend | Python 3.12 + FastAPI | REST API, business logic, orchestration |
 | Database | PostgreSQL 16 + pgvector | Persistent storage, vector similarity |
 | Memory | Mem0 (self-hosted) | Episodic memory — vector store |
-| LLM Primary | Google Gemini API | Diagnosis, report analysis |
-| LLM Secondary | Qwen via OpenRouter (`qwen/qwen-2.5-72b-instruct`) | Chat, extraction, summarization, embeddings |
+| LLM Primary | Google Gemini API | Diagnosis, report analysis, embeddings |
+| LLM Secondary | Qwen via OpenRouter (`qwen/qwen-2.5-72b-instruct`) | Chat, extraction, summarization |
 | Deployment | Railway (backend), Expo EAS (mobile) | Hosting |
 
 ---
@@ -514,15 +514,26 @@ mem0_config = {
         "config": {
             "dbname": "mem0_db",
             "collection_name": "health_memories",
-            "embedding_model_dims": 1024,
+            "embedding_model_dims": 768,
             "host": PG_HOST,
             "port": PG_PORT,
             "user": PG_USER,
             "password": PG_PASSWORD,
+            "hnsw": True,
+            "minconn": 2,
+            "maxconn": 10,
+        },
+    },
+    "embedder": {
+        "provider": "gemini",
+        "config": {
+            "model": "models/text-embedding-004",
+            "api_key": GEMINI_API_KEY,
+            "embedding_dims": 768,
         },
     },
     "llm": {
-        "provider": "openai_structured",
+        "provider": "openai",
         "config": {
             "model": "qwen/qwen-2.5-72b-instruct",
             "api_key": QWEN_API_KEY,
@@ -938,12 +949,17 @@ SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_JWT_SECRET=your-jwt-secret
 SUPABASE_SERVICE_KEY=your-service-key
 
-# LLM — Gemini (diagnosis, report analysis)
+# LLM — Gemini (diagnosis, report analysis, embeddings)
 GEMINI_API_KEY=your-gemini-key
+GEMINI_DIAGNOSIS_MODEL=gemini-2.5-pro
+GEMINI_FLASH_MODEL=gemini-2.0-flash
+EMBEDDING_MODEL=models/text-embedding-004
+EMBEDDING_DIMS=768
 
-# LLM — Qwen via OpenRouter (chat, extraction, embeddings)
+# LLM — Qwen via OpenRouter (chat, extraction)
 QWEN_API_KEY=your-openrouter-key
 QWEN_BASE_URL=https://openrouter.ai/api/v1
+QWEN_MODEL=qwen/qwen-2.5-72b-instruct
 
 # App
 APP_ENV=development
