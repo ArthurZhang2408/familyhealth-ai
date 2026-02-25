@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_verified_profile
 from app.core.database import get_db
+from app.core.exceptions import AppError
 from app.core.security import CurrentAccount, get_current_account
 from app.models.profile import Profile
 from app.schemas.common import PaginatedResponse
@@ -41,7 +42,7 @@ async def create_profile(
     try:
         profile = await svc.create(account.id, data)
     except ValueError as e:
-        raise HTTPException(status_code=409, detail={"detail": str(e), "code": "CONFLICT"})
+        raise AppError(status_code=409, detail=str(e), code="CONFLICT")
     return ProfileResponse.model_validate(profile)
 
 
@@ -66,8 +67,8 @@ async def update_profile(
     except ValueError as e:
         msg = str(e)
         if "No fields" in msg:
-            raise HTTPException(status_code=400, detail=msg)
-        raise HTTPException(status_code=409, detail={"detail": msg, "code": "CONFLICT"})
+            raise AppError(status_code=400, detail=msg, code="VALIDATION_ERROR")
+        raise AppError(status_code=409, detail=msg, code="CONFLICT")
     return ProfileResponse.model_validate(profile)
 
 

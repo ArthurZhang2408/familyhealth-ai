@@ -62,6 +62,9 @@ async def test_create_duplicate_self_returns_409(client: AsyncClient) -> None:
     await _create(client, relationship="self")
     resp = await client.post(BASE, json={"name": "Second Self", "relationship": "self"})
     assert resp.status_code == 409
+    body = resp.json()
+    assert body["code"] == "CONFLICT"
+    assert isinstance(body["detail"], str)
 
 
 @pytest.mark.asyncio
@@ -151,6 +154,9 @@ async def test_get_profile(client: AsyncClient) -> None:
 async def test_get_nonexistent_profile(client: AsyncClient) -> None:
     resp = await client.get(f"{BASE}/{uuid.uuid4()}")
     assert resp.status_code == 404
+    body = resp.json()
+    assert body["code"] == "NOT_FOUND"
+    assert isinstance(body["detail"], str)
 
 
 @pytest.mark.asyncio
@@ -194,6 +200,7 @@ async def test_update_empty_body(client: AsyncClient) -> None:
     created = await _create(client, relationship="self")
     resp = await client.patch(f"{BASE}/{created['id']}", json={})
     assert resp.status_code == 400
+    assert resp.json()["code"] == "VALIDATION_ERROR"
 
 
 @pytest.mark.asyncio
@@ -202,6 +209,7 @@ async def test_update_relationship_to_self_conflict(client: AsyncClient) -> None
     other = await _create(client, name="Other", relationship="other")
     resp = await client.patch(f"{BASE}/{other['id']}", json={"relationship": "self"})
     assert resp.status_code == 409
+    assert resp.json()["code"] == "CONFLICT"
 
 
 @pytest.mark.asyncio
