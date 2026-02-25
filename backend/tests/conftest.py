@@ -3,6 +3,7 @@ from collections.abc import AsyncGenerator
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import NullPool
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.config import settings
@@ -16,25 +17,28 @@ TEST_DATABASE_URL = (
     f"@{settings.pg_host}:{settings.pg_port}/{settings.pg_database}_test"
 )
 
-test_engine = create_async_engine(TEST_DATABASE_URL, echo=False)
-test_session_factory = async_sessionmaker(test_engine, expire_on_commit=False)
-
 TEST_ACCOUNT_ID = uuid.uuid4()
 
 
 @pytest.fixture(autouse=True)
 async def setup_db() -> AsyncGenerator[None, None]:
-    async with test_engine.begin() as conn:
+    engine = create_async_engine(TEST_DATABASE_URL, poolclass=NullPool)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
     yield
-    async with test_engine.begin() as conn:
+    async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
+    await engine.dispose()
 
 
 @pytest.fixture
 async def db_session() -> AsyncGenerator[AsyncSession, None]:
-    async with test_session_factory() as session:
+    engine = create_async_engine(TEST_DATABASE_URL, poolclass=NullPool)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with factory() as session:
         yield session
+    await engine.dispose()
 
 
 @pytest.fixture

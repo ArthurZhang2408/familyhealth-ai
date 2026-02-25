@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel
@@ -10,7 +10,7 @@ class DiagnosisSessionCreate(BaseModel):
 
 
 class DiagnosisSessionUpdate(BaseModel):
-    status: str | None = None
+    status: Literal["active", "resolved", "abandoned"] | None = None
     resolution_notes: str | None = None
 
 

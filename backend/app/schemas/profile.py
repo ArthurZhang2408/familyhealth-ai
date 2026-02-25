@@ -33,7 +33,6 @@ class ProfileUpdate(BaseModel):
 
 class ProfileResponse(BaseModel):
     id: UUID
-    account_id: UUID
     name: str
     relationship: str
     sex: str | None

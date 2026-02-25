@@ -30,13 +30,14 @@ class Profile(UUIDPrimaryKey, TimestampMixin, Base):
     emergency_contacts: Mapped[list] = mapped_column(JSONB, nullable=False, server_default="[]")
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
-    # Relationships
+    # Relationships — lazy="raise" prevents accidental eager loading;
+    # use .options(selectinload(...)) on queries that need them.
     diagnosis_sessions = sa_relationship(
-        "DiagnosisSession", back_populates="profile", lazy="selectin"
+        "DiagnosisSession", back_populates="profile", lazy="raise"
     )
-    report_analyses = sa_relationship("ReportAnalysis", back_populates="profile", lazy="selectin")
+    report_analyses = sa_relationship("ReportAnalysis", back_populates="profile", lazy="raise")
     chat_conversations = sa_relationship(
-        "ChatConversation", back_populates="profile", lazy="selectin"
+        "ChatConversation", back_populates="profile", lazy="raise"
     )
 
     __table_args__ = (

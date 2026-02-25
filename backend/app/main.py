@@ -16,21 +16,28 @@ app = FastAPI(
     version="0.1.0",
 )
 
+origins = (
+    ["*"]
+    if settings.app_env == "development"
+    else settings.allowed_origins.split(",") if settings.allowed_origins else []
+)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"] if settings.app_env == "development" else [],
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # Routes
-app.include_router(auth.router)
-app.include_router(profiles.router)
-app.include_router(diagnosis.router)
-app.include_router(reports.router)
-app.include_router(chat.router)
-app.include_router(memory.router)
+API_V1 = "/api/v1"
+app.include_router(auth.router, prefix=API_V1)
+app.include_router(profiles.router, prefix=API_V1)
+app.include_router(diagnosis.router, prefix=API_V1)
+app.include_router(reports.router, prefix=API_V1)
+app.include_router(chat.router, prefix=API_V1)
+app.include_router(memory.router, prefix=API_V1)
 
 
 @app.on_event("startup")

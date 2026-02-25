@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     # App
     app_env: str = "development"
     log_level: str = "info"
+    allowed_origins: str = ""
 
     @property
     def database_url(self) -> str:

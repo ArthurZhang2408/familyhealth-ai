@@ -5,7 +5,7 @@ from httpx import AsyncClient
 @pytest.mark.asyncio
 async def test_create_profile(client: AsyncClient) -> None:
     response = await client.post(
-        "/profiles",
+        "/api/v1/profiles",
         json={"name": "Test User", "relationship": "self"},
     )
     assert response.status_code == 201
@@ -17,10 +17,10 @@ async def test_create_profile(client: AsyncClient) -> None:
 
 @pytest.mark.asyncio
 async def test_list_profiles(client: AsyncClient) -> None:
-    await client.post("/profiles", json={"name": "User 1", "relationship": "self"})
-    await client.post("/profiles", json={"name": "User 2", "relationship": "parent"})
+    await client.post("/api/v1/profiles", json={"name": "User 1", "relationship": "self"})
+    await client.post("/api/v1/profiles", json={"name": "User 2", "relationship": "parent"})
 
-    response = await client.get("/profiles")
+    response = await client.get("/api/v1/profiles")
     assert response.status_code == 200
     data = response.json()
     assert data["total"] == 2
@@ -29,20 +29,24 @@ async def test_list_profiles(client: AsyncClient) -> None:
 
 @pytest.mark.asyncio
 async def test_get_profile(client: AsyncClient) -> None:
-    create_resp = await client.post("/profiles", json={"name": "Mom", "relationship": "parent"})
+    create_resp = await client.post(
+        "/api/v1/profiles", json={"name": "Mom", "relationship": "parent"}
+    )
     pid = create_resp.json()["id"]
 
-    response = await client.get(f"/profiles/{pid}")
+    response = await client.get(f"/api/v1/profiles/{pid}")
     assert response.status_code == 200
     assert response.json()["name"] == "Mom"
 
 
 @pytest.mark.asyncio
 async def test_update_profile(client: AsyncClient) -> None:
-    create_resp = await client.post("/profiles", json={"name": "Old Name", "relationship": "self"})
+    create_resp = await client.post(
+        "/api/v1/profiles", json={"name": "Old Name", "relationship": "self"}
+    )
     pid = create_resp.json()["id"]
 
-    response = await client.patch(f"/profiles/{pid}", json={"name": "New Name"})
+    response = await client.patch(f"/api/v1/profiles/{pid}", json={"name": "New Name"})
     assert response.status_code == 200
     assert response.json()["name"] == "New Name"
 
@@ -50,13 +54,13 @@ async def test_update_profile(client: AsyncClient) -> None:
 @pytest.mark.asyncio
 async def test_delete_profile(client: AsyncClient) -> None:
     create_resp = await client.post(
-        "/profiles", json={"name": "To Delete", "relationship": "other"}
+        "/api/v1/profiles", json={"name": "To Delete", "relationship": "other"}
     )
     pid = create_resp.json()["id"]
 
-    response = await client.delete(f"/profiles/{pid}")
+    response = await client.delete(f"/api/v1/profiles/{pid}")
     assert response.status_code == 204
 
     # Profile should no longer be listed
-    list_resp = await client.get("/profiles")
+    list_resp = await client.get("/api/v1/profiles")
     assert list_resp.json()["total"] == 0
