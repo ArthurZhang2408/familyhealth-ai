@@ -10,7 +10,7 @@ AI-powered diagnosis, medical report analysis, and health chat.
 - **Database**: PostgreSQL 16 + pgvector extension
 - **Memory Layer**: Mem0 (self-hosted, open source)
 - **LLM - Primary (diagnosis, reports)**: Google Gemini API (gemini-2.0-flash or gemini-2.5-pro)
-- **LLM - Secondary (extraction, chat)**: Qwen via API
+- **LLM - Secondary (extraction, chat, embeddings)**: Qwen via OpenRouter (`qwen/qwen-2.5-72b-instruct`)
 - **Frontend**: React Native (Expo) — mobile-first
 - **Auth**: Supabase Auth (handles accounts, supports Google/Apple sign-in)
 - **File Storage**: Supabase Storage (medical reports)
@@ -19,7 +19,7 @@ AI-powered diagnosis, medical report analysis, and health chat.
 ## Architecture
 - Monorepo structure: `/backend`, `/mobile`, `/shared`, `/docs`
 - Backend is FastAPI with service layer pattern
-- All LLM interactions go through an abstract `LLMService` so models are swappable
+- All LLM interactions go through an abstract `LLMProvider` interface with `LLMRouter` dispatcher so models are swappable
 - Memory layer sits between app logic and LLM — every interaction:
   1. Loads structured profile + retrieves relevant episodic memory
   2. Injects into system prompt
