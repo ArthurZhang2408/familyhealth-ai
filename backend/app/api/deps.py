@@ -1,10 +1,11 @@
 from uuid import UUID
 
-from fastapi import Depends, HTTPException
+from fastapi import Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.exceptions import AppError
 from app.core.security import CurrentAccount, get_current_account
 from app.models.profile import Profile
 
@@ -20,5 +21,5 @@ async def get_verified_profile(
     )
     profile = result.scalar_one_or_none()
     if not profile or profile.account_id != account.id:
-        raise HTTPException(status_code=404, detail="Profile not found")
+        raise AppError(status_code=404, detail="Profile not found", code="NOT_FOUND")
     return profile

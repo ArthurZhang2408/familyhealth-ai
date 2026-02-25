@@ -1,13 +1,14 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func, select
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_verified_profile
 from app.core.database import get_db
+from app.core.exceptions import AppError
 from app.core.security import CurrentAccount, get_current_account
 from app.models.profile import Profile
 from app.schemas.common import PaginatedResponse
 from app.schemas.profile import ProfileCreate, ProfileResponse, ProfileUpdate
+from app.services.profile import ProfileService
 
 router = APIRouter(prefix="/profiles", tags=["profiles"])
 
@@ -20,17 +21,8 @@ async def list_profiles(
     db: AsyncSession = Depends(get_db),
 ) -> PaginatedResponse[ProfileResponse]:
     """List all profiles for the authenticated account."""
-    base_query = select(Profile).where(
-        Profile.account_id == account.id, Profile.deleted_at.is_(None)
-    )
-    count_result = await db.execute(select(func.count()).select_from(base_query.subquery()))
-    total = count_result.scalar_one()
-
-    result = await db.execute(
-        base_query.offset((page - 1) * per_page).limit(per_page).order_by(Profile.created_at)
-    )
-    profiles = result.scalars().all()
-
+    svc = ProfileService(db)
+    profiles, total = await svc.list_paginated(account.id, page, per_page)
     return PaginatedResponse(
         items=[ProfileResponse.model_validate(p) for p in profiles],
         total=total,
@@ -46,10 +38,11 @@ async def create_profile(
     db: AsyncSession = Depends(get_db),
 ) -> ProfileResponse:
     """Create a new profile."""
-    profile = Profile(account_id=account.id, **data.model_dump())
-    db.add(profile)
-    await db.flush()
-    await db.refresh(profile)
+    svc = ProfileService(db)
+    try:
+        profile = await svc.create(account.id, data)
+    except ValueError as e:
+        raise AppError(status_code=409, detail=str(e), code="CONFLICT")
     return ProfileResponse.model_validate(profile)
 
 
@@ -68,13 +61,14 @@ async def update_profile(
     db: AsyncSession = Depends(get_db),
 ) -> ProfileResponse:
     """Update profile fields (partial update)."""
-    update_data = data.model_dump(exclude_unset=True)
-    if not update_data:
-        raise HTTPException(status_code=400, detail="No fields to update")
-    for field, value in update_data.items():
-        setattr(profile, field, value)
-    await db.flush()
-    await db.refresh(profile)
+    svc = ProfileService(db)
+    try:
+        profile = await svc.update(profile, data)
+    except ValueError as e:
+        msg = str(e)
+        if "No fields" in msg:
+            raise AppError(status_code=400, detail=msg, code="VALIDATION_ERROR")
+        raise AppError(status_code=409, detail=msg, code="CONFLICT")
     return ProfileResponse.model_validate(profile)
 
 
@@ -84,5 +78,5 @@ async def delete_profile(
     db: AsyncSession = Depends(get_db),
 ) -> None:
     """Soft-delete profile (30-day retention)."""
-    profile.deleted_at = func.now()
-    await db.flush()
+    svc = ProfileService(db)
+    await svc.soft_delete(profile)

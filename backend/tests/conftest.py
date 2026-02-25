@@ -18,6 +18,10 @@ TEST_DATABASE_URL = (
 )
 
 TEST_ACCOUNT_ID = uuid.uuid4()
+OTHER_ACCOUNT_ID = uuid.uuid4()
+
+# Mutable container so tests can swap the active account mid-test
+_current_account = {"id": TEST_ACCOUNT_ID, "email": "test@example.com"}
 
 
 @pytest.fixture(autouse=True)
@@ -43,11 +47,14 @@ async def db_session() -> AsyncGenerator[AsyncSession, None]:
 
 @pytest.fixture
 async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
+    _current_account["id"] = TEST_ACCOUNT_ID
+    _current_account["email"] = "test@example.com"
+
     async def override_get_db() -> AsyncGenerator[AsyncSession, None]:
         yield db_session
 
     def override_get_current_account() -> CurrentAccount:
-        return CurrentAccount(id=TEST_ACCOUNT_ID, email="test@example.com")
+        return CurrentAccount(id=_current_account["id"], email=_current_account["email"])
 
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_current_account] = override_get_current_account
@@ -56,3 +63,9 @@ async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
         yield ac
 
     app.dependency_overrides.clear()
+
+
+def use_account(account_id: uuid.UUID, email: str = "other@example.com") -> None:
+    """Switch the active test account for subsequent requests."""
+    _current_account["id"] = account_id
+    _current_account["email"] = email

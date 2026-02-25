@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api import auth, chat, diagnosis, memory, profiles, reports
 from app.core.config import settings
 from app.core.database import engine
+from app.core.exceptions import AppError, app_error_handler
 
 logging.basicConfig(level=settings.log_level.upper())
 logger = logging.getLogger(__name__)
@@ -21,6 +22,8 @@ origins = (
     if settings.app_env == "development"
     else settings.allowed_origins.split(",") if settings.allowed_origins else []
 )
+
+app.add_exception_handler(AppError, app_error_handler)
 
 app.add_middleware(
     CORSMiddleware,
