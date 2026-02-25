@@ -7,6 +7,9 @@ from google.genai import types
 
 from app.services.llm import LLMProvider, LLMRequest, LLMResponse, LLMTask
 
+# Gemini uses "model" instead of "assistant" for the AI role
+_ROLE_MAP = {"assistant": "model", "user": "user", "system": "user"}
+
 
 class GeminiProvider(LLMProvider):
     def __init__(
@@ -29,7 +32,7 @@ class GeminiProvider(LLMProvider):
 
         contents = [
             types.Content(
-                role=msg.role,
+                role=_ROLE_MAP.get(msg.role, msg.role),
                 parts=[types.Part(text=msg.content)],
             )
             for msg in request.messages
@@ -68,7 +71,7 @@ class GeminiProvider(LLMProvider):
 
         contents = [
             types.Content(
-                role=msg.role,
+                role=_ROLE_MAP.get(msg.role, msg.role),
                 parts=[types.Part(text=msg.content)],
             )
             for msg in request.messages

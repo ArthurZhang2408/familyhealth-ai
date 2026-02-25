@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_memory_service, get_verified_profile
 from app.core.database import get_db
+from app.core.exceptions import AppError
 from app.models.profile import Profile
 from app.schemas.action_log import ActionType
 from app.schemas.memory import MemoryFact, MemoryFactsResponse, MemorySummaryResponse
@@ -69,7 +70,10 @@ async def delete_memory(
     db: AsyncSession = Depends(get_db),
 ) -> None:
     """Delete a specific memory entry."""
-    await memory_service.delete(profile.id, mid)
+    try:
+        await memory_service.delete(profile.id, mid)
+    except ValueError:
+        raise AppError(status_code=404, detail="Memory not found", code="NOT_FOUND")
 
     # Best-effort audit log
     try:

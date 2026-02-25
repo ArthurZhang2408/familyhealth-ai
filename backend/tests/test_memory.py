@@ -122,6 +122,15 @@ async def test_search_returns_results(memory_service: MemoryService) -> None:
 
 
 @pytest.mark.asyncio
+async def test_search_forwards_threshold(
+    memory_service: MemoryService, mock_mem0: MagicMock
+) -> None:
+    await memory_service.search(PROFILE_ID, "diabetes", threshold=0.3)
+    _, kwargs = mock_mem0.search.call_args
+    assert kwargs["threshold"] == 0.3
+
+
+@pytest.mark.asyncio
 async def test_search_with_category_filter(
     memory_service: MemoryService, mock_mem0: MagicMock
 ) -> None:
@@ -444,5 +453,30 @@ async def test_delete_memory_204(client: AsyncClient, mock_mem0: MagicMock) -> N
 
     resp = await client.delete(f"{BASE}/{pid}/memory/mem-1")
     assert resp.status_code == 204
+
+    del app.dependency_overrides[get_memory_service]
+
+
+@pytest.mark.asyncio
+async def test_delete_memory_wrong_owner_returns_404(
+    client: AsyncClient, mock_mem0: MagicMock
+) -> None:
+    from app.api.deps import get_memory_service
+    from app.main import app
+
+    profile = await _create_profile(client)
+    pid = profile["id"]
+
+    # Make the ownership check fail — memory belongs to a different profile
+    mock_mem0.get.return_value = {
+        "id": "mem-1",
+        "user_id": str(uuid.uuid4()),
+        "memory": "Not mine",
+    }
+    svc = MemoryService(mock_mem0)
+    app.dependency_overrides[get_memory_service] = lambda: svc
+
+    resp = await client.delete(f"{BASE}/{pid}/memory/mem-1")
+    assert resp.status_code == 404
 
     del app.dependency_overrides[get_memory_service]

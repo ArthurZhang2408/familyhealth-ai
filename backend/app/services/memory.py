@@ -215,6 +215,8 @@ def build_conversation_window(messages: list[dict], max_tokens: int) -> list[dic
 
     first_msg = messages[0]
     first_tokens = count_tokens(first_msg["content"])
+    if first_tokens >= max_tokens:
+        return [first_msg]
     remaining_budget = max_tokens - first_tokens
 
     selected: list[dict] = []
@@ -281,6 +283,7 @@ class MemoryService:
             user_id=str(profile_id),
             limit=limit,
             filters=filters,
+            threshold=threshold,
         )
         return result.get("results", [])
 
