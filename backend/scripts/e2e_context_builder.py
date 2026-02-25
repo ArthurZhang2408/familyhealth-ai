@@ -5,37 +5,31 @@ Usage:
     cd backend && python3 scripts/e2e_context_builder.py
 
 Requires:
-    - PostgreSQL running on PG_HOST:PG_PORT (docker compose up -d db)
+    - PostgreSQL running (docker compose up -d db)
     - Valid GEMINI_API_KEY and QWEN_API_KEY in .env
     - Alembic migrations applied (python3 -m alembic upgrade head)
-
-What it does:
-    1. Creates a test profile in PostgreSQL with rich medical data
-    2. Adds episodic memories to Mem0 (real embedding pipeline)
-    3. Calls ContextBuilder.build() with a realistic query
-    4. Prints the full system prompt + token breakdown
-    5. Cleans up: deletes profile + memories
 """
 
 from __future__ import annotations
 
 import asyncio
+import logging
 import sys
 import uuid
 from datetime import date
 from pathlib import Path
 
-# Ensure `app` is importable when running from the scripts/ directory
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-# ---------------------------------------------------------------------------
-# Test data — a realistic patient profile
-# ---------------------------------------------------------------------------
+# Silence SQLAlchemy SQL echo and Mem0 internals during the test
+logging.basicConfig(level=logging.WARNING)
 
-TEST_ACCOUNT_ID = uuid.uuid4()
+# ---------------------------------------------------------------------------
+# Test data
+# ---------------------------------------------------------------------------
 
 PROFILE_DATA = {
-    "account_id": TEST_ACCOUNT_ID,
+    "account_id": uuid.uuid4(),
     "name": "Chen Wei",
     "relationship": "parent",
     "sex": "female",
@@ -62,94 +56,102 @@ PROFILE_DATA = {
     },
 }
 
-# Conversations to seed Mem0 with episodic memories
-_UTI_USER = (
-    "My mom was diagnosed with a UTI last week. "
-    "The doctor prescribed Ciprofloxacin 500mg for 7 days."
-)
-_UTI_ASSISTANT = (
-    "I've noted that. UTIs are common and usually resolve "
-    "well with antibiotics. Make sure she completes the full course."
-)
-_HBA1C_USER = (
-    "Mom's latest HbA1c came back at 7.2%. The doctor said it's "
-    "slightly above target and recommended increasing her Metformin."
-)
-_HBA1C_ASSISTANT = (
-    "An HbA1c of 7.2% indicates her blood sugar control could be "
-    "improved. The target is below 7%. Increasing Metformin is standard."
-)
-_KNEE_USER = (
-    "She's been having persistent pain in her right knee for about "
-    "3 weeks. An X-ray showed early signs of osteoarthritis."
-)
-_KNEE_ASSISTANT = (
-    "Early osteoarthritis is common in patients over 60. Treatment "
-    "includes physical therapy, weight management, and pain relief."
-)
-
 SEED_CONVERSATIONS = [
     {
         "messages": [
-            {"role": "user", "content": _UTI_USER},
-            {"role": "assistant", "content": _UTI_ASSISTANT},
+            {
+                "role": "user",
+                "content": (
+                    "My mom was diagnosed with a UTI last week. "
+                    "The doctor prescribed Ciprofloxacin 500mg for 7 days."
+                ),
+            },
+            {
+                "role": "assistant",
+                "content": (
+                    "I've noted that. UTIs are common and usually resolve "
+                    "well with antibiotics. Complete the full course."
+                ),
+            },
         ],
         "category": "diagnoses",
-        "source": "diagnosis:e2e-session-1",
+        "source": "diagnosis:e2e-1",
     },
     {
         "messages": [
-            {"role": "user", "content": _HBA1C_USER},
-            {"role": "assistant", "content": _HBA1C_ASSISTANT},
+            {
+                "role": "user",
+                "content": (
+                    "Mom's latest HbA1c came back at 7.2%. The doctor "
+                    "recommended increasing her Metformin."
+                ),
+            },
+            {
+                "role": "assistant",
+                "content": (
+                    "An HbA1c of 7.2% means blood sugar control needs "
+                    "improvement. Increasing Metformin is standard."
+                ),
+            },
         ],
         "category": "lab_results",
         "source": "chat",
     },
     {
         "messages": [
-            {"role": "user", "content": _KNEE_USER},
-            {"role": "assistant", "content": _KNEE_ASSISTANT},
+            {
+                "role": "user",
+                "content": (
+                    "She has persistent right knee pain for 3 weeks. "
+                    "X-ray showed early osteoarthritis."
+                ),
+            },
+            {
+                "role": "assistant",
+                "content": (
+                    "Early osteoarthritis is common over 60. Treatment "
+                    "includes physical therapy and weight management."
+                ),
+            },
         ],
         "category": "symptoms",
-        "source": "diagnosis:e2e-session-2",
+        "source": "diagnosis:e2e-2",
     },
 ]
 
-# The query we'll use to test retrieval
-TEST_QUERY = "My mom has been feeling dizzy and her blood sugar has been high lately"
+TEST_QUERY = "My mom has been feeling dizzy and her blood sugar " "has been high lately"
 
 
 # ---------------------------------------------------------------------------
-# E2E runner
+# Runner
 # ---------------------------------------------------------------------------
 
 
-async def run() -> None:
+async def run() -> bool:
     from app.api.deps import get_memory_service
-    from app.core.database import async_session_factory
+    from app.core.database import async_session_factory, engine
     from app.models.profile import Profile
     from app.services.context_builder import ContextBuilder
 
-    print("=" * 70)
-    print("E2E ContextBuilder Test — Live DB + Mem0")
-    print("=" * 70)
+    # Disable SQL echo for clean output
+    engine.echo = False
 
-    # -- Step 1: Create profile -------------------------------------------------
-    print("\n[1/5] Creating test profile in PostgreSQL...")
-    profile_id: uuid.UUID | None = None
     memory_service = get_memory_service()
-    all_passed = True
+    profile_id: uuid.UUID | None = None
+    passed: list[tuple[str, bool]] = []
 
     try:
+        # 1. Create profile
+        print("[1] Creating profile...", end=" ")
         async with async_session_factory() as db:
             profile = Profile(id=uuid.uuid4(), **PROFILE_DATA)
             profile_id = profile.id
             db.add(profile)
             await db.commit()
-            print(f"  Created profile: {profile.name} (id={profile_id})")
+        print(f"OK ({profile_id})")
 
-        # -- Step 2: Seed memories ----------------------------------------------
-        print("\n[2/5] Seeding episodic memories via Mem0...")
+        # 2. Seed memories
+        print("[2] Seeding memories via Mem0...")
         total_facts = 0
         for i, conv in enumerate(SEED_CONVERSATIONS, 1):
             result = await memory_service.add(
@@ -160,96 +162,74 @@ async def run() -> None:
             )
             facts = result.get("results", [])
             total_facts += len(facts)
-            print(f"  Conversation {i}: extracted {len(facts)} fact(s)")
-            for fact in facts:
-                event = fact.get("event", "?")
-                memory = fact.get("memory", "?")
-                print(f"    - [{event}] {memory}")
+            for f in facts:
+                print(f"    [{f.get('event')}] {f.get('memory')}")
+        print(f"    Total: {total_facts} facts extracted")
 
-        if total_facts == 0:
-            print(
-                "\n  WARNING: Mem0 extracted 0 facts (free-tier flakiness)."
-                "\n  Memory retrieval checks will be skipped."
-                "\n  Profile formatting is still fully tested."
-            )
-
-        # -- Step 3: Build context ----------------------------------------------
-        print(f'\n[3/5] Building context for query: "{TEST_QUERY}"')
+        # 3. Build context for both interaction types
+        print("[3] Building context...")
         builder = ContextBuilder(memory_service)
 
-        for itype in ("chat", "diagnosis"):
-            budget = 1000 if itype == "chat" else 2000
-            print(f"\n  --- interaction_type={itype}," f" memory_budget={budget} ---")
-
+        for itype, budget in [("chat", 1000), ("diagnosis", 2000)]:
             async with async_session_factory() as db:
-                result = await builder.build(
+                ctx = await builder.build(
                     db,
                     profile_id,
                     TEST_QUERY,
                     itype,
                     memory_budget=budget,
                 )
+            print(
+                f"\n    [{itype}] {ctx.memories_used} memories, "
+                f"{ctx.token_counts['total']} tokens"
+            )
+            print("    " + "─" * 56)
+            for line in ctx.system_prompt.split("\n"):
+                print(f"    {line}")
+            print("    " + "─" * 56)
 
-            print(f"\n  Memories retrieved: {result.memories_used}")
-            print(f"  Token counts: {result.token_counts}")
-            print(f"\n  {'─' * 60}")
-            print(f"  SYSTEM PROMPT ({itype}):")
-            print(f"  {'─' * 60}")
-            for line in result.system_prompt.split("\n"):
-                print(f"  {line}")
-            print(f"  {'─' * 60}")
-
-        # -- Step 4: Verify key properties --------------------------------------
-        print("\n[4/5] Verifying output...")
+        # 4. Verify
+        print("\n[4] Verifying...")
         async with async_session_factory() as db:
-            result = await builder.build(db, profile_id, TEST_QUERY, "chat")
+            ctx = await builder.build(db, profile_id, TEST_QUERY, "chat")
 
-        checks = [
-            ("Profile name present", "Chen Wei" in result.system_prompt),
-            (
-                "Allergy with severity",
-                "Penicillin" in result.system_prompt and "severe" in result.system_prompt,
-            ),
-            ("Medication with dosage", "Metformin 1000mg" in result.system_prompt),
-            ("Medical condition", "Type 2 Diabetes" in result.system_prompt),
-            ("Family history", "Heart Disease" in result.system_prompt),
-            ("Disclaimer present", "MEDICAL DISCLAIMER" in result.system_prompt),
-            ("Token counts populated", result.token_counts["total"] > 0),
-            ("Relationship shown", "parent" in result.system_prompt),
+        p = ctx.system_prompt
+        passed = [
+            ("Profile name", "Chen Wei" in p),
+            ("Allergy severity", "Penicillin" in p and "severe" in p),
+            ("Medication dosage", "Metformin 1000mg" in p),
+            ("Condition status", "Type 2 Diabetes" in p and "active" in p),
+            ("Family history", "Heart Disease" in p),
+            ("Relationship", "parent" in p),
+            ("Disclaimer", "MEDICAL DISCLAIMER" in p),
+            ("Token count", ctx.token_counts["total"] > 0),
         ]
-
         if total_facts > 0:
-            checks.append(("Memories used > 0", result.memories_used > 0))
-        else:
-            checks.append(("Memories used (skipped — no facts stored)", True))
+            passed.append(("Memories retrieved", ctx.memories_used > 0))
 
-        for name, passed in checks:
-            status = "PASS" if passed else "FAIL"
-            if not passed:
-                all_passed = False
-            print(f"  [{status}] {name}")
+        for name, ok in passed:
+            print(f"    {'PASS' if ok else 'FAIL'} {name}")
 
     finally:
-        # -- Step 5: Cleanup (always runs) --------------------------------------
-        print("\n[5/5] Cleaning up...")
+        # 5. Cleanup — always runs
+        print("\n[5] Cleanup...", end=" ")
         if profile_id:
-            await memory_service.delete_all(profile_id)
-            print("  Deleted Mem0 memories")
+            try:
+                await memory_service.delete_all(profile_id)
+            except Exception:
+                pass
             async with async_session_factory() as db:
-                profile = await db.get(Profile, profile_id)
-                if profile:
-                    await db.delete(profile)
+                p = await db.get(Profile, profile_id)
+                if p:
+                    await db.delete(p)
                     await db.commit()
-            print("  Deleted test profile")
+        print("OK")
 
-    print("\n" + "=" * 70)
-    if all_passed:
-        print("ALL CHECKS PASSED")
-    else:
-        print("SOME CHECKS FAILED — review output above")
-        sys.exit(1)
-    print("=" * 70)
+    all_ok = all(ok for _, ok in passed)
+    print(f"\n{'ALL PASSED' if all_ok else 'FAILED'}")
+    return all_ok
 
 
 if __name__ == "__main__":
-    asyncio.run(run())
+    ok = asyncio.run(run())
+    sys.exit(0 if ok else 1)
