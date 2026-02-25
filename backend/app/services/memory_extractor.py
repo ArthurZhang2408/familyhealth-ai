@@ -90,19 +90,12 @@ async def retrieve_memories(
 ) -> list[dict]:
     """Retrieve relevant episodic memories based on interaction type."""
     if interaction_type == "diagnosis":
+        # Diagnosis needs the broadest context — no category filter.
+        # Higher limit and lowest threshold to cast the widest net.
         return await memory_service.search(
             profile_id,
             query,
-            limit=15,
-            categories=[
-                "medical_history",
-                "medications",
-                "allergies",
-                "diagnoses",
-                "symptoms",
-                "lab_results",
-                "vitals",
-            ],
+            limit=20,
             threshold=0.05,
         )
     elif interaction_type == "report_analysis":

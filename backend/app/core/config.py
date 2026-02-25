@@ -27,6 +27,9 @@ class Settings(BaseSettings):
     qwen_base_url: str = "https://ollama.com/v1"
     qwen_model: str = "qwen3.5:397b"
 
+    # Mem0 internal LLM (fact extraction / dedup — lightweight, non-thinking)
+    mem0_model: str = "nemotron-3-nano:30b"
+
     # Embeddings (Gemini for Mem0 vector store — reuses gemini_api_key)
     embedding_model: str = "models/gemini-embedding-001"
     embedding_dims: int = 768
