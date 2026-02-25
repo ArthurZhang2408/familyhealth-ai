@@ -1,0 +1,76 @@
+from __future__ import annotations
+
+from abc import ABC, abstractmethod
+from collections.abc import AsyncIterator
+from enum import StrEnum
+from typing import ClassVar
+
+from pydantic import BaseModel
+
+
+class LLMTask(StrEnum):
+    DIAGNOSIS = "diagnosis"
+    REPORT_ANALYSIS = "report_analysis"
+    MEMORY_EXTRACTION = "memory_extraction"
+    CHAT = "chat"
+    SUMMARIZATION = "summarization"
+    FACT_EXTRACTION = "fact_extraction"
+
+
+class LLMMessage(BaseModel):
+    role: str
+    content: str
+
+
+class LLMRequest(BaseModel):
+    task: LLMTask
+    system_prompt: str
+    messages: list[LLMMessage]
+    temperature: float = 0.7
+    max_tokens: int | None = None
+    response_format: dict | None = None
+
+
+class LLMResponse(BaseModel):
+    content: str
+    model: str
+    usage: dict[str, int]
+    raw_response: dict | None = None
+
+
+class LLMProvider(ABC):
+    @abstractmethod
+    async def generate(self, request: LLMRequest) -> LLMResponse: ...
+
+    @abstractmethod
+    async def generate_stream(self, request: LLMRequest) -> AsyncIterator[str]: ...
+
+
+class LLMRouter:
+    ROUTING_TABLE: ClassVar[dict[LLMTask, str]] = {
+        LLMTask.DIAGNOSIS: "gemini",
+        LLMTask.REPORT_ANALYSIS: "gemini",
+        LLMTask.MEMORY_EXTRACTION: "qwen",
+        LLMTask.CHAT: "qwen",
+        LLMTask.SUMMARIZATION: "qwen",
+        LLMTask.FACT_EXTRACTION: "qwen",
+    }
+
+    def __init__(self, providers: dict[str, LLMProvider]) -> None:
+        self._providers = providers
+
+    def _resolve(self, task: LLMTask) -> LLMProvider:
+        provider_name = self.ROUTING_TABLE[task]
+        provider = self._providers.get(provider_name)
+        if provider is None:
+            raise ValueError(f"No provider registered for '{provider_name}'")
+        return provider
+
+    async def route(self, request: LLMRequest) -> LLMResponse:
+        provider = self._resolve(request.task)
+        return await provider.generate(request)
+
+    async def route_stream(self, request: LLMRequest) -> AsyncIterator[str]:
+        provider = self._resolve(request.task)
+        async for chunk in provider.generate_stream(request):
+            yield chunk

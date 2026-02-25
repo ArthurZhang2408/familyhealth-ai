@@ -41,24 +41,23 @@ mem0_config = {
 
     # ── LLM: used for fact extraction and update decisions ──
     "llm": {
-        "provider": "openai_structured",
+        "provider": "openai",
         "config": {
-            "model": "qwen/qwen-2.5-72b-instruct",
-            "api_key": QWEN_API_KEY,            # OpenRouter API key
-            "openai_base_url": "https://openrouter.ai/api/v1",
+            "model": "qwen3.5:397b",
+            "api_key": QWEN_API_KEY,            # Ollama Cloud API key
+            "openai_base_url": "https://ollama.com/v1",
             "temperature": 0.1,               # low temp for deterministic extraction
             "max_tokens": 2000,
         },
     },
 
-    # ── Embeddings: Qwen via OpenRouter (OpenAI-compatible endpoint) ──
+    # ── Embeddings: Gemini (reuses existing Gemini API key) ──
     "embedder": {
-        "provider": "openai",
+        "provider": "gemini",
         "config": {
-            "model": "text-embedding-v3",
-            "api_key": QWEN_API_KEY,
-            "openai_base_url": "https://openrouter.ai/api/v1",
-            "embedding_dims": 1024,
+            "model": "models/gemini-embedding-001",
+            "api_key": GEMINI_API_KEY,
+            "embedding_dims": 768,
         },
     },
 
@@ -68,7 +67,7 @@ mem0_config = {
         "config": {
             "dbname": "mem0_db",
             "collection_name": "health_memories",
-            "embedding_model_dims": 1024,
+            "embedding_model_dims": 768,
             "host": PG_HOST,
             "port": PG_PORT,
             "user": PG_USER,
@@ -87,11 +86,11 @@ mem0_config = {
 memory = Memory.from_config(mem0_config)
 ```
 
-**Note:** OpenRouter provides an OpenAI-compatible API, so both the LLM and embedder configs use the `openai` / `openai_structured` provider type.
+**Note:** Ollama Cloud provides an OpenAI-compatible API, so the LLM config uses the `openai` provider type. Embeddings use the `gemini` provider — this reuses the existing Gemini API key.
 
 ### Why Qwen for Mem0's Internal LLM
 
-Mem0 calls its configured LLM for two internal tasks: fact extraction (on `add()`) and update-vs-duplicate decisions (when new facts overlap with existing ones). These are high-volume, structured-output tasks — Qwen is cost-effective and fast. Gemini is reserved for user-facing diagnosis and report analysis where accuracy is paramount.
+Mem0 calls its configured LLM for two internal tasks: fact extraction (on `add()`) and update-vs-duplicate decisions (when new facts overlap with existing ones). These are high-volume, structured-output tasks — Qwen via Ollama Cloud (free tier) is cost-effective and fast. Gemini is reserved for user-facing diagnosis and report analysis where accuracy is paramount.
 
 ### Profile Scoping
 
