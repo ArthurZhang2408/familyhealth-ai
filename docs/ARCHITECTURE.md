@@ -7,7 +7,8 @@
 3. [API Endpoints](#3-api-endpoints)
 4. [Memory Architecture](#4-memory-architecture)
 5. [LLM Integration Layer](#5-llm-integration-layer)
-6. [Security Model](#6-security-model)
+6. [Agent Infrastructure](#6-agent-infrastructure)
+7. [Security Model](#7-security-model)
 
 ---
 
@@ -428,7 +429,8 @@ All data endpoints are nested under `/profiles/{pid}` to enforce profile scoping
 
 | Method | Path | Description |
 |-|-|-|
-| POST | `/profiles/{pid}/reports` | Upload a medical report (multipart or presigned URL flow) |
+| POST | `/profiles/{pid}/reports/upload` | Upload a medical report file (multipart: PDF, JPEG, PNG, WebP) |
+| POST | `/profiles/{pid}/reports` | Create report record from presigned URL (JSON body) |
 | GET | `/profiles/{pid}/reports` | List all report analyses for the profile |
 | GET | `/profiles/{pid}/reports/{rid}` | Get specific analysis result |
 | POST | `/profiles/{pid}/reports/{rid}/reanalyze` | Re-trigger analysis on an existing report |
@@ -732,7 +734,7 @@ class LLMRouter:
 | Task | Provider | Model | Rationale |
 |-|-|-|-|
 | Diagnosis | Gemini | gemini-2.5-flash | High accuracy needed for differential diagnosis |
-| Report Analysis | Gemini | gemini-2.5-flash-lite | Multimodal (image input), fast structured extraction |
+| Report Analysis | Gemini | gemini-2.5-flash | Multimodal (image/PDF input), structured extraction |
 | Memory Extraction | Qwen | qwen3.5:397b | Cost-effective for high-volume background extraction |
 | Chat | Qwen | qwen3.5:397b | Low latency, cost-effective for conversational turns |
 | Summarization | Qwen | qwen3.5:397b | Straightforward text task, cost-optimized |
@@ -755,9 +757,9 @@ stateDiagram-v2
 1. User creates session with initial symptom description (chief complaint).
 2. **Red flag pre-check**: backend scans message for emergency keywords (chest pain, stroke signs, suicidal ideation, etc.). If detected, returns a templated emergency response immediately — no LLM call.
 3. **Context assembly**: `ContextBuilder` loads profile (Tier 1) + retrieves relevant episodic memories from Mem0 (Tier 2, limit=20, threshold=0.05). Injects into the diagnosis system prompt.
-4. **Pass 1 (conversational)**: Gemini Pro generates a natural-language response following the OLDCARTS clinical interview protocol (temp=0.3, max_tokens=2000).
+4. **Pass 1 (agentic)**: `AgentCore.run()` with `DIAGNOSIS_AGENT` definition — Gemini generates a natural-language response following the OLDCARTS clinical interview protocol (temp=0.3, max_tokens=2000). Agent can invoke `search_patient_memory` tool during the loop.
 5. **Safety validation**: backend scans the LLM response against prohibited patterns (dosage prescriptions, cancer claims, "don't need a doctor"). Violations trigger a safety notice appended to the response.
-6. **Pass 2 (structured state extraction)**: A second Gemini Flash call (JSON mode, temp=0.0) extracts structured `DiagnosisState` — phase, severity, OLDCARTS data, differential diagnoses, suggested next questions. Falls back to a minimal state on failure.
+6. **Pass 2 (structured state extraction)**: `AgentCore.call()` — a non-agentic Qwen call (JSON mode, temp=0.0) extracts structured `DiagnosisState` — phase, severity, OLDCARTS data, differential diagnoses, suggested next questions. Falls back to a minimal state on failure.
 7. Both user and assistant messages stored in `diagnosis_messages`. Differential diagnoses (if any) stored on the session.
 8. **Background**: `MemoryExtractor` fires via `BackgroundTasks` to extract facts to Mem0 (category: `diagnoses`, source: `diagnosis:{session_id}`).
 9. Medical disclaimer injected by backend into every response (never relies on LLM).
@@ -767,20 +769,21 @@ stateDiagram-v2
 
 ```mermaid
 flowchart LR
-    A[Upload to<br/>Supabase Storage] --> B[Create record<br/>status: pending]
-    B --> C[Gemini multimodal<br/>analysis]
-    C --> D[Structured<br/>findings]
-    D --> E[Qwen fact<br/>extraction]
-    E --> F[Mem0 memory<br/>update]
-    F --> G[status: completed]
-    C -->|Error| H[status: failed]
+    A[Upload file or<br/>presigned URL] --> B[Create record<br/>status: pending]
+    B --> C[Background task<br/>status: processing]
+    C --> D[Gemini multimodal<br/>Pass 1: analysis]
+    D --> E[Structured<br/>findings JSON]
+    E --> F[Qwen Pass 2:<br/>fact extraction]
+    F --> G[Mem0 memory<br/>update]
+    G --> H[status: completed]
+    D -->|Error| I[status: failed]
 ```
 
-1. **Upload**: mobile app uploads to Supabase Storage (direct presigned URL). Backend creates `report_analyses` record with `status='pending'`.
-2. **Analysis**: Gemini 2.0 Flash processes the image/PDF directly (native multimodal — no separate OCR). Profile context injected into system prompt. Structured output: `{ summary, findings[], recommendations[], alerts[] }`.
-3. **Extraction**: Qwen extracts discrete facts from the analysis result for memory storage.
-4. **Memory update**: facts stored via Mem0. Profile-level field updates (new allergy, new condition) flagged for user confirmation before updating Tier 1.
-5. **Completion**: `status='completed'`, `analysis_result` and `extracted_facts` populated.
+1. **Upload**: two flows supported — (a) mobile uploads to Supabase Storage, then sends presigned URL via `POST /reports` (JSON); (b) direct file upload via `POST /reports/upload` (multipart). Both create a `report_analyses` record with `status='pending'` and trigger background analysis.
+2. **Analysis (Pass 1)**: `ReportAnalyzerService` sends the file bytes to Gemini 2.5 Flash via `AgentCore.run()` with `REPORT_AGENT` definition. Uses `Part.from_bytes()` (native multimodal — PDFs and images handled directly, no OCR). Profile context and relevant episodic memories injected via `ContextBuilder`. JSON mode response parsed into `AnalysisResult { summary, findings[], alerts[], recommendations[] }`.
+3. **Extraction (Pass 2)**: Qwen (`FACT_EXTRACTION` task) extracts discrete facts from the analysis result for long-term memory storage. Best-effort — failure does not block analysis completion.
+4. **Memory update**: extracted facts stored via `MemoryExtractor.extract_and_store()` with `category="lab_results"`, `source="report:{id}"`.
+5. **Completion**: `status='completed'`, `analysis_result` and `extracted_facts` populated. Medical disclaimer injected by backend into every response.
 
 ### Background Tasks
 
@@ -788,7 +791,37 @@ Post-interaction memory extraction uses FastAPI's `BackgroundTasks`. The extract
 
 ---
 
-## 6. Security Model
+## 6. Agent Infrastructure
+
+Both diagnosis and report analysis (and future features) share a reusable agent infrastructure in `app/agents/`. The pattern separates the agentic loop from feature-specific logic.
+
+### Components
+
+| Component | File | Role |
+|-|-|-|
+| `AgentCore` | `agents/core.py` | Reusable loop: LLM → tool calls → execution → repeat |
+| `AgentDefinition` | `agents/core.py` | Configuration per agent type (task, tools, params) |
+| `AgentSession` | `agents/session.py` | Ephemeral per-interaction state |
+| `ToolRegistry` | `agents/registry.py` | Registers tools at startup, executes on behalf of agents |
+| `ToolDefinition` | `agents/types.py` | Declares a tool with JSON Schema parameters and handler |
+
+### Agent Definitions
+
+| Agent | LLM Task | Tools | Model | Max Rounds |
+|-|-|-|-|-|
+| DIAGNOSIS_AGENT | DIAGNOSIS | search_patient_memory | gemini-2.5-flash | 3 |
+| REPORT_AGENT | REPORT_ANALYSIS | (none — JSON mode) | gemini-2.5-flash | 0 |
+| CHAT_AGENT | CHAT | search_patient_memory | qwen3.5:397b | 2 |
+
+### Usage Pattern
+
+Services use `AgentCore.run()` for agentic interactions (tool-calling loop) and `AgentCore.call()` for simple non-agentic LLM calls (extraction, summarization). The `get_agent_core()` singleton in `deps.py` initializes the registry with `search_patient_memory` and `get_profile_context` tools at startup.
+
+**Gemini limitation**: JSON mode (`response_mime_type=application/json`) and function calling (`tools=`) are mutually exclusive. REPORT_AGENT uses JSON mode (no tools); DIAGNOSIS_AGENT uses tools (no JSON mode).
+
+---
+
+## 7. Security Model
 
 ### Profile Segregation — Four Layers
 
@@ -934,7 +967,7 @@ flowchart TB
 
 ---
 
-## 7. Environment Variables
+## 8. Environment Variables
 
 All configuration is via environment variables. Never commit secrets to code or logs.
 
@@ -955,6 +988,7 @@ SUPABASE_SERVICE_KEY=your-service-key
 # LLM — Gemini (diagnosis, report analysis, embeddings)
 GEMINI_API_KEY=your-gemini-key
 GEMINI_DIAGNOSIS_MODEL=gemini-2.5-flash
+GEMINI_REPORT_MODEL=gemini-2.5-flash
 GEMINI_FLASH_MODEL=gemini-2.5-flash-lite
 EMBEDDING_MODEL=models/gemini-embedding-001
 EMBEDDING_DIMS=768

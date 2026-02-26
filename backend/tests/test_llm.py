@@ -104,11 +104,12 @@ def test_gemini_provider_model_selection() -> None:
 
     provider = GeminiProvider.__new__(GeminiProvider)
     provider._diagnosis_model = "gemini-2.5-flash"
+    provider._report_model = "gemini-2.5-flash"
     provider._default_model = "gemini-2.5-flash-lite"
 
     assert provider._select_model(LLMTask.DIAGNOSIS) == "gemini-2.5-flash"
+    assert provider._select_model(LLMTask.REPORT_ANALYSIS) == "gemini-2.5-flash"
     assert provider._select_model(LLMTask.CHAT) == "gemini-2.5-flash-lite"
-    assert provider._select_model(LLMTask.REPORT_ANALYSIS) == "gemini-2.5-flash-lite"
     assert provider._select_model(LLMTask.MEMORY_EXTRACTION) == "gemini-2.5-flash-lite"
 
 

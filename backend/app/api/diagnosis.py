@@ -4,9 +4,10 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.agents.core import AgentCore
 from app.api.deps import (
+    get_agent_core,
     get_context_builder,
-    get_llm_router,
     get_memory_extractor,
     get_verified_profile,
 )
@@ -24,7 +25,6 @@ from app.schemas.diagnosis import (
 )
 from app.services.context_builder import ContextBuilder
 from app.services.diagnosis import DiagnosisService
-from app.services.llm import LLMRouter
 from app.services.memory_extractor import MemoryExtractor
 
 router = APIRouter(prefix="/profiles/{pid}/diagnosis", tags=["diagnosis"])
@@ -32,13 +32,13 @@ router = APIRouter(prefix="/profiles/{pid}/diagnosis", tags=["diagnosis"])
 
 def _build_service(
     db: AsyncSession,
-    llm_router: LLMRouter,
+    agent_core: AgentCore,
     context_builder: ContextBuilder,
     memory_extractor: MemoryExtractor,
 ) -> DiagnosisService:
     return DiagnosisService(
         db=db,
-        llm_router=llm_router,
+        agent_core=agent_core,
         context_builder=context_builder,
         memory_extractor=memory_extractor,
     )
@@ -50,16 +50,14 @@ async def create_session(
     background_tasks: BackgroundTasks,
     profile: Profile = Depends(get_verified_profile),
     db: AsyncSession = Depends(get_db),
-    llm_router: LLMRouter = Depends(get_llm_router),
+    agent_core: AgentCore = Depends(get_agent_core),
     context_builder: ContextBuilder = Depends(get_context_builder),
     memory_extractor: MemoryExtractor = Depends(get_memory_extractor),
 ) -> DiagnosisTurnResponse:
     """Start a new diagnosis session. Returns first AI response with assessment state."""
-    svc = _build_service(db, llm_router, context_builder, memory_extractor)
+    svc = _build_service(db, agent_core, context_builder, memory_extractor)
     session, turn_response = await svc.create_session(profile, data.chief_complaint)
 
-    # Background memory extraction — pass extractor + data directly,
-    # not the service (which holds a request-scoped db session).
     background_tasks.add_task(
         memory_extractor.extract_and_store,
         profile_id=profile.id,
@@ -83,15 +81,11 @@ async def list_sessions(
     db: AsyncSession = Depends(get_db),
 ) -> PaginatedResponse[DiagnosisSessionResponse]:
     """List diagnosis sessions for the profile."""
-    base_query = select(DiagnosisSession).where(
-        DiagnosisSession.profile_id == profile.id
-    )
+    base_query = select(DiagnosisSession).where(DiagnosisSession.profile_id == profile.id)
     if status:
         base_query = base_query.where(DiagnosisSession.status == status)
 
-    count_result = await db.execute(
-        select(func.count()).select_from(base_query.subquery())
-    )
+    count_result = await db.execute(select(func.count()).select_from(base_query.subquery()))
     total = count_result.scalar_one()
 
     result = await db.execute(
@@ -135,19 +129,18 @@ async def send_message(
     background_tasks: BackgroundTasks,
     profile: Profile = Depends(get_verified_profile),
     db: AsyncSession = Depends(get_db),
-    llm_router: LLMRouter = Depends(get_llm_router),
+    agent_core: AgentCore = Depends(get_agent_core),
     context_builder: ContextBuilder = Depends(get_context_builder),
     memory_extractor: MemoryExtractor = Depends(get_memory_extractor),
 ) -> DiagnosisTurnResponse:
     """Send a message in a diagnosis session. Returns AI response with assessment state."""
-    svc = _build_service(db, llm_router, context_builder, memory_extractor)
+    svc = _build_service(db, agent_core, context_builder, memory_extractor)
     session = await svc.get_session(sid, profile.id)
     if not session:
         raise HTTPException(status_code=404, detail="Diagnosis session not found")
 
     turn_response = await svc.send_message(session, profile, data.content)
 
-    # Background memory extraction — pass extractor + data directly
     background_tasks.add_task(
         memory_extractor.extract_and_store,
         profile_id=profile.id,
@@ -168,12 +161,12 @@ async def update_session(
     data: DiagnosisSessionUpdate,
     profile: Profile = Depends(get_verified_profile),
     db: AsyncSession = Depends(get_db),
-    llm_router: LLMRouter = Depends(get_llm_router),
+    agent_core: AgentCore = Depends(get_agent_core),  # singletons; needed for close_session
     context_builder: ContextBuilder = Depends(get_context_builder),
     memory_extractor: MemoryExtractor = Depends(get_memory_extractor),
 ) -> DiagnosisSessionResponse:
     """Update session: close/resolve, add resolution notes."""
-    svc = _build_service(db, llm_router, context_builder, memory_extractor)
+    svc = _build_service(db, agent_core, context_builder, memory_extractor)
     session = await svc.get_session(sid, profile.id)
     if not session:
         raise HTTPException(status_code=404, detail="Diagnosis session not found")

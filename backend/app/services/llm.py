@@ -3,7 +3,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 from enum import StrEnum
-from typing import ClassVar
+from typing import Any, ClassVar
 
 from pydantic import BaseModel
 
@@ -17,9 +17,29 @@ class LLMTask(StrEnum):
     FACT_EXTRACTION = "fact_extraction"
 
 
+class ImagePart(BaseModel):
+    """Binary image/document data for multimodal LLM input."""
+
+    data: bytes
+    mime_type: str  # "application/pdf", "image/jpeg", "image/png"
+
+    model_config = {"arbitrary_types_allowed": True}
+
+
 class LLMMessage(BaseModel):
     role: str
     content: str
+    image_parts: list[ImagePart] | None = None
+
+    model_config = {"arbitrary_types_allowed": True}
+
+
+class ToolCallResponse(BaseModel):
+    """A tool invocation returned by the LLM."""
+
+    id: str
+    name: str
+    arguments: dict[str, Any]
 
 
 class LLMRequest(BaseModel):
@@ -29,6 +49,8 @@ class LLMRequest(BaseModel):
     temperature: float = 0.7
     max_tokens: int | None = None
     response_format: dict | None = None
+    tools: list[dict[str, Any]] | None = None
+    tool_choice: str | None = None  # "auto" | "any" | "none"
 
 
 class LLMResponse(BaseModel):
@@ -36,6 +58,8 @@ class LLMResponse(BaseModel):
     model: str
     usage: dict[str, int]
     raw_response: dict | None = None
+    tool_calls: list[ToolCallResponse] | None = None
+    finish_reason: str | None = None  # "stop" | "tool_calls"
 
 
 class LLMProvider(ABC):
