@@ -66,6 +66,35 @@ class AgentEvent:
     data: dict[str, Any] = field(default_factory=dict)
 
 
+class AgentDefinition:
+    """Configuration for a specific agent type.
+
+    Specifies which LLM task to use, which tools are available,
+    and generation parameters.
+    """
+
+    def __init__(
+        self,
+        *,
+        name: str,
+        description: str,
+        task: str,
+        tool_names: list[str] | None = None,
+        temperature: float = 0.3,
+        max_tokens: int = 4000,
+        max_tool_rounds: int = 5,
+        response_format: dict | None = None,
+    ) -> None:
+        self.name = name
+        self.description = description
+        self.task = task
+        self.tool_names = tool_names or []
+        self.temperature = temperature
+        self.max_tokens = max_tokens
+        self.max_tool_rounds = max_tool_rounds
+        self.response_format = response_format
+
+
 @dataclass
 class AgentResult:
     """The final result of an agent run."""

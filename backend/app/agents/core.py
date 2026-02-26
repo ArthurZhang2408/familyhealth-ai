@@ -16,39 +16,10 @@ import logging
 
 from app.agents.registry import ToolRegistry
 from app.agents.session import AgentSession
-from app.agents.types import AgentResult
+from app.agents.types import AgentDefinition, AgentResult, ToolCall
 from app.services.llm import LLMMessage, LLMRequest, LLMResponse, LLMRouter
 
 logger = logging.getLogger(__name__)
-
-
-class AgentDefinition:
-    """Configuration for a specific agent type.
-
-    Like Oqoqo's ``config.yaml`` but as a Python object — appropriate
-    for FamilyHealth AI's current scale.
-    """
-
-    def __init__(
-        self,
-        *,
-        name: str,
-        description: str,
-        task: str,
-        tool_names: list[str] | None = None,
-        temperature: float = 0.3,
-        max_tokens: int = 4000,
-        max_tool_rounds: int = 5,
-        response_format: dict | None = None,
-    ) -> None:
-        self.name = name
-        self.description = description
-        self.task = task
-        self.tool_names = tool_names or []
-        self.temperature = temperature
-        self.max_tokens = max_tokens
-        self.max_tool_rounds = max_tool_rounds
-        self.response_format = response_format
 
 
 class AgentCore:
@@ -97,7 +68,15 @@ class AgentCore:
 
         for round_num in range(agent_def.max_tool_rounds + 1):
             request = self._build_request(session, agent_def, tool_declarations)
-            response = await self._llm.route(request)
+            try:
+                response = await self._llm.route(request)
+            except Exception:
+                logger.exception(
+                    "Agent '%s' LLM call failed on round %d",
+                    agent_def.name,
+                    round_num + 1,
+                )
+                raise
 
             session.turn_count += 1
             last_content = response.content
@@ -120,7 +99,12 @@ class AgentCore:
 
             # Execute each tool call
             injected = {"profile_id": str(session.profile_id)}
-            for tc in response.tool_calls:
+            for tc_response in response.tool_calls:
+                tc = ToolCall(
+                    id=tc_response.id,
+                    name=tc_response.name,
+                    arguments=tc_response.arguments,
+                )
                 session.tool_calls_made.append(tc)
                 result = await self._tools.execute(tc, injected_args=injected)
                 session.tool_results.append(result)

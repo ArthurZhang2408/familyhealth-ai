@@ -5,7 +5,7 @@ from enum import StrEnum
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -72,6 +72,21 @@ class ReportCreate(BaseModel):
     file_type: str = "unknown"
     original_filename: str | None = None
 
+    @field_validator("file_url")
+    @classmethod
+    def validate_file_url(cls, v: str) -> str:
+        """Reject non-HTTPS URLs and private/internal network addresses."""
+        if not v.startswith("https://"):
+            raise ValueError("file_url must use HTTPS")
+        # Block private/internal IPs and metadata endpoints
+        from urllib.parse import urlparse
+
+        hostname = urlparse(v).hostname or ""
+        blocked_prefixes = ("10.", "172.", "192.168.", "169.254.", "127.", "0.", "localhost")
+        if hostname.startswith(blocked_prefixes):
+            raise ValueError("file_url must not point to internal/private addresses")
+        return v
+
 
 class ReportAnalysisResponse(BaseModel):
     id: UUID
@@ -79,7 +94,7 @@ class ReportAnalysisResponse(BaseModel):
     file_url: str
     file_type: str
     original_filename: str | None
-    analysis_result: AnalysisResult | dict[str, Any] | None
+    analysis_result: dict[str, Any] | None
     extracted_facts: list[Any]
     status: str
     error_message: str | None

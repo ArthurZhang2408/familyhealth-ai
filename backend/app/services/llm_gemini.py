@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import logging
 import uuid
 from collections.abc import AsyncIterator
 
 from google import genai
 from google.genai import types
+
+logger = logging.getLogger(__name__)
 
 from app.services.llm import (
     LLMMessage,
@@ -61,9 +64,16 @@ class GeminiProvider(LLMProvider):
         )
         if request.max_tokens is not None:
             config.max_output_tokens = request.max_tokens
-        if request.response_format is not None and not request.tools:
-            # JSON mode and tool calling are mutually exclusive in Gemini
-            config.response_mime_type = "application/json"
+        if request.response_format is not None:
+            if request.tools:
+                # JSON mode and tool calling are mutually exclusive in Gemini
+                logger.warning(
+                    "response_format ignored: Gemini cannot use JSON mode and "
+                    "function calling simultaneously (task=%s)",
+                    request.task,
+                )
+            else:
+                config.response_mime_type = "application/json"
         if request.tools:
             config.tools = [types.Tool(function_declarations=request.tools)]
         return config

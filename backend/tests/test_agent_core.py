@@ -8,10 +8,13 @@ from __future__ import annotations
 import uuid
 from unittest.mock import AsyncMock
 
-from app.agents.core import AgentCore, AgentDefinition
+import pytest
+
+from app.agents.core import AgentCore
 from app.agents.registry import ToolRegistry
 from app.agents.session import AgentSession
 from app.agents.types import (
+    AgentDefinition,
     AgentEvent,
     AgentEventType,
     AgentResult,
@@ -398,3 +401,225 @@ class TestAgentDefinitions:
 
         assert CHAT_AGENT.name == "chat"
         assert CHAT_AGENT.temperature == 0.7
+
+
+# ===================================================================
+# 6. Security — injected args override LLM args
+# ===================================================================
+
+
+class TestInjectedArgSecurity:
+    async def test_injected_profile_id_overrides_llm_provided(self):
+        """Injected profile_id must NOT be overridable by LLM arguments."""
+        captured_args = {}
+
+        async def capture_tool(**kwargs):
+            captured_args.update(kwargs)
+            return {"result": "ok"}
+
+        registry = ToolRegistry()
+        registry.register(_make_tool("capture_tool", handler=capture_tool))
+        mock_router = AsyncMock()
+
+        # LLM tries to override profile_id
+        malicious_tc = ToolCallResponse(
+            id="tc_1",
+            name="capture_tool",
+            arguments={"query": "test", "profile_id": "ATTACKER-UUID"},
+        )
+        mock_router.route = AsyncMock(
+            side_effect=[
+                _make_llm_response("", tool_calls=[malicious_tc]),
+                _make_llm_response("Done"),
+            ]
+        )
+        core = AgentCore(llm_router=mock_router, tool_registry=registry)
+        session = _make_session()
+        agent_def = _make_agent_def(tool_names=["capture_tool"])
+
+        await core.run(session, agent_def)
+
+        # Server-injected profile_id must win
+        assert captured_args["profile_id"] == str(PROFILE_ID)
+        assert captured_args["profile_id"] != "ATTACKER-UUID"
+
+
+# ===================================================================
+# 7. AgentCore.call() — non-agentic path
+# ===================================================================
+
+
+class TestAgentCoreCall:
+    async def test_call_delegates_to_router(self):
+        """AgentCore.call() delegates directly to LLMRouter.route()."""
+        expected = _make_llm_response("Extracted facts")
+        mock_router = AsyncMock()
+        mock_router.route = AsyncMock(return_value=expected)
+        core = AgentCore(llm_router=mock_router, tool_registry=ToolRegistry())
+
+        from app.services.llm import LLMMessage, LLMRequest
+
+        request = LLMRequest(
+            task=LLMTask.FACT_EXTRACTION,
+            system_prompt="Extract facts",
+            messages=[LLMMessage(role="user", content="test")],
+            temperature=0.0,
+        )
+        result = await core.call(request)
+
+        assert result.content == "Extracted facts"
+        mock_router.route.assert_called_once_with(request)
+
+
+# ===================================================================
+# 8. image_parts flow through _build_request
+# ===================================================================
+
+
+class TestImagePartsInRequest:
+    async def test_image_parts_passed_to_llm(self):
+        """Image parts in session messages flow through to LLMRequest."""
+        from app.services.llm import ImagePart
+
+        captured_requests = []
+
+        async def capture_route(request):
+            captured_requests.append(request)
+            return _make_llm_response("Analyzed")
+
+        mock_router = AsyncMock()
+        mock_router.route = AsyncMock(side_effect=capture_route)
+        core = AgentCore(llm_router=mock_router, tool_registry=ToolRegistry())
+
+        image = ImagePart(data=b"fake-pdf", mime_type="application/pdf")
+        session = AgentSession(
+            profile_id=PROFILE_ID,
+            system_prompt="Analyze report",
+            messages=[
+                {
+                    "role": "user",
+                    "content": "Analyze this report",
+                    "image_parts": [image],
+                }
+            ],
+        )
+        agent_def = _make_agent_def(tool_names=[])
+
+        await core.run(session, agent_def)
+
+        assert len(captured_requests) == 1
+        msg = captured_requests[0].messages[0]
+        assert msg.image_parts is not None
+        assert len(msg.image_parts) == 1
+        assert msg.image_parts[0].mime_type == "application/pdf"
+
+
+# ===================================================================
+# 9. LLM route exception handling
+# ===================================================================
+
+
+class TestLLMRouteException:
+    async def test_llm_exception_propagates(self):
+        """LLM route exception propagates (logged, not swallowed)."""
+        mock_router = AsyncMock()
+        mock_router.route = AsyncMock(side_effect=RuntimeError("API timeout"))
+        core = AgentCore(llm_router=mock_router, tool_registry=ToolRegistry())
+
+        session = _make_session()
+        agent_def = _make_agent_def(tool_names=[])
+
+        with pytest.raises(RuntimeError, match="API timeout"):
+            await core.run(session, agent_def)
+
+    async def test_llm_exception_mid_loop(self):
+        """LLM exception after a successful tool round still propagates."""
+        tc = ToolCallResponse(
+            id="tc_1",
+            name="search_patient_memory",
+            arguments={"query": "test"},
+        )
+        mock_router = AsyncMock()
+        mock_router.route = AsyncMock(
+            side_effect=[
+                _make_llm_response("", tool_calls=[tc]),
+                RuntimeError("Rate limited"),
+            ]
+        )
+        registry = ToolRegistry()
+        registry.register(_make_tool("search_patient_memory"))
+        core = AgentCore(llm_router=mock_router, tool_registry=registry)
+
+        session = _make_session()
+        agent_def = _make_agent_def(tool_names=["search_patient_memory"])
+
+        with pytest.raises(RuntimeError, match="Rate limited"):
+            await core.run(session, agent_def)
+
+        # Tool call from round 1 should still be tracked
+        assert len(session.tool_calls_made) == 1
+
+
+# ===================================================================
+# 10. Multiple tool calls in a single round
+# ===================================================================
+
+
+class TestMultipleToolCallsSingleRound:
+    async def test_multiple_tools_in_one_response(self):
+        """Agent handles multiple tool calls in a single LLM response."""
+        tc1 = ToolCallResponse(
+            id="tc_1", name="search_patient_memory", arguments={"query": "meds"}
+        )
+        tc2 = ToolCallResponse(
+            id="tc_2", name="search_patient_memory", arguments={"query": "labs"}
+        )
+        mock_router = AsyncMock()
+        mock_router.route = AsyncMock(
+            side_effect=[
+                _make_llm_response("", tool_calls=[tc1, tc2]),
+                _make_llm_response("Combined analysis"),
+            ]
+        )
+        registry = ToolRegistry()
+        registry.register(_make_tool("search_patient_memory"))
+        core = AgentCore(llm_router=mock_router, tool_registry=registry)
+
+        session = _make_session()
+        agent_def = _make_agent_def(tool_names=["search_patient_memory"])
+
+        result = await core.run(session, agent_def)
+
+        assert result.content == "Combined analysis"
+        assert len(result.tool_calls_made) == 2
+        assert len(result.tool_results) == 2
+        assert result.rounds == 2
+
+
+# ===================================================================
+# 11. response_format passthrough
+# ===================================================================
+
+
+class TestResponseFormatPassthrough:
+    async def test_json_response_format_in_request(self):
+        """response_format from AgentDefinition flows to LLMRequest."""
+        captured_requests = []
+
+        async def capture_route(request):
+            captured_requests.append(request)
+            return _make_llm_response('{"key": "value"}')
+
+        mock_router = AsyncMock()
+        mock_router.route = AsyncMock(side_effect=capture_route)
+        core = AgentCore(llm_router=mock_router, tool_registry=ToolRegistry())
+
+        session = _make_session()
+        agent_def = _make_agent_def(
+            tool_names=[],
+            response_format={"type": "json"},
+        )
+
+        await core.run(session, agent_def)
+
+        assert captured_requests[0].response_format == {"type": "json"}

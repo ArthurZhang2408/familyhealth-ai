@@ -57,7 +57,9 @@ class ToolRegistry:
                 is_error=True,
             )
 
-        merged_args = {**(injected_args or {}), **call.arguments}
+        # Injected args (e.g., profile_id) override LLM-provided args
+        # to prevent the LLM from manipulating server-controlled values.
+        merged_args = {**call.arguments, **(injected_args or {})}
 
         try:
             output = await tool.handler(**merged_args)

@@ -7,7 +7,7 @@ to AgentCore.run() with the appropriate definition.
 
 from __future__ import annotations
 
-from app.agents.core import AgentDefinition
+from app.agents.types import AgentDefinition
 from app.services.llm import LLMTask
 
 DIAGNOSIS_AGENT = AgentDefinition(

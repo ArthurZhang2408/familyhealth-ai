@@ -14,8 +14,12 @@ def build_profile_lookup_tool(db_session_factory) -> ToolDefinition:
     async def _handler(profile_id: str) -> dict:
         from app.models.profile import Profile
 
+        try:
+            pid = UUID(profile_id)
+        except (ValueError, AttributeError):
+            return {"error": f"Invalid profile_id: {profile_id}"}
         async with db_session_factory() as db:
-            profile = await db.get(Profile, UUID(profile_id))
+            profile = await db.get(Profile, pid)
             if not profile:
                 return {"error": "Profile not found"}
             ctx = load_profile_context(profile)

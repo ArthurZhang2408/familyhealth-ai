@@ -201,9 +201,9 @@ async def list_reports(
     total = count_result.scalar_one()
 
     result = await db.execute(
-        base_query.offset((page - 1) * per_page)
+        base_query.order_by(ReportAnalysis.created_at.desc())
+        .offset((page - 1) * per_page)
         .limit(per_page)
-        .order_by(ReportAnalysis.created_at.desc())
     )
     reports = result.scalars().all()
 

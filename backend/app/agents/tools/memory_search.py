@@ -17,8 +17,12 @@ def build_memory_search_tool(memory_service: MemoryService) -> ToolDefinition:
         categories: list[str] | None = None,
         limit: int = 10,
     ) -> dict:
+        try:
+            pid = UUID(profile_id)
+        except (ValueError, AttributeError):
+            return {"error": f"Invalid profile_id: {profile_id}", "memories": [], "count": 0}
         results = await memory_service.search(
-            UUID(profile_id),
+            pid,
             query,
             limit=limit,
             categories=categories,

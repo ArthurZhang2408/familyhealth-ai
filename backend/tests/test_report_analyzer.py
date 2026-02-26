@@ -392,11 +392,9 @@ class TestReportAnalyzerService:
     def test_resolve_mime_type_from_file_type(self):
         assert ReportAnalyzerService._resolve_mime_type("blood_test", None) == "application/pdf"
 
-    def test_resolve_mime_type_unknown(self):
-        assert (
+    def test_resolve_mime_type_unknown_raises(self):
+        with pytest.raises(ValueError, match="Cannot determine MIME type"):
             ReportAnalyzerService._resolve_mime_type("unknown", "data.bin")
-            == "application/octet-stream"
-        )
 
     async def test_analyze_logs_action(self, mock_db):
         """Action log called on successful analysis."""
@@ -918,3 +916,93 @@ class TestMemoryAndLogging:
                 context_builder=_mock_context_builder(),
                 memory_extractor=mem_extractor,
             )
+
+
+# ===================================================================
+# URL Validation (SSRF prevention)
+# ===================================================================
+
+
+class TestURLValidation:
+    def test_https_url_accepted(self):
+        from app.schemas.report import ReportCreate
+
+        r = ReportCreate(file_url="https://storage.example.com/report.pdf")
+        assert r.file_url == "https://storage.example.com/report.pdf"
+
+    def test_http_url_rejected(self):
+        from app.schemas.report import ReportCreate
+
+        with pytest.raises(Exception, match="HTTPS"):
+            ReportCreate(file_url="http://storage.example.com/report.pdf")
+
+    def test_internal_ip_rejected(self):
+        from app.schemas.report import ReportCreate
+
+        with pytest.raises(Exception, match="internal"):
+            ReportCreate(file_url="https://169.254.169.254/latest/meta-data/")
+
+    def test_localhost_rejected(self):
+        from app.schemas.report import ReportCreate
+
+        with pytest.raises(Exception, match="internal"):
+            ReportCreate(file_url="https://localhost/admin")
+
+    def test_private_ip_rejected(self):
+        from app.schemas.report import ReportCreate
+
+        with pytest.raises(Exception, match="internal"):
+            ReportCreate(file_url="https://192.168.1.1/file.pdf")
+
+
+# ===================================================================
+# MIME type resolution (error on unknown)
+# ===================================================================
+
+
+class TestMIMETypeResolution:
+    def test_pdf_extension(self):
+        mime = ReportAnalyzerService._resolve_mime_type("unknown", "report.pdf")
+        assert mime == "application/pdf"
+
+    def test_jpeg_extension(self):
+        mime = ReportAnalyzerService._resolve_mime_type("unknown", "scan.jpg")
+        assert mime == "image/jpeg"
+
+    def test_webp_extension(self):
+        mime = ReportAnalyzerService._resolve_mime_type("unknown", "photo.webp")
+        assert mime == "image/webp"
+
+    def test_file_type_fallback(self):
+        mime = ReportAnalyzerService._resolve_mime_type("blood_test", None)
+        assert mime == "application/pdf"
+
+    def test_unknown_raises(self):
+        with pytest.raises(ValueError, match="Cannot determine MIME type"):
+            ReportAnalyzerService._resolve_mime_type("unknown", "file.xyz")
+
+    def test_no_extension_no_type_raises(self):
+        with pytest.raises(ValueError, match="Cannot determine MIME type"):
+            ReportAnalyzerService._resolve_mime_type("unknown", None)
+
+
+# ===================================================================
+# Disclaimer injection
+# ===================================================================
+
+
+class TestDisclaimerInjection:
+    async def test_pending_report_no_disclaimer(self, client: AsyncClient):
+        """Pending report responses should NOT include the medical disclaimer."""
+        profile = await _create_profile(client)
+        pid = profile["id"]
+
+        resp = await client.post(
+            f"/api/v1/profiles/{pid}/reports",
+            json={
+                "file_url": "https://storage.example.com/test.pdf",
+                "file_type": "blood_test",
+            },
+        )
+        assert resp.status_code == 201
+        assert resp.json()["disclaimer"] is None

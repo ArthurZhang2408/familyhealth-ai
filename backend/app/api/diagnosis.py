@@ -161,7 +161,7 @@ async def update_session(
     data: DiagnosisSessionUpdate,
     profile: Profile = Depends(get_verified_profile),
     db: AsyncSession = Depends(get_db),
-    agent_core: AgentCore = Depends(get_agent_core),
+    agent_core: AgentCore = Depends(get_agent_core),  # singletons; needed for close_session
     context_builder: ContextBuilder = Depends(get_context_builder),
     memory_extractor: MemoryExtractor = Depends(get_memory_extractor),
 ) -> DiagnosisSessionResponse:

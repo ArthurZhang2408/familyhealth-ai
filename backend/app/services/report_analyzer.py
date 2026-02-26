@@ -195,7 +195,10 @@ class ReportAnalyzerService:
         if file_type in _FILE_TYPE_TO_MIME:
             return _FILE_TYPE_TO_MIME[file_type]
 
-        return "application/octet-stream"
+        raise ValueError(
+            f"Cannot determine MIME type for file_type={file_type!r}, "
+            f"filename={filename!r}. Supported: PDF, JPEG, PNG, WebP."
+        )
 
     async def _log_action(
         self,
@@ -310,6 +313,8 @@ async def run_analysis_background(
 
 async def _fetch_file(file_url: str) -> bytes:
     """Download file bytes from a URL (e.g., Supabase Storage)."""
+    if not file_url.startswith("https://"):
+        raise ValueError(f"Refusing to fetch non-HTTPS URL: {file_url}")
     async with httpx.AsyncClient(timeout=60.0) as client:
         response = await client.get(file_url)
         response.raise_for_status()
