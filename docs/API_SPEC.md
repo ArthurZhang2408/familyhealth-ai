@@ -397,6 +397,8 @@ type DiagnosisStatus = "active" | "resolved" | "abandoned";
 type MessageRole = "user" | "assistant" | "system";
 
 type DiagnosisUrgency = "emergency" | "see_doctor_today" | "see_doctor_this_week" | "see_doctor_soon" | "monitor_at_home";
+type DiagnosisPhase = "triage" | "characterization" | "system_review" | "self_tests" | "risk_factors" | "differential" | "follow_up" | "unknown";
+type Severity = "emergency" | "urgent" | "moderate" | "mild" | "informational";
 
 interface DifferentialDiagnosis {
   condition: string;
@@ -404,6 +406,33 @@ interface DifferentialDiagnosis {
   reasoning: string;
   action_plan: string;           // specific next steps for this condition
   urgency: DiagnosisUrgency;
+}
+
+interface InformationGathered {
+  chief_complaint: string | null;
+  onset: string | null;
+  location: string | null;
+  duration: string | null;
+  character: string | null;            // sharp, dull, burning, etc.
+  aggravating_factors: string | null;
+  relieving_factors: string | null;
+  temporal_pattern: string | null;
+  severity_rating: string | null;
+  associated_symptoms: string[];
+  self_test_results: string[];
+  relevant_risk_factors: string[];
+}
+
+interface DiagnosisState {
+  phase: DiagnosisPhase;
+  turn_number: number;
+  severity: Severity;
+  red_flags_detected: string[];
+  information_gathered: InformationGathered;
+  differential_diagnoses: DifferentialDiagnosis[];
+  suggested_next_questions: string[];
+  ready_for_differential: boolean;
+  drug_interaction_warnings: string[];
 }
 
 interface DiagnosisMessage {
@@ -429,6 +458,13 @@ interface DiagnosisSession {
 interface DiagnosisSessionWithMessages extends DiagnosisSession {
   messages: DiagnosisMessage[];
 }
+
+// Response for create_session and send_message
+interface DiagnosisTurnResponse {
+  message: DiagnosisMessage;        // the AI's response
+  diagnosis_state: DiagnosisState;  // structured assessment state (extracted via Pass 2)
+  disclaimer: string;               // always present, injected by backend
+}
 ```
 
 ---
@@ -448,12 +484,15 @@ interface CreateDiagnosisRequest {
 **Response `201`:**
 
 ```typescript
-interface CreateDiagnosisResponse extends DiagnosisSession, DisclaimerMixin {
-  initial_response: DiagnosisMessage;   // the AI's first follow-up question
-}
+DiagnosisTurnResponse
+// {
+//   message: DiagnosisMessage,        // AI's first response (follow-up questions or emergency escalation)
+//   diagnosis_state: DiagnosisState,  // phase, severity, red flags, gathered info
+//   disclaimer: string
+// }
 ```
 
-The backend loads the profile (Tier 1) + episodic memories (Tier 2), sends the chief complaint to Gemini with the diagnosis system prompt, and returns the AI's first response. The session is created with `status: "active"`.
+The backend performs a red-flag pre-check on the chief complaint. If red flags are detected, returns a templated emergency response without an LLM call. Otherwise, loads the profile (Tier 1) + episodic memories (Tier 2) via `ContextBuilder`, sends to Gemini with the diagnosis system prompt (Pass 1), extracts structured state via a second Gemini Flash call (Pass 2), and returns the AI's first response. The session is created with `status: "active"`. Memory extraction fires in the background.
 
 **Errors:** `400 VALIDATION_ERROR`, `404 NOT_FOUND` (profile), `502 LLM_UNAVAILABLE`
 
@@ -518,14 +557,11 @@ interface SendDiagnosisMessageRequest {
 |-|-|-|
 | `Accept` | `text/event-stream` | Return SSE stream instead of JSON |
 
-**Response `200` (JSON — default):**
+**Response `201` (JSON — default):**
 
 ```typescript
-interface SendDiagnosisMessageResponse extends DisclaimerMixin {
-  user_message: DiagnosisMessage;
-  assistant_message: DiagnosisMessage;
-  updated_diagnoses: DifferentialDiagnosis[];   // current differential after this turn
-}
+DiagnosisTurnResponse
+// Same shape as create_session — AI response + updated diagnosis state + disclaimer
 ```
 
 **Response `200` (SSE — when `Accept: text/event-stream`):**

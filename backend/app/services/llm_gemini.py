@@ -15,8 +15,8 @@ class GeminiProvider(LLMProvider):
     def __init__(
         self,
         api_key: str,
-        diagnosis_model: str = "gemini-2.5-pro",
-        default_model: str = "gemini-2.0-flash",
+        diagnosis_model: str = "gemini-2.5-flash",
+        default_model: str = "gemini-2.5-flash-lite",
     ) -> None:
         self._client = genai.Client(api_key=api_key)
         self._diagnosis_model = diagnosis_model

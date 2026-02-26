@@ -535,8 +535,8 @@ mem0_config = {
     "llm": {
         "provider": "openai",
         "config": {
-            "model": "qwen3.5:397b",
-            "api_key": QWEN_API_KEY,
+            "model": "nemotron-3-nano:30b",   # lightweight, non-thinking model for Mem0 internals
+            "api_key": OLLAMA_API_KEY,
             "openai_base_url": "https://ollama.com/v1",
             "temperature": 0.1,
             "max_tokens": 2000,
@@ -676,7 +676,7 @@ class LLMProvider(ABC):
 class GeminiProvider(LLMProvider):
     """Google Gemini API — used for diagnosis and report analysis.
 
-    Models: gemini-2.5-pro (complex diagnosis), gemini-2.0-flash (reports, fast tasks).
+    Models: gemini-2.5-flash (diagnosis), gemini-2.5-flash-lite (reports, fast tasks).
     Supports multimodal input (images for report analysis).
     """
 
@@ -731,12 +731,12 @@ class LLMRouter:
 
 | Task | Provider | Model | Rationale |
 |-|-|-|-|
-| Diagnosis | Gemini | gemini-2.5-pro | High accuracy needed for differential diagnosis |
-| Report Analysis | Gemini | gemini-2.0-flash | Multimodal (image input), fast structured extraction |
-| Memory Extraction | Qwen | qwen-2.5-72b-instruct | Cost-effective for high-volume background extraction |
-| Chat | Qwen | qwen-2.5-72b-instruct | Low latency, cost-effective for conversational turns |
-| Summarization | Qwen | qwen-2.5-72b-instruct | Straightforward text task, cost-optimized |
-| Fact Extraction | Qwen | qwen-2.5-72b-instruct | Structured output from report analysis results |
+| Diagnosis | Gemini | gemini-2.5-flash | High accuracy needed for differential diagnosis |
+| Report Analysis | Gemini | gemini-2.5-flash-lite | Multimodal (image input), fast structured extraction |
+| Memory Extraction | Qwen | qwen3.5:397b | Cost-effective for high-volume background extraction |
+| Chat | Qwen | qwen3.5:397b | Low latency, cost-effective for conversational turns |
+| Summarization | Qwen | qwen3.5:397b | Straightforward text task, cost-optimized |
+| Fact Extraction | Qwen | qwen3.5:397b | Structured output; also used for Pass 2 diagnosis state extraction |
 
 ### Diagnosis Session Flow
 
@@ -750,15 +750,18 @@ stateDiagram-v2
     Abandoned --> [*]
 ```
 
-**Diagnosis interaction steps:**
+**Diagnosis interaction steps (two-pass strategy):**
 
 1. User creates session with initial symptom description (chief complaint).
-2. System loads profile (Tier 1) + relevant episodic memories (Tier 2 — symptom-related history).
-3. Gemini generates follow-up questions using a structured differential diagnosis prompt.
-4. Multi-turn: each message pair stored in `diagnosis_messages` and sent to Mem0 for episodic storage.
-5. After each turn, Gemini updates `differential_diagnoses` JSONB with current hypotheses and confidence scores.
-6. Session resolves when user confirms or AI has gathered sufficient information.
-7. On resolution: final differentials stored, `resolution_notes` populated, key facts extracted to Tier 2 memory.
+2. **Red flag pre-check**: backend scans message for emergency keywords (chest pain, stroke signs, suicidal ideation, etc.). If detected, returns a templated emergency response immediately — no LLM call.
+3. **Context assembly**: `ContextBuilder` loads profile (Tier 1) + retrieves relevant episodic memories from Mem0 (Tier 2, limit=20, threshold=0.05). Injects into the diagnosis system prompt.
+4. **Pass 1 (conversational)**: Gemini Pro generates a natural-language response following the OLDCARTS clinical interview protocol (temp=0.3, max_tokens=2000).
+5. **Safety validation**: backend scans the LLM response against prohibited patterns (dosage prescriptions, cancer claims, "don't need a doctor"). Violations trigger a safety notice appended to the response.
+6. **Pass 2 (structured state extraction)**: A second Gemini Flash call (JSON mode, temp=0.0) extracts structured `DiagnosisState` — phase, severity, OLDCARTS data, differential diagnoses, suggested next questions. Falls back to a minimal state on failure.
+7. Both user and assistant messages stored in `diagnosis_messages`. Differential diagnoses (if any) stored on the session.
+8. **Background**: `MemoryExtractor` fires via `BackgroundTasks` to extract facts to Mem0 (category: `diagnoses`, source: `diagnosis:{session_id}`).
+9. Medical disclaimer injected by backend into every response (never relies on LLM).
+10. On resolution: resolution summary extracted to long-term memory, action logged.
 
 ### Report Analysis Flow
 
@@ -781,7 +784,7 @@ flowchart LR
 
 ### Background Tasks
 
-Post-interaction memory extraction uses FastAPI's `BackgroundTasks`. The extraction pipeline runs after the AI response is sent to the user, so it never blocks the request. If the server restarts mid-extraction, the memory update is lost — but the same facts will be re-extracted on the next interaction. For v2, consider a task queue (arq + Redis) for reliability and retry support.
+Post-interaction memory extraction uses FastAPI's `BackgroundTasks`. The extraction pipeline runs after the AI response is sent to the user, so it never blocks the request. Diagnosis routes wire this via `background_tasks.add_task(svc.extract_memories_background, ...)`. If the server restarts mid-extraction, the memory update is lost — but the same facts will be re-extracted on the next interaction. For v2, consider a task queue (arq + Redis) for reliability and retry support.
 
 ---
 
@@ -951,8 +954,8 @@ SUPABASE_SERVICE_KEY=your-service-key
 
 # LLM — Gemini (diagnosis, report analysis, embeddings)
 GEMINI_API_KEY=your-gemini-key
-GEMINI_DIAGNOSIS_MODEL=gemini-2.5-pro
-GEMINI_FLASH_MODEL=gemini-2.0-flash
+GEMINI_DIAGNOSIS_MODEL=gemini-2.5-flash
+GEMINI_FLASH_MODEL=gemini-2.5-flash-lite
 EMBEDDING_MODEL=models/gemini-embedding-001
 EMBEDDING_DIMS=768
 

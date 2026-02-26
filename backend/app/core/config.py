@@ -19,8 +19,8 @@ class Settings(BaseSettings):
 
     # LLM — Gemini
     gemini_api_key: str = ""
-    gemini_diagnosis_model: str = "gemini-2.5-pro"
-    gemini_flash_model: str = "gemini-2.0-flash"
+    gemini_diagnosis_model: str = "gemini-2.5-flash"
+    gemini_flash_model: str = "gemini-2.5-flash-lite"
 
     # LLM — Qwen via Ollama Cloud
     qwen_api_key: str = ""

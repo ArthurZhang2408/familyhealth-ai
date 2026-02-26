@@ -35,7 +35,7 @@ def _make_request(task: LLMTask) -> LLMRequest:
 @pytest.mark.asyncio
 async def test_llm_router_routes_diagnosis_to_gemini() -> None:
     gemini = AsyncMock(spec=LLMProvider)
-    gemini.generate.return_value = LLMResponse(content="ok", model="gemini-2.5-pro", usage={})
+    gemini.generate.return_value = LLMResponse(content="ok", model="gemini-2.5-flash", usage={})
     qwen = AsyncMock(spec=LLMProvider)
 
     router = _make_router(gemini=gemini, qwen=qwen)
@@ -94,7 +94,7 @@ async def test_gemini_provider_generate(mock_client_cls: MagicMock) -> None:
 
     assert isinstance(result, LLMResponse)
     assert result.content == "Test response"
-    assert result.model == "gemini-2.5-pro"  # DIAGNOSIS uses diagnosis model
+    assert result.model == "gemini-2.5-flash"  # DIAGNOSIS uses diagnosis model
     assert result.usage["prompt_tokens"] == 10
     assert result.usage["completion_tokens"] == 20
 
@@ -103,13 +103,13 @@ def test_gemini_provider_model_selection() -> None:
     from app.services.llm_gemini import GeminiProvider
 
     provider = GeminiProvider.__new__(GeminiProvider)
-    provider._diagnosis_model = "gemini-2.5-pro"
-    provider._default_model = "gemini-2.0-flash"
+    provider._diagnosis_model = "gemini-2.5-flash"
+    provider._default_model = "gemini-2.5-flash-lite"
 
-    assert provider._select_model(LLMTask.DIAGNOSIS) == "gemini-2.5-pro"
-    assert provider._select_model(LLMTask.CHAT) == "gemini-2.0-flash"
-    assert provider._select_model(LLMTask.REPORT_ANALYSIS) == "gemini-2.0-flash"
-    assert provider._select_model(LLMTask.MEMORY_EXTRACTION) == "gemini-2.0-flash"
+    assert provider._select_model(LLMTask.DIAGNOSIS) == "gemini-2.5-flash"
+    assert provider._select_model(LLMTask.CHAT) == "gemini-2.5-flash-lite"
+    assert provider._select_model(LLMTask.REPORT_ANALYSIS) == "gemini-2.5-flash-lite"
+    assert provider._select_model(LLMTask.MEMORY_EXTRACTION) == "gemini-2.5-flash-lite"
 
 
 # ── QwenProvider tests ──────────────────────────────────────────────────────
