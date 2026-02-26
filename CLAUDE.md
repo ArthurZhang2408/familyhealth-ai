@@ -9,7 +9,7 @@ AI-powered diagnosis, medical report analysis, and health chat.
 - **Backend**: Python 3.12 + FastAPI
 - **Database**: PostgreSQL 16 + pgvector extension
 - **Memory Layer**: Mem0 (self-hosted, open source)
-- **LLM - Primary (diagnosis, reports)**: Google Gemini API (gemini-2.0-flash or gemini-2.5-pro)
+- **LLM - Primary (diagnosis, reports)**: Google Gemini API (gemini-2.5-flash, gemini-2.5-flash-lite)
 - **LLM - Secondary (extraction, chat)**: Qwen via Ollama Cloud (`qwen3.5:397b`)
 - **Embeddings**: Google Gemini (`models/gemini-embedding-001`, 768 dims) — reuses Gemini API key
 - **Frontend**: React Native (Expo) — mobile-first

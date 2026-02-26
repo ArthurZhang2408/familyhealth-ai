@@ -670,13 +670,13 @@ async def handle_diagnosis_message(
 
     # 1. Build context
     profile_context = format_profile_context(profile)
+    # Diagnosis uses the broadest retrieval — no category filter,
+    # highest limit, lowest threshold. Handled by ContextBuilder.
     episodic_memories = await memory_service.search(
         profile.id,
         query=user_content,
-        limit=15,
-        categories=["medical_history", "medications", "allergies",
-                     "diagnoses", "symptoms", "lab_results", "vitals"],
-        threshold=0.4,
+        limit=20,
+        threshold=0.05,
     )
 
     # 2. Build messages
@@ -1288,8 +1288,10 @@ class DiagnosisService:
 
 | File | Content |
 |-|-|
-| `backend/app/services/diagnosis.py` | `DiagnosisService` class |
-| `backend/app/services/diagnosis_prompts.py` | All prompt templates and constants |
-| `backend/app/services/diagnosis_safety.py` | Validation, red flag detection, prohibited patterns |
-| `backend/app/routes/diagnosis.py` | FastAPI route handlers |
-| `backend/app/models/diagnosis.py` | Pydantic models for request/response + SQLAlchemy ORM models |
+| `backend/app/services/diagnosis.py` | `DiagnosisService` class (orchestration, two-pass LLM, session CRUD) |
+| `backend/app/services/diagnosis_prompts.py` | System prompt, state extraction prompt, red flags, emergency templates, disclaimer |
+| `backend/app/services/diagnosis_safety.py` | `pre_check_red_flags`, `validate_response`, `sanitize_response` |
+| `backend/app/api/diagnosis.py` | FastAPI route handlers (5 endpoints) |
+| `backend/app/schemas/diagnosis.py` | Pydantic request/response models (`DiagnosisState`, `DiagnosisTurnResponse`, etc.) |
+| `backend/app/models/diagnosis.py` | SQLAlchemy ORM models (`DiagnosisSession`, `DiagnosisMessage`) |
+| `backend/tests/test_diagnosis_service.py` | 41 tests (safety, service, routes, lifecycle) |
