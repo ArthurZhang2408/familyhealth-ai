@@ -23,6 +23,8 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from httpx import AsyncClient
 
+from app.agents.core import AgentCore
+from app.agents.registry import ToolRegistry
 from app.schemas.diagnosis import (
     DiagnosisPhase,
     Severity,
@@ -54,9 +56,7 @@ def _make_profile(**overrides: Any) -> MagicMock:
         "sex": "female",
         "blood_type": "A+",
         "relationship": "self",
-        "allergies": [
-            {"allergen": "Penicillin", "severity": "severe", "reaction": "rash"}
-        ],
+        "allergies": [{"allergen": "Penicillin", "severity": "severe", "reaction": "rash"}],
         "current_medications": [
             {"name": "Metformin", "dosage": "500mg", "frequency": "twice daily"}
         ],
@@ -191,9 +191,7 @@ class TestRedFlagPreCheck:
         assert "respiratory" in flags[0]
 
     def test_multiple_flags(self) -> None:
-        flags = pre_check_red_flags(
-            "I have chest pain and face drooping and slurred speech"
-        )
+        flags = pre_check_red_flags("I have chest pain and face drooping and slurred speech")
         assert len(flags) >= 2
 
     def test_case_insensitive(self) -> None:
@@ -270,7 +268,10 @@ class TestDiagnosisServiceCreateSession:
         profile = _make_profile()
         svc = DiagnosisService(
             db=db_session,
-            llm_router=_mock_llm_router(),
+            agent_core=AgentCore(
+                llm_router=_mock_llm_router(),
+                tool_registry=ToolRegistry(),
+            ),
             context_builder=_mock_context_builder(),
             memory_extractor=_mock_memory_extractor(),
         )
@@ -301,10 +302,12 @@ class TestDiagnosisServiceCreateSession:
     async def test_create_session_red_flag(self, db_session: Any) -> None:
         """Red flag in chief complaint: emergency template used, LLM NOT called."""
         profile = _make_profile()
-        llm = _mock_llm_router()
         svc = DiagnosisService(
             db=db_session,
-            llm_router=llm,
+            agent_core=AgentCore(
+                llm_router=_mock_llm_router(),
+                tool_registry=ToolRegistry(),
+            ),
             context_builder=_mock_context_builder(),
             memory_extractor=_mock_memory_extractor(),
         )
@@ -320,16 +323,12 @@ class TestDiagnosisServiceCreateSession:
         db_session.add(real_profile)
         await db_session.flush()
 
-        session, turn = await svc.create_session(
-            profile, "I'm having severe chest pain"
-        )
+        session, turn = await svc.create_session(profile, "I'm having severe chest pain")
         await db_session.commit()
 
         assert turn.diagnosis_state.severity == Severity.EMERGENCY
         assert len(turn.diagnosis_state.red_flags_detected) > 0
-        assert (
-            "emergency" in turn.message.content.lower() or "911" in turn.message.content
-        )
+        assert "emergency" in turn.message.content.lower() or "911" in turn.message.content
 
 
 class TestDiagnosisServiceSendMessage:
@@ -339,7 +338,10 @@ class TestDiagnosisServiceSendMessage:
         profile = _make_profile()
         svc = DiagnosisService(
             db=db_session,
-            llm_router=_mock_llm_router(),
+            agent_core=AgentCore(
+                llm_router=_mock_llm_router(),
+                tool_registry=ToolRegistry(),
+            ),
             context_builder=_mock_context_builder(),
             memory_extractor=_mock_memory_extractor(),
         )
@@ -371,7 +373,10 @@ class TestDiagnosisServiceSendMessage:
         profile = _make_profile()
         svc = DiagnosisService(
             db=db_session,
-            llm_router=_mock_llm_router(),
+            agent_core=AgentCore(
+                llm_router=_mock_llm_router(),
+                tool_registry=ToolRegistry(),
+            ),
             context_builder=_mock_context_builder(),
             memory_extractor=_mock_memory_extractor(),
         )
@@ -402,7 +407,10 @@ class TestDiagnosisServiceSendMessage:
         profile = _make_profile()
         svc = DiagnosisService(
             db=db_session,
-            llm_router=_mock_llm_router(),
+            agent_core=AgentCore(
+                llm_router=_mock_llm_router(),
+                tool_registry=ToolRegistry(),
+            ),
             context_builder=_mock_context_builder(),
             memory_extractor=_mock_memory_extractor(),
         )
@@ -435,7 +443,10 @@ class TestDiagnosisServiceCloseSession:
         extractor = _mock_memory_extractor()
         svc = DiagnosisService(
             db=db_session,
-            llm_router=_mock_llm_router(),
+            agent_core=AgentCore(
+                llm_router=_mock_llm_router(),
+                tool_registry=ToolRegistry(),
+            ),
             context_builder=_mock_context_builder(),
             memory_extractor=extractor,
         )
@@ -452,9 +463,7 @@ class TestDiagnosisServiceCloseSession:
         await db_session.flush()
 
         session, _ = await svc.create_session(profile, "sore throat")
-        result = await svc.close_session(
-            session, profile, "Doctor confirmed strep throat"
-        )
+        result = await svc.close_session(session, profile, "Doctor confirmed strep throat")
         await db_session.commit()
 
         assert result.status == "resolved"
@@ -468,7 +477,10 @@ class TestDiagnosisServiceCloseSession:
         profile = _make_profile()
         svc = DiagnosisService(
             db=db_session,
-            llm_router=_mock_llm_router(),
+            agent_core=AgentCore(
+                llm_router=_mock_llm_router(),
+                tool_registry=ToolRegistry(),
+            ),
             context_builder=_mock_context_builder(),
             memory_extractor=_mock_memory_extractor(),
         )
@@ -516,7 +528,10 @@ class TestDiagnosisServiceStateExtraction:
 
         svc = DiagnosisService(
             db=db_session,
-            llm_router=llm,
+            agent_core=AgentCore(
+                llm_router=llm,
+                tool_registry=ToolRegistry(),
+            ),
             context_builder=_mock_context_builder(),
             memory_extractor=_mock_memory_extractor(),
         )
@@ -547,7 +562,10 @@ class TestDiagnosisServiceListSessions:
         profile = _make_profile()
         svc = DiagnosisService(
             db=db_session,
-            llm_router=_mock_llm_router(),
+            agent_core=AgentCore(
+                llm_router=_mock_llm_router(),
+                tool_registry=ToolRegistry(),
+            ),
             context_builder=_mock_context_builder(),
             memory_extractor=_mock_memory_extractor(),
         )
@@ -576,7 +594,10 @@ class TestDiagnosisServiceListSessions:
         profile = _make_profile()
         svc = DiagnosisService(
             db=db_session,
-            llm_router=_mock_llm_router(),
+            agent_core=AgentCore(
+                llm_router=_mock_llm_router(),
+                tool_registry=ToolRegistry(),
+            ),
             context_builder=_mock_context_builder(),
             memory_extractor=_mock_memory_extractor(),
         )
@@ -636,18 +657,23 @@ class TestMemoryExtraction:
 
 @pytest.fixture
 def _override_diagnosis_deps(client: AsyncClient, db_session: Any) -> Iterator[None]:
-    """Override LLM/memory deps for route-level tests."""
-    from app.api.deps import get_context_builder, get_llm_router, get_memory_extractor
+    """Override agent/memory deps for route-level tests."""
+    from app.agents.core import AgentCore
+    from app.agents.registry import ToolRegistry
+    from app.api.deps import get_agent_core, get_context_builder, get_memory_extractor
     from app.main import app
 
-    app.dependency_overrides[get_llm_router] = _mock_llm_router
+    # Build an AgentCore that wraps the mock LLM router
+    mock_router = _mock_llm_router()
+    mock_agent_core = AgentCore(llm_router=mock_router, tool_registry=ToolRegistry())
+
+    app.dependency_overrides[get_agent_core] = lambda: mock_agent_core
     app.dependency_overrides[get_context_builder] = _mock_context_builder
     app.dependency_overrides[get_memory_extractor] = _mock_memory_extractor
 
     yield
 
-    # Remove only our overrides (conftest also clears all, but be explicit)
-    app.dependency_overrides.pop(get_llm_router, None)
+    app.dependency_overrides.pop(get_agent_core, None)
     app.dependency_overrides.pop(get_context_builder, None)
     app.dependency_overrides.pop(get_memory_extractor, None)
 

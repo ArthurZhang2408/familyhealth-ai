@@ -28,6 +28,7 @@ _memory_service: MemoryService | None = None
 _llm_router: LLMRouter | None = None
 _context_builder: ContextBuilder | None = None
 _memory_extractor: MemoryExtractor | None = None
+_agent_core = None  # AgentCore | None — lazy import to avoid circular
 
 
 async def get_verified_profile(
@@ -70,6 +71,7 @@ def get_llm_router() -> LLMRouter:
         gemini = GeminiProvider(
             api_key=settings.gemini_api_key,
             diagnosis_model=settings.gemini_diagnosis_model,
+            report_model=settings.gemini_report_model,
             default_model=settings.gemini_flash_model,
         )
         qwen = QwenProvider(
@@ -98,3 +100,25 @@ def get_memory_extractor() -> MemoryExtractor:
         _memory_extractor = MemoryExtractor(get_memory_service())
         logger.info("MemoryExtractor initialised")
     return _memory_extractor
+
+
+def get_agent_core():
+    """Return a singleton AgentCore with registered tools."""
+    global _agent_core  # noqa: PLW0603
+    if _agent_core is None:
+        from app.agents.core import AgentCore
+        from app.agents.registry import ToolRegistry
+        from app.agents.tools.memory_search import build_memory_search_tool
+        from app.agents.tools.profile_lookup import build_profile_lookup_tool
+        from app.core.database import async_session_factory
+
+        registry = ToolRegistry()
+        registry.register(build_memory_search_tool(get_memory_service()))
+        registry.register(build_profile_lookup_tool(async_session_factory))
+
+        _agent_core = AgentCore(
+            llm_router=get_llm_router(),
+            tool_registry=registry,
+        )
+        logger.info("AgentCore initialised with %d tools", len(registry._tools))
+    return _agent_core

@@ -183,7 +183,7 @@ async def _retry_llm(coro_fn, *, max_retries: int = 3, base_delay: float = 30.0)
 async def run() -> bool:
     from sqlalchemy import select
 
-    from app.api.deps import get_llm_router, get_memory_service
+    from app.api.deps import get_agent_core, get_llm_router, get_memory_service
     from app.core.database import async_session_factory, engine
     from app.models.action_log import ActionLog
     from app.models.diagnosis import DiagnosisMessage, DiagnosisSession
@@ -199,6 +199,7 @@ async def run() -> bool:
     llm_router = get_llm_router()
     context_builder = ContextBuilder(memory_service)
     memory_extractor = MemoryExtractor(memory_service)
+    agent_core = get_agent_core()
 
     profile_id: uuid.UUID | None = None
     checks: list[tuple[str, bool]] = []
@@ -248,7 +249,7 @@ async def run() -> bool:
         async def _create_session():
             async with async_session_factory() as db:
                 lp = await db.get(Profile, profile_id)
-                s = DiagnosisService(db, llm_router, context_builder, memory_extractor)
+                s = DiagnosisService(db, llm_router, context_builder, memory_extractor, agent_core)
                 sess, trn = await s.create_session(lp, CHIEF_COMPLAINT)
                 await db.commit()
                 return sess, trn
@@ -296,7 +297,9 @@ async def run() -> bool:
                 async def _send(content=msg_text):
                     async with async_session_factory() as db:
                         lp = await db.get(Profile, profile_id)
-                        s = DiagnosisService(db, llm_router, context_builder, memory_extractor)
+                        s = DiagnosisService(
+                            db, llm_router, context_builder, memory_extractor, agent_core
+                        )
                         r = await db.execute(
                             select(DiagnosisSession).where(DiagnosisSession.id == session_id)
                         )
@@ -378,7 +381,7 @@ async def run() -> bool:
 
         async with async_session_factory() as db:
             loaded_profile = await db.get(Profile, profile_id)
-            svc = DiagnosisService(db, llm_router, context_builder, memory_extractor)
+            svc = DiagnosisService(db, llm_router, context_builder, memory_extractor, agent_core)
 
             emergency_session, emergency_turn = await svc.create_session(
                 loaded_profile, RED_FLAG_MESSAGE
@@ -421,7 +424,7 @@ async def run() -> bool:
         if llm_available and session_id:
             async with async_session_factory() as db:
                 loaded_profile = await db.get(Profile, profile_id)
-                svc = DiagnosisService(db, llm_router, context_builder, memory_extractor)
+                svc = DiagnosisService(db, agent_core, context_builder, memory_extractor)
                 result = await db.execute(
                     select(DiagnosisSession).where(DiagnosisSession.id == session_id)
                 )
@@ -491,7 +494,7 @@ async def run() -> bool:
         _print_step(10, "Verify session listing with status filter")
 
         async with async_session_factory() as db:
-            svc = DiagnosisService(db, llm_router, context_builder, memory_extractor)
+            svc = DiagnosisService(db, llm_router, context_builder, memory_extractor, agent_core)
             all_sessions = await svc.list_sessions(profile_id)
 
         print(f"  Total sessions: {all_sessions.total}")

@@ -1,11 +1,15 @@
 import uuid
 from collections.abc import AsyncGenerator
+from unittest.mock import AsyncMock
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import NullPool
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from app.agents.core import AgentCore
+from app.agents.registry import ToolRegistry
+from app.api.deps import get_agent_core
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import CurrentAccount, get_current_account
@@ -58,6 +62,16 @@ async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
 
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_current_account] = override_get_current_account
+    # Provide a real AgentCore with a mock LLM router — no fallback.
+    # Tests that need specific LLM responses override get_agent_core again
+    # in their own fixture (e.g., _override_diagnosis_deps).
+    mock_router = AsyncMock()
+    mock_router.route = AsyncMock(
+        return_value=AsyncMock(content="mock", model="test", usage={}, tool_calls=None)
+    )
+    app.dependency_overrides[get_agent_core] = lambda: AgentCore(
+        llm_router=mock_router, tool_registry=ToolRegistry()
+    )
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         yield ac

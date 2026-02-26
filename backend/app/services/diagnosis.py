@@ -10,6 +10,9 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.agents.core import AgentCore
+from app.agents.definitions import DIAGNOSIS_AGENT
+from app.agents.session import AgentSession
 from app.models.diagnosis import DiagnosisMessage, DiagnosisSession
 from app.models.profile import Profile
 from app.schemas.action_log import ActionType
@@ -34,7 +37,7 @@ from app.services.diagnosis_safety import (
     sanitize_response,
     validate_response,
 )
-from app.services.llm import LLMMessage, LLMRequest, LLMResponse, LLMRouter, LLMTask
+from app.services.llm import LLMMessage, LLMRequest, LLMResponse, LLMTask
 from app.services.memory import build_conversation_window
 from app.services.memory_extractor import MemoryExtractor
 
@@ -58,12 +61,12 @@ class DiagnosisService:
     def __init__(
         self,
         db: AsyncSession,
-        llm_router: LLMRouter,
+        agent_core: AgentCore,
         context_builder: ContextBuilder,
         memory_extractor: MemoryExtractor,
     ) -> None:
         self._db = db
-        self._llm = llm_router
+        self._agent = agent_core
         self._ctx = context_builder
         self._mem_extractor = memory_extractor
 
@@ -110,9 +113,7 @@ class DiagnosisService:
             )
 
         # Store messages
-        user_msg = DiagnosisMessage(
-            session_id=session.id, role="user", content=chief_complaint
-        )
+        user_msg = DiagnosisMessage(session_id=session.id, role="user", content=chief_complaint)
         assistant_msg = DiagnosisMessage(
             session_id=session.id, role="assistant", content=conversation_text
         )
@@ -177,9 +178,7 @@ class DiagnosisService:
                 information_gathered={"chief_complaint": session.chief_complaint},
             )
         else:
-            conversation_text, diagnosis_state = await self._handle_turn(
-                session, profile, content
-            )
+            conversation_text, diagnosis_state = await self._handle_turn(session, profile, content)
 
         # Store messages
         user_msg = DiagnosisMessage(session_id=session.id, role="user", content=content)
@@ -274,9 +273,7 @@ class DiagnosisService:
                 category="diagnoses",
             )
         except Exception:
-            logger.exception(
-                "Resolution memory extraction failed for session %s", session.id
-            )
+            logger.exception("Resolution memory extraction failed for session %s", session.id)
 
         # Log action
         await self._log_action(
@@ -301,9 +298,7 @@ class DiagnosisService:
         per_page: int = 20,
     ) -> PaginatedResponse[DiagnosisSessionResponse]:
         """List diagnosis sessions for a profile."""
-        base_query = select(DiagnosisSession).where(
-            DiagnosisSession.profile_id == profile_id
-        )
+        base_query = select(DiagnosisSession).where(DiagnosisSession.profile_id == profile_id)
         if status:
             base_query = base_query.where(DiagnosisSession.status == status)
 
@@ -355,17 +350,21 @@ class DiagnosisService:
         turn_number = sum(1 for m in messages if m["role"] == "user")
         system_prompt = system_prompt.replace("{turn_number}", str(turn_number))
 
-        # 3. Pass 1 — Generate conversational response
-        conversation_text = await self._call_llm(system_prompt, messages)
+        # 3. Pass 1 — Generate conversational response via AgentCore
+        agent_session = AgentSession(
+            profile_id=profile.id,
+            system_prompt=system_prompt,
+            messages=messages,
+        )
+        agent_result = await self._agent.run(agent_session, DIAGNOSIS_AGENT)
+        conversation_text = agent_result.content.strip()
 
         # 4. Safety validation
         violations = validate_response(conversation_text)
         conversation_text = sanitize_response(conversation_text, violations)
 
         # 5. Pass 2 — Extract structured diagnosis state
-        diagnosis_state = await self._extract_state(
-            system_prompt, messages, conversation_text
-        )
+        diagnosis_state = await self._extract_state(system_prompt, messages, conversation_text)
 
         return conversation_text, diagnosis_state
 
@@ -396,24 +395,6 @@ class DiagnosisService:
 
         return windowed
 
-    async def _call_llm(
-        self,
-        system_prompt: str,
-        messages: list[dict[str, str]],
-    ) -> str:
-        """Pass 1: Gemini DIAGNOSIS task — conversational response."""
-        request = LLMRequest(
-            task=LLMTask.DIAGNOSIS,
-            system_prompt=system_prompt,
-            messages=[
-                LLMMessage(role=m["role"], content=m["content"]) for m in messages
-            ],
-            temperature=0.3,
-            max_tokens=2000,
-        )
-        response: LLMResponse = await self._llm.route(request)
-        return response.content.strip()
-
     async def _extract_state(
         self,
         system_prompt: str,
@@ -434,15 +415,12 @@ class DiagnosisService:
             request = LLMRequest(
                 task=LLMTask.FACT_EXTRACTION,
                 system_prompt=system_prompt,
-                messages=[
-                    LLMMessage(role=m["role"], content=m["content"])
-                    for m in all_messages
-                ],
+                messages=[LLMMessage(role=m["role"], content=m["content"]) for m in all_messages],
                 temperature=0.0,
                 max_tokens=2000,
                 response_format={"type": "json"},
             )
-            response: LLMResponse = await self._llm.route(request)
+            response: LLMResponse = await self._agent.call(request)
             raw_state = json.loads(response.content)
 
             return DiagnosisState.model_validate(raw_state)
@@ -484,9 +462,6 @@ class DiagnosisService:
         age = (
             today.year
             - profile.date_of_birth.year
-            - (
-                (today.month, today.day)
-                < (profile.date_of_birth.month, profile.date_of_birth.day)
-            )
+            - ((today.month, today.day) < (profile.date_of_birth.month, profile.date_of_birth.day))
         )
         return float(age)

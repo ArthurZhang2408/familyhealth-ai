@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     # LLM — Gemini
     gemini_api_key: str = ""
     gemini_diagnosis_model: str = "gemini-2.5-flash"
+    gemini_report_model: str = "gemini-2.5-flash"
     gemini_flash_model: str = "gemini-2.5-flash-lite"
 
     # LLM — Qwen via Ollama Cloud
@@ -33,6 +34,9 @@ class Settings(BaseSettings):
     # Embeddings (Gemini for Mem0 vector store — reuses gemini_api_key)
     embedding_model: str = "models/gemini-embedding-001"
     embedding_dims: int = 768
+
+    # Reports
+    max_report_file_size: int = 20_971_520  # 20 MB
 
     # App
     app_env: str = "development"
