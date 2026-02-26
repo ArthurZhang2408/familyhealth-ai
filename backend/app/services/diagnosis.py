@@ -110,7 +110,9 @@ class DiagnosisService:
             )
 
         # Store messages
-        user_msg = DiagnosisMessage(session_id=session.id, role="user", content=chief_complaint)
+        user_msg = DiagnosisMessage(
+            session_id=session.id, role="user", content=chief_complaint
+        )
         assistant_msg = DiagnosisMessage(
             session_id=session.id, role="assistant", content=conversation_text
         )
@@ -175,7 +177,9 @@ class DiagnosisService:
                 information_gathered={"chief_complaint": session.chief_complaint},
             )
         else:
-            conversation_text, diagnosis_state = await self._handle_turn(session, profile, content)
+            conversation_text, diagnosis_state = await self._handle_turn(
+                session, profile, content
+            )
 
         # Store messages
         user_msg = DiagnosisMessage(session_id=session.id, role="user", content=content)
@@ -270,7 +274,9 @@ class DiagnosisService:
                 category="diagnoses",
             )
         except Exception:
-            logger.exception("Resolution memory extraction failed for session %s", session.id)
+            logger.exception(
+                "Resolution memory extraction failed for session %s", session.id
+            )
 
         # Log action
         await self._log_action(
@@ -295,7 +301,9 @@ class DiagnosisService:
         per_page: int = 20,
     ) -> PaginatedResponse[DiagnosisSessionResponse]:
         """List diagnosis sessions for a profile."""
-        base_query = select(DiagnosisSession).where(DiagnosisSession.profile_id == profile_id)
+        base_query = select(DiagnosisSession).where(
+            DiagnosisSession.profile_id == profile_id
+        )
         if status:
             base_query = base_query.where(DiagnosisSession.status == status)
 
@@ -316,28 +324,6 @@ class DiagnosisService:
             total=total,
             page=page,
             per_page=per_page,
-        )
-
-    # ------------------------------------------------------------------
-    # Background task — memory extraction (called from route layer)
-    # ------------------------------------------------------------------
-
-    async def extract_memories_background(
-        self,
-        profile_id: UUID,
-        user_content: str,
-        assistant_content: str,
-        session_id: UUID,
-    ) -> None:
-        """Run memory extraction as a background task after response is sent."""
-        await self._mem_extractor.extract_and_store(
-            profile_id=profile_id,
-            messages=[
-                {"role": "user", "content": user_content},
-                {"role": "assistant", "content": assistant_content},
-            ],
-            source=f"diagnosis:{session_id}",
-            category="diagnoses",
         )
 
     # ------------------------------------------------------------------
@@ -377,7 +363,9 @@ class DiagnosisService:
         conversation_text = sanitize_response(conversation_text, violations)
 
         # 5. Pass 2 — Extract structured diagnosis state
-        diagnosis_state = await self._extract_state(system_prompt, messages, conversation_text)
+        diagnosis_state = await self._extract_state(
+            system_prompt, messages, conversation_text
+        )
 
         return conversation_text, diagnosis_state
 
@@ -417,7 +405,9 @@ class DiagnosisService:
         request = LLMRequest(
             task=LLMTask.DIAGNOSIS,
             system_prompt=system_prompt,
-            messages=[LLMMessage(role=m["role"], content=m["content"]) for m in messages],
+            messages=[
+                LLMMessage(role=m["role"], content=m["content"]) for m in messages
+            ],
             temperature=0.3,
             max_tokens=2000,
         )
@@ -432,7 +422,7 @@ class DiagnosisService:
     ) -> DiagnosisState:
         """Pass 2: Extract structured DiagnosisState via JSON-mode LLM call.
 
-        Uses Gemini Flash (FACT_EXTRACTION task) with JSON mode.
+        Uses FACT_EXTRACTION task (routes to Qwen) with JSON mode.
         Falls back to a minimal state on failure.
         """
         try:
@@ -444,7 +434,10 @@ class DiagnosisService:
             request = LLMRequest(
                 task=LLMTask.FACT_EXTRACTION,
                 system_prompt=system_prompt,
-                messages=[LLMMessage(role=m["role"], content=m["content"]) for m in all_messages],
+                messages=[
+                    LLMMessage(role=m["role"], content=m["content"])
+                    for m in all_messages
+                ],
                 temperature=0.0,
                 max_tokens=2000,
                 response_format={"type": "json"},
@@ -491,6 +484,9 @@ class DiagnosisService:
         age = (
             today.year
             - profile.date_of_birth.year
-            - ((today.month, today.day) < (profile.date_of_birth.month, profile.date_of_birth.day))
+            - (
+                (today.month, today.day)
+                < (profile.date_of_birth.month, profile.date_of_birth.day)
+            )
         )
         return float(age)

@@ -1,6 +1,7 @@
 from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import (
@@ -10,6 +11,7 @@ from app.api.deps import (
     get_verified_profile,
 )
 from app.core.database import get_db
+from app.models.diagnosis import DiagnosisSession
 from app.models.profile import Profile
 from app.schemas.common import PaginatedResponse
 from app.schemas.diagnosis import (
@@ -55,15 +57,18 @@ async def create_session(
     """Start a new diagnosis session. Returns first AI response with assessment state."""
     svc = _build_service(db, llm_router, context_builder, memory_extractor)
     session, turn_response = await svc.create_session(profile, data.chief_complaint)
-    await db.commit()
 
-    # Background memory extraction
+    # Background memory extraction — pass extractor + data directly,
+    # not the service (which holds a request-scoped db session).
     background_tasks.add_task(
-        svc.extract_memories_background,
+        memory_extractor.extract_and_store,
         profile_id=profile.id,
-        user_content=data.chief_complaint,
-        assistant_content=turn_response.message.content,
-        session_id=session.id,
+        messages=[
+            {"role": "user", "content": data.chief_complaint},
+            {"role": "assistant", "content": turn_response.message.content},
+        ],
+        source=f"diagnosis:{session.id}",
+        category="diagnoses",
     )
 
     return turn_response
@@ -76,13 +81,32 @@ async def list_sessions(
     page: int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
-    llm_router: LLMRouter = Depends(get_llm_router),
-    context_builder: ContextBuilder = Depends(get_context_builder),
-    memory_extractor: MemoryExtractor = Depends(get_memory_extractor),
 ) -> PaginatedResponse[DiagnosisSessionResponse]:
     """List diagnosis sessions for the profile."""
-    svc = _build_service(db, llm_router, context_builder, memory_extractor)
-    return await svc.list_sessions(profile.id, status, page, per_page)
+    base_query = select(DiagnosisSession).where(
+        DiagnosisSession.profile_id == profile.id
+    )
+    if status:
+        base_query = base_query.where(DiagnosisSession.status == status)
+
+    count_result = await db.execute(
+        select(func.count()).select_from(base_query.subquery())
+    )
+    total = count_result.scalar_one()
+
+    result = await db.execute(
+        base_query.offset((page - 1) * per_page)
+        .limit(per_page)
+        .order_by(DiagnosisSession.created_at.desc())
+    )
+    sessions = result.scalars().all()
+
+    return PaginatedResponse(
+        items=[DiagnosisSessionResponse.model_validate(s) for s in sessions],
+        total=total,
+        page=page,
+        per_page=per_page,
+    )
 
 
 @router.get("/{sid}", response_model=DiagnosisSessionDetailResponse)
@@ -90,13 +114,15 @@ async def get_session(
     sid: UUID,
     profile: Profile = Depends(get_verified_profile),
     db: AsyncSession = Depends(get_db),
-    llm_router: LLMRouter = Depends(get_llm_router),
-    context_builder: ContextBuilder = Depends(get_context_builder),
-    memory_extractor: MemoryExtractor = Depends(get_memory_extractor),
 ) -> DiagnosisSessionDetailResponse:
     """Get session details with full message history."""
-    svc = _build_service(db, llm_router, context_builder, memory_extractor)
-    session = await svc.get_session(sid, profile.id)
+    result = await db.execute(
+        select(DiagnosisSession).where(
+            DiagnosisSession.id == sid,
+            DiagnosisSession.profile_id == profile.id,
+        )
+    )
+    session = result.scalar_one_or_none()
     if not session:
         raise HTTPException(status_code=404, detail="Diagnosis session not found")
     return DiagnosisSessionDetailResponse.model_validate(session)
@@ -120,15 +146,17 @@ async def send_message(
         raise HTTPException(status_code=404, detail="Diagnosis session not found")
 
     turn_response = await svc.send_message(session, profile, data.content)
-    await db.commit()
 
-    # Background memory extraction
+    # Background memory extraction — pass extractor + data directly
     background_tasks.add_task(
-        svc.extract_memories_background,
+        memory_extractor.extract_and_store,
         profile_id=profile.id,
-        user_content=data.content,
-        assistant_content=turn_response.message.content,
-        session_id=session.id,
+        messages=[
+            {"role": "user", "content": data.content},
+            {"role": "assistant", "content": turn_response.message.content},
+        ],
+        source=f"diagnosis:{session.id}",
+        category="diagnoses",
     )
 
     return turn_response
@@ -153,20 +181,16 @@ async def update_session(
     if data.status == "resolved":
         session = await svc.close_session(session, profile, data.resolution_notes)
     elif data.status == "abandoned":
-        from sqlalchemy import func
-
         session.status = "abandoned"
         session.resolved_at = func.now()
         if data.resolution_notes:
             session.resolution_notes = data.resolution_notes
         await db.flush()
     else:
-        # Generic field update
         update_data = data.model_dump(exclude_unset=True)
         for field, value in update_data.items():
             setattr(session, field, value)
         await db.flush()
 
-    await db.commit()
     await db.refresh(session)
     return DiagnosisSessionResponse.model_validate(session)

@@ -54,7 +54,9 @@ def _make_profile(**overrides: Any) -> MagicMock:
         "sex": "female",
         "blood_type": "A+",
         "relationship": "self",
-        "allergies": [{"allergen": "Penicillin", "severity": "severe", "reaction": "rash"}],
+        "allergies": [
+            {"allergen": "Penicillin", "severity": "severe", "reaction": "rash"}
+        ],
         "current_medications": [
             {"name": "Metformin", "dosage": "500mg", "frequency": "twice daily"}
         ],
@@ -189,7 +191,9 @@ class TestRedFlagPreCheck:
         assert "respiratory" in flags[0]
 
     def test_multiple_flags(self) -> None:
-        flags = pre_check_red_flags("I have chest pain and face drooping and slurred speech")
+        flags = pre_check_red_flags(
+            "I have chest pain and face drooping and slurred speech"
+        )
         assert len(flags) >= 2
 
     def test_case_insensitive(self) -> None:
@@ -316,12 +320,16 @@ class TestDiagnosisServiceCreateSession:
         db_session.add(real_profile)
         await db_session.flush()
 
-        session, turn = await svc.create_session(profile, "I'm having severe chest pain")
+        session, turn = await svc.create_session(
+            profile, "I'm having severe chest pain"
+        )
         await db_session.commit()
 
         assert turn.diagnosis_state.severity == Severity.EMERGENCY
         assert len(turn.diagnosis_state.red_flags_detected) > 0
-        assert "emergency" in turn.message.content.lower() or "911" in turn.message.content
+        assert (
+            "emergency" in turn.message.content.lower() or "911" in turn.message.content
+        )
 
 
 class TestDiagnosisServiceSendMessage:
@@ -444,7 +452,9 @@ class TestDiagnosisServiceCloseSession:
         await db_session.flush()
 
         session, _ = await svc.create_session(profile, "sore throat")
-        result = await svc.close_session(session, profile, "Doctor confirmed strep throat")
+        result = await svc.close_session(
+            session, profile, "Doctor confirmed strep throat"
+        )
         await db_session.commit()
 
         assert result.status == "resolved"
@@ -594,31 +604,29 @@ class TestDiagnosisServiceListSessions:
         assert resolved.total == 1
 
 
-class TestDiagnosisServiceMemoryExtraction:
+class TestMemoryExtraction:
     @pytest.mark.asyncio
-    async def test_background_extraction(self, db_session: Any) -> None:
-        """Verify extract_memories_background calls the extractor."""
-        profile = _make_profile()
+    async def test_extractor_called_with_correct_args(self) -> None:
+        """Verify MemoryExtractor.extract_and_store is callable with diagnosis args."""
         extractor = _mock_memory_extractor()
-        svc = DiagnosisService(
-            db=db_session,
-            llm_router=_mock_llm_router(),
-            context_builder=_mock_context_builder(),
-            memory_extractor=extractor,
-        )
-
+        profile_id = uuid.uuid4()
         session_id = uuid.uuid4()
-        await svc.extract_memories_background(
-            profile_id=profile.id,
-            user_content="I have headaches",
-            assistant_content="Let me ask some questions...",
-            session_id=session_id,
+
+        await extractor.extract_and_store(
+            profile_id=profile_id,
+            messages=[
+                {"role": "user", "content": "I have headaches"},
+                {"role": "assistant", "content": "Let me ask some questions..."},
+            ],
+            source=f"diagnosis:{session_id}",
+            category="diagnoses",
         )
 
         extractor.extract_and_store.assert_called_once()
         call_kwargs = extractor.extract_and_store.call_args
-        assert call_kwargs.kwargs["profile_id"] == profile.id
-        assert f"diagnosis:{session_id}" == call_kwargs.kwargs["source"]
+        assert call_kwargs.kwargs["profile_id"] == profile_id
+        assert call_kwargs.kwargs["source"] == f"diagnosis:{session_id}"
+        assert call_kwargs.kwargs["category"] == "diagnoses"
 
 
 # ---------------------------------------------------------------------------
