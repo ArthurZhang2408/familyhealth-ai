@@ -21,7 +21,4 @@
 
 ## Backend
 
-- **Migrate `@app.on_event` to lifespan** (`backend/app/main.py:47,52`)
-  FastAPI deprecated `@app.on_event("startup"/"shutdown")` in 0.93. Replace with a `@asynccontextmanager` lifespan function passed to `FastAPI(lifespan=...)`. No functional impact today — just a deprecation warning.
-- **Remove unused `supabase_jwt_secret` config** (`backend/app/core/config.py`)
-  JWT verification now uses JWKS/ES256. The HS256 secret field in config and `.env` is dead code.
+*(All items completed — see chore/backend-cleanup branch)*
