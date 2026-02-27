@@ -296,9 +296,7 @@ async def run() -> bool:
                 async def _send(content=msg_text):
                     async with async_session_factory() as db:
                         lp = await db.get(Profile, profile_id)
-                        s = DiagnosisService(
-                            db, agent_core, context_builder, memory_extractor
-                        )
+                        s = DiagnosisService(db, agent_core, context_builder, memory_extractor)
                         r = await db.execute(
                             select(DiagnosisSession).where(DiagnosisSession.id == session_id)
                         )

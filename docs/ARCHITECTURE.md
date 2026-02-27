@@ -456,7 +456,7 @@ All data endpoints are nested under `/profiles/{pid}` to enforce profile scoping
 - **Pagination**: `?page=1&per_page=20` on all list endpoints. Response includes `{ items, total, page, per_page }`.
 - **Errors**: Standard HTTP status codes. Body: `{ "detail": "Human-readable message", "code": "MACHINE_CODE" }`.
 - **Streaming**: Diagnosis and chat message endpoints support `Accept: text/event-stream` for SSE streaming.
-- **Medical disclaimer**: Every diagnosis and report analysis response includes a `disclaimer` field:
+- **Medical disclaimer**: Every diagnosis, report analysis, and chat response includes a `disclaimer` field:
   > "This is AI-generated health information, not a medical diagnosis. Always consult a qualified healthcare professional."
 
 ---
@@ -765,6 +765,22 @@ stateDiagram-v2
 9. Medical disclaimer injected by backend into every response (never relies on LLM).
 10. On resolution: resolution summary extracted to long-term memory, action logged.
 
+### Chat Flow
+
+**Chat interaction steps (single-pass):**
+
+1. User sends a message with optional `conversation_id` to continue an existing conversation. If omitted, a new `chat_conversations` record is created.
+2. **Mental health crisis pre-check**: backend scans message for crisis keywords (suicidal ideation, self-harm, etc.). If detected, returns a crisis response with 988 Lifeline/Crisis Text Line resources immediately — no LLM call.
+3. **Context assembly**: `ContextBuilder` loads profile (Tier 1) + retrieves relevant episodic memories from Mem0 (Tier 2, limit=10, threshold=0.1). Injects into the chat system prompt.
+4. **Conversation history**: loads existing messages for the conversation, applies sliding window (MAX_HISTORY_TOKENS=3000) to fit within context budget.
+5. **LLM call (agentic)**: `AgentCore.run()` with `CHAT_AGENT` definition — Qwen generates a conversational health advisor response (temp=0.7, max_tokens=2000). Agent can invoke `search_patient_memory` tool during the loop.
+6. **Safety validation**: backend scans response for prohibited patterns (specific dosages, "you don't need a doctor"). Violations trigger a safety notice appended to the response.
+7. User and assistant messages stored in `chat_messages`. Conversation `updated_at` refreshed.
+8. **Topic auto-generation**: on the first message of a new conversation (no explicit topic provided), `AgentCore.call()` with `SUMMARIZATION` task generates a short 3-6 word topic label. Best-effort — failure does not block the response.
+9. **Background**: `MemoryExtractor` fires via `BackgroundTasks` to extract facts to Mem0 (category: `general`, source: `chat:{conversation_id}`).
+10. Medical disclaimer injected by backend into every response.
+11. Action logged: `chat_message` with conversation ID, topic, and message preview.
+
 ### Report Analysis Flow
 
 ```mermaid
@@ -787,13 +803,13 @@ flowchart LR
 
 ### Background Tasks
 
-Post-interaction memory extraction uses FastAPI's `BackgroundTasks`. The extraction pipeline runs after the AI response is sent to the user, so it never blocks the request. Diagnosis routes wire this via `background_tasks.add_task(svc.extract_memories_background, ...)`. If the server restarts mid-extraction, the memory update is lost — but the same facts will be re-extracted on the next interaction. For v2, consider a task queue (arq + Redis) for reliability and retry support.
+Post-interaction memory extraction uses FastAPI's `BackgroundTasks`. The extraction pipeline runs after the AI response is sent to the user, so it never blocks the request. Diagnosis and chat routes wire this via `background_tasks.add_task(memory_extractor.extract_and_store, ...)` — `MemoryExtractor` is passed directly, not through the service, so it doesn't hold a reference to the request-scoped DB session. If the server restarts mid-extraction, the memory update is lost — but the same facts will be re-extracted on the next interaction. For v2, consider a task queue (arq + Redis) for reliability and retry support.
 
 ---
 
 ## 6. Agent Infrastructure
 
-Both diagnosis and report analysis (and future features) share a reusable agent infrastructure in `app/agents/`. The pattern separates the agentic loop from feature-specific logic.
+Diagnosis, report analysis, and chat share a reusable agent infrastructure in `app/agents/`. The pattern separates the agentic loop from feature-specific logic.
 
 ### Components
 

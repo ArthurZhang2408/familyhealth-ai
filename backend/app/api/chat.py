@@ -1,40 +1,78 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_verified_profile
+from app.agents.core import AgentCore
+from app.api.deps import (
+    get_agent_core,
+    get_context_builder,
+    get_memory_extractor,
+    get_verified_profile,
+)
 from app.core.database import get_db
-from app.models.chat import ChatConversation, ChatMessage
+from app.models.chat import ChatConversation
 from app.models.profile import Profile
 from app.schemas.chat import (
     ChatConversationDetailResponse,
     ChatConversationResponse,
     ChatMessageCreate,
-    ChatMessageResponse,
+    ChatTurnResponse,
 )
 from app.schemas.common import PaginatedResponse
+from app.services.chat import ChatService
+from app.services.context_builder import ContextBuilder
+from app.services.memory_extractor import MemoryExtractor
 
 router = APIRouter(prefix="/profiles/{pid}/chat", tags=["chat"])
 
 
-@router.post("", response_model=ChatMessageResponse, status_code=201)
+def _build_service(
+    db: AsyncSession,
+    agent_core: AgentCore,
+    context_builder: ContextBuilder,
+    memory_extractor: MemoryExtractor,
+) -> ChatService:
+    return ChatService(
+        db=db,
+        agent_core=agent_core,
+        context_builder=context_builder,
+        memory_extractor=memory_extractor,
+    )
+
+
+@router.post("", response_model=ChatTurnResponse, status_code=201)
 async def send_message(
     data: ChatMessageCreate,
+    background_tasks: BackgroundTasks,
     profile: Profile = Depends(get_verified_profile),
     db: AsyncSession = Depends(get_db),
-) -> ChatMessageResponse:
-    """Send a chat message. Creates a new conversation if topic is provided."""
-    conversation = ChatConversation(profile_id=profile.id, topic=data.topic)
-    db.add(conversation)
-    await db.flush()
+    agent_core: AgentCore = Depends(get_agent_core),
+    context_builder: ContextBuilder = Depends(get_context_builder),
+    memory_extractor: MemoryExtractor = Depends(get_memory_extractor),
+) -> ChatTurnResponse:
+    """Send a chat message. Creates a new conversation or continues an existing one."""
+    svc = _build_service(db, agent_core, context_builder, memory_extractor)
+    conversation, turn_response = await svc.send_message(
+        profile,
+        data.content,
+        conversation_id=data.conversation_id,
+        topic=data.topic,
+    )
 
-    message = ChatMessage(conversation_id=conversation.id, role="user", content=data.content)
-    db.add(message)
-    await db.flush()
-    await db.refresh(message)
-    return ChatMessageResponse.model_validate(message)
+    background_tasks.add_task(
+        memory_extractor.extract_and_store,
+        profile_id=profile.id,
+        messages=[
+            {"role": "user", "content": data.content},
+            {"role": "assistant", "content": turn_response.message.content},
+        ],
+        source=f"chat:{conversation.id}",
+        category="general",
+    )
+
+    return turn_response
 
 
 @router.get("", response_model=PaginatedResponse[ChatConversationResponse])
