@@ -1,4 +1,6 @@
 import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,10 +13,20 @@ from app.core.exceptions import AppError, app_error_handler
 logging.basicConfig(level=settings.log_level.upper())
 logger = logging.getLogger(__name__)
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    logger.info("FamilyHealth AI backend starting up (env=%s)", settings.app_env)
+    yield
+    await engine.dispose()
+    logger.info("FamilyHealth AI backend shut down")
+
+
 app = FastAPI(
     title="FamilyHealth AI",
     description="Family health management platform API",
     version="0.1.0",
+    lifespan=lifespan,
 )
 
 origins = (
@@ -42,17 +54,6 @@ app.include_router(reports.router, prefix=API_V1)
 app.include_router(chat.router, prefix=API_V1)
 app.include_router(memory.router, prefix=API_V1)
 app.include_router(action_log.router, prefix=API_V1)
-
-
-@app.on_event("startup")
-async def startup() -> None:
-    logger.info("FamilyHealth AI backend starting up (env=%s)", settings.app_env)
-
-
-@app.on_event("shutdown")
-async def shutdown() -> None:
-    await engine.dispose()
-    logger.info("FamilyHealth AI backend shut down")
 
 
 @app.get("/health")

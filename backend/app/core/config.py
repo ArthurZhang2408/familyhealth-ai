@@ -14,7 +14,6 @@ class Settings(BaseSettings):
 
     # Supabase
     supabase_url: str = ""
-    supabase_jwt_secret: str = ""
     supabase_service_key: str = ""
 
     # LLM — Gemini
