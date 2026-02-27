@@ -48,9 +48,10 @@ export async function signInWithApple() {
       AppleAuthentication.AppleAuthenticationScope.EMAIL,
     ],
   });
+  if (!credential.identityToken) throw new Error('Apple did not provide an identity token');
   const { data, error } = await supabase.auth.signInWithIdToken({
     provider: 'apple',
-    token: credential.identityToken!,
+    token: credential.identityToken,
   });
   if (error) throw error;
   return data;

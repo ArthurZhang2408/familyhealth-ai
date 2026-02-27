@@ -25,11 +25,12 @@ function AuthGuard() {
     const inAuthGroup = segments[0] === '(auth)';
 
     if (!isAuthenticated && !inAuthGroup) {
+      queryClient.clear();
       router.replace('/(auth)/login');
     } else if (isAuthenticated && inAuthGroup) {
       router.replace('/(tabs)');
     }
-  }, [isAuthenticated, loading, segments]);
+  }, [isAuthenticated, loading, segments, router]);
 
   return null;
 }

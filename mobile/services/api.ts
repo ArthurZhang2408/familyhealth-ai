@@ -16,9 +16,10 @@ import type {
 async function getAuthHeaders(): Promise<Record<string, string>> {
   const { data } = await supabase.auth.getSession();
   const token = data.session?.access_token;
+  if (!token) throw new Error('Not authenticated');
   return {
     'Content-Type': 'application/json',
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    Authorization: `Bearer ${token}`,
   };
 }
 

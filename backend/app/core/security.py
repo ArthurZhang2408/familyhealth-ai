@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import time
 from typing import Any
@@ -15,18 +16,23 @@ logger = logging.getLogger(__name__)
 _JWKS_CACHE: dict[str, Any] = {}
 _JWKS_FETCHED_AT: float = 0.0
 _JWKS_TTL = 3600.0  # re-fetch public keys every hour
+_JWKS_LOCK = asyncio.Lock()
 
 
 async def _fetch_jwks() -> None:
     """Fetch Supabase JWKS and populate the in-memory key cache."""
     global _JWKS_FETCHED_AT
-    url = f"{settings.supabase_url}/auth/v1/.well-known/jwks.json"
-    async with httpx.AsyncClient(timeout=10) as client:
-        resp = await client.get(url)
-        resp.raise_for_status()
-    for key_data in resp.json().get("keys", []):
-        _JWKS_CACHE[key_data["kid"]] = pyjwt.algorithms.ECAlgorithm.from_jwk(key_data)
-    _JWKS_FETCHED_AT = time.monotonic()
+    async with _JWKS_LOCK:
+        # Double-check after acquiring lock — another coroutine may have refreshed
+        if _JWKS_CACHE and (time.monotonic() - _JWKS_FETCHED_AT) <= _JWKS_TTL:
+            return
+        url = f"{settings.supabase_url}/auth/v1/.well-known/jwks.json"
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(url)
+            resp.raise_for_status()
+        for key_data in resp.json().get("keys", []):
+            _JWKS_CACHE[key_data["kid"]] = pyjwt.algorithms.ECAlgorithm.from_jwk(key_data)
+        _JWKS_FETCHED_AT = time.monotonic()
 
 
 async def _get_public_key(kid: str) -> Any:
@@ -35,7 +41,8 @@ async def _get_public_key(kid: str) -> Any:
         await _fetch_jwks()
     if kid in _JWKS_CACHE:
         return _JWKS_CACHE[kid]
-    # Unknown kid — re-fetch once to handle key rotation
+    # Unknown kid — force re-fetch to handle key rotation
+    _JWKS_CACHE.clear()
     await _fetch_jwks()
     if kid not in _JWKS_CACHE:
         raise ValueError(f"kid {kid!r} not found in Supabase JWKS")
