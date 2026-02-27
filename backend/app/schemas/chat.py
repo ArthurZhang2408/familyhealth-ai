@@ -1,11 +1,12 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class ChatMessageCreate(BaseModel):
-    content: str
+    content: str = Field(min_length=1, max_length=4096)
+    conversation_id: UUID | None = None
     topic: str | None = None
 
 
@@ -17,6 +18,13 @@ class ChatMessageResponse(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class ChatTurnResponse(BaseModel):
+    """Response for send_message — includes AI response + disclaimer."""
+
+    message: ChatMessageResponse
+    disclaimer: str
 
 
 class ChatConversationResponse(BaseModel):
