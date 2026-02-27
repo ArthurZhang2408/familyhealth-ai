@@ -455,7 +455,7 @@ All data endpoints are nested under `/profiles/{pid}` to enforce profile scoping
 
 - **Pagination**: `?page=1&per_page=20` on all list endpoints. Response includes `{ items, total, page, per_page }`.
 - **Errors**: Standard HTTP status codes. Body: `{ "detail": "Human-readable message", "code": "MACHINE_CODE" }`.
-- **Streaming**: Diagnosis and chat message endpoints support `Accept: text/event-stream` for SSE streaming.
+- **Streaming**: Not yet implemented. Planned for v2 via `Accept: text/event-stream` SSE.
 - **Medical disclaimer**: Every diagnosis, report analysis, and chat response includes a `disclaimer` field:
   > "This is AI-generated health information, not a medical diagnosis. Always consult a qualified healthcare professional."
 

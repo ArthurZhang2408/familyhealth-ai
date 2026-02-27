@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.agents.core import AgentCore
 from app.agents.definitions import CHAT_AGENT
 from app.agents.session import AgentSession
+from app.core.exceptions import AppError
 from app.models.chat import ChatConversation, ChatMessage
 from app.models.profile import Profile
 from app.schemas.action_log import ActionType
@@ -80,8 +81,6 @@ class ChatService:
         if conversation_id:
             conversation = await self.get_conversation(conversation_id, profile.id)
             if not conversation:
-                from app.core.exceptions import AppError
-
                 raise AppError(
                     status_code=404,
                     detail="Conversation not found",
@@ -147,15 +146,18 @@ class ChatService:
         violations = validate_response(response_text)
         response_text = sanitize_response(response_text, violations)
 
-        # 7. Store messages
+        # 7. Store messages — flush first so they are persisted regardless of
+        # what happens in the best-effort steps below (topic generation, logging).
         user_msg = ChatMessage(conversation_id=conversation.id, role="user", content=content)
         assistant_msg = ChatMessage(
             conversation_id=conversation.id, role="assistant", content=response_text
         )
         self._db.add_all([user_msg, assistant_msg])
         conversation.updated_at = func.now()
+        await self._db.flush()
+        await self._db.refresh(assistant_msg)
 
-        # 8. Auto-generate topic for new conversations
+        # 8. Auto-generate topic for new conversations (best-effort, after flush)
         if is_new_conversation and not topic:
             await self._auto_generate_topic(conversation, content)
 
@@ -169,9 +171,6 @@ class ChatService:
                 "message_preview": content[:100],
             },
         )
-
-        await self._db.flush()
-        await self._db.refresh(assistant_msg)
 
         return conversation, ChatTurnResponse(
             message=ChatMessageResponse.model_validate(assistant_msg),
@@ -232,14 +231,25 @@ class ChatService:
         conversation_id: UUID,
         new_user_message: str,
     ) -> list[dict[str, str]]:
-        """Load conversation history, apply sliding window, append new message."""
+        """Load conversation history, apply sliding window, append new message.
+
+        Note: crisis messages (stored when detect_mental_health_crisis fired)
+        are included in history. Subsequent LLM turns will see them, which
+        lets the model acknowledge prior distress and respond with appropriate
+        care. They are not sent to the LLM without a system prompt that
+        frames the assistant as a health advisor.
+        """
+        # Cap DB fetch to the most recent 100 messages. The token-window
+        # filter applied below will further reduce what's sent to the LLM.
         stmt = (
             select(ChatMessage)
             .where(ChatMessage.conversation_id == conversation_id)
-            .order_by(ChatMessage.created_at)
+            .order_by(ChatMessage.created_at.desc())
+            .limit(100)
         )
         result = await self._db.execute(stmt)
-        history = result.scalars().all()
+        # Rows come back newest-first; reverse so oldest is first for the window
+        history = list(reversed(result.scalars().all()))
 
         messages = [{"role": m.role, "content": m.content} for m in history]
 

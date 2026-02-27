@@ -30,6 +30,7 @@ What it tests:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import sys
 import time
@@ -437,8 +438,6 @@ async def run() -> bool:
         log_types = [log.action_type for log in logs]
         print(f"  Total log entries: {len(logs)}")
         for log in logs:
-            import json
-
             print(f"    [{log.action_type}] {json.dumps(log.payload, default=str)[:80]}")
 
         checks.append(("chat_message logged", "chat_message" in log_types))

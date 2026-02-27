@@ -17,6 +17,11 @@ logger = logging.getLogger(__name__)
 def detect_mental_health_crisis(message: str) -> bool:
     """Check if the user's message indicates a mental health crisis.
 
+    Uses phrase-based substring matching — fast and zero false-negatives for
+    direct expressions, but may produce false positives for caregiver or
+    research contexts (e.g. "researching self-harm prevention"). Acceptable
+    for MVP: erring on the side of caution is the right trade-off here.
+
     Returns True if crisis language is detected.
     """
     message_lower = message.lower()
@@ -36,8 +41,10 @@ PROHIBITED_PATTERNS: list[str] = [
     # Specific drug dosage recommendations
     r"\b(take|prescribe|recommend)\b.*\b\d+\s*(mg|ml|mcg|units)\b",
     # "You don't need a doctor"
-    r"\b(don't|do not|no)\s+(need to|have to)\s+(see|visit|consult)"
-    r"\s+(a\s+)?(doctor|physician|medical)\b",
+    (
+        r"\b(don't|do not|no)\s+(need to|have to)\s+(see|visit|consult)"
+        r"\s+(a\s+)?(doctor|physician|medical)\b"
+    ),
 ]
 
 
