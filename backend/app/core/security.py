@@ -1,10 +1,52 @@
+import asyncio
+import logging
+import time
+from typing import Any
 from uuid import UUID
 
+import httpx
+import jwt as pyjwt
 from fastapi import HTTPException, Request
-from jose import JWTError, jwt
 from pydantic import BaseModel
 
 from app.core.config import settings
+
+logger = logging.getLogger(__name__)
+
+_JWKS_CACHE: dict[str, Any] = {}
+_JWKS_FETCHED_AT: float = 0.0
+_JWKS_TTL = 3600.0  # re-fetch public keys every hour
+_JWKS_LOCK = asyncio.Lock()
+
+
+async def _fetch_jwks() -> None:
+    """Fetch Supabase JWKS and populate the in-memory key cache."""
+    global _JWKS_FETCHED_AT
+    async with _JWKS_LOCK:
+        # Double-check after acquiring lock — another coroutine may have refreshed
+        if _JWKS_CACHE and (time.monotonic() - _JWKS_FETCHED_AT) <= _JWKS_TTL:
+            return
+        url = f"{settings.supabase_url}/auth/v1/.well-known/jwks.json"
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(url)
+            resp.raise_for_status()
+        for key_data in resp.json().get("keys", []):
+            _JWKS_CACHE[key_data["kid"]] = pyjwt.algorithms.ECAlgorithm.from_jwk(key_data)
+        _JWKS_FETCHED_AT = time.monotonic()
+
+
+async def _get_public_key(kid: str) -> Any:
+    """Return the EC public key for kid, refreshing the cache when stale."""
+    if not _JWKS_CACHE or (time.monotonic() - _JWKS_FETCHED_AT) > _JWKS_TTL:
+        await _fetch_jwks()
+    if kid in _JWKS_CACHE:
+        return _JWKS_CACHE[kid]
+    # Unknown kid — force re-fetch to handle key rotation
+    _JWKS_CACHE.clear()
+    await _fetch_jwks()
+    if kid not in _JWKS_CACHE:
+        raise ValueError(f"kid {kid!r} not found in Supabase JWKS")
+    return _JWKS_CACHE[kid]
 
 
 class CurrentAccount(BaseModel):
@@ -20,16 +62,29 @@ def _extract_token(request: Request) -> str:
 
 
 async def get_current_account(request: Request) -> CurrentAccount:
-    """Verify Supabase JWT and return the authenticated account."""
+    """Verify Supabase JWT (ES256) against JWKS and return the authenticated account."""
     token = _extract_token(request)
     try:
-        payload = jwt.decode(
+        kid = pyjwt.get_unverified_header(token).get("kid")
+        if not kid:
+            raise HTTPException(status_code=401, detail="JWT missing kid")
+
+        public_key = await _get_public_key(kid)
+        payload = pyjwt.decode(
             token,
-            settings.supabase_jwt_secret,
-            algorithms=["HS256"],
+            public_key,
+            algorithms=["ES256"],
             audience="authenticated",
+            issuer=f"{settings.supabase_url}/auth/v1",
+            leeway=10,
         )
-    except JWTError as e:
+    except pyjwt.PyJWTError as e:
+        logger.warning("JWT verification failed: %s", e)
+        raise HTTPException(status_code=401, detail="Invalid or expired token") from e
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("JWT processing error: %s", e)
         raise HTTPException(status_code=401, detail="Invalid or expired token") from e
 
     sub = payload.get("sub")
