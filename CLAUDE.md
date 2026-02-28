@@ -12,7 +12,7 @@ AI-powered diagnosis, medical report analysis, and health chat.
 - **LLM - Primary (diagnosis, reports)**: Google Gemini API (gemini-2.5-flash, gemini-2.5-flash-lite)
 - **LLM - Secondary (extraction, chat)**: Qwen via Ollama Cloud (`qwen3.5:397b`)
 - **Embeddings**: Google Gemini (`models/gemini-embedding-001`, 768 dims) — reuses Gemini API key
-- **Frontend**: React Native (Expo) — mobile-first
+- **Frontend**: React Native (Expo SDK 54, Expo Router 6) — mobile-first
 - **Auth**: Supabase Auth (handles accounts, supports Google/Apple sign-in)
 - **File Storage**: Supabase Storage (medical reports)
 - **Deployment**: Railway (backend) + Expo EAS (mobile)
@@ -27,17 +27,27 @@ AI-powered diagnosis, medical report analysis, and health chat.
   3. Runs conversation
   4. Post-interaction: extracts facts → updates profile + stores episodic memory
 
+## Frontend Architecture
+- **Navigation**: Drawer sidebar (Claude/ChatGPT-style), no bottom tabs
+- **Dark mode**: `useColors()` hook returns light/dark palette based on system setting. `useShadow()` for theme-aware shadows. Bidirectional type safety in `colors.ts`
+- **Styling**: Inline styles + theme constants (`Spacing`, `FontSize`, `BorderRadius`). NO NativeWind/Tailwind
+- **State**: Zustand (auth, active profile with AsyncStorage persistence) + React Query (server data)
+- **Icons**: `@expo/vector-icons` via centralized `components/Icon.tsx`
+- **Design system**: See `.interface-design/system.md` for full design system documentation
+- **Key constraint**: Use `ScrollView` not `FlatList` inside formSheet modals (Expo bug)
+
 ## Code Style
 - Python: Black formatter, type hints required, Pydantic for all models
-- TypeScript (mobile): ESLint + Prettier, strict mode
+- TypeScript (mobile): ESLint + Prettier, strict mode, `useColors()` not static `Colors` in components
 - All API endpoints have OpenAPI docs
 - Tests: pytest (backend), Jest (mobile)
 
 ## Commands
-- `cd backend && uvicorn app.main:app --reload` — run backend
-- `cd mobile && npx expo start` — run mobile
+- `cd backend && uvicorn app.main:app --reload --port 8010` — run backend
+- `cd mobile && npx expo start` — run mobile (Expo Go)
 - `cd backend && pytest` — run backend tests
 - `cd backend && black . && ruff check .` — lint backend
+- `cd mobile && npx tsc --noEmit` — type check mobile
 
 ## Critical Rules
 - NEVER store raw medical data in LLM context without profile scoping
@@ -45,3 +55,6 @@ AI-powered diagnosis, medical report analysis, and health chat.
 - All profile data is encrypted at rest
 - Multi-profile memory is strictly segregated — NEVER leak profile A's data into profile B's context
 - Use Plan Mode before any multi-file change
+- ALWAYS use `useColors()` hook in components, never static `Colors` import
+- ALWAYS use `useShadow()` hook, never static `Shadow` from theme
+- ALWAYS guard haptics with `process.env.EXPO_OS === 'ios'`
