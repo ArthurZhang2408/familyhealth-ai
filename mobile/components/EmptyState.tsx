@@ -1,6 +1,6 @@
 import { View, Text } from 'react-native';
-import { Colors } from '@/constants/colors';
-import { Spacing, FontSize } from '@/constants/theme';
+import { useColors } from '@/hooks/useColors';
+import { Spacing, FontSize, FontWeight } from '@/constants/theme';
 
 interface Props {
   title: string;
@@ -9,6 +9,7 @@ interface Props {
 }
 
 export function EmptyState({ title, subtitle, action }: Props) {
+  const Colors = useColors();
   return (
     <View
       style={{
@@ -23,7 +24,7 @@ export function EmptyState({ title, subtitle, action }: Props) {
         style={{
           fontSize: FontSize.md,
           color: Colors.text,
-          fontWeight: '600',
+          fontWeight: FontWeight.semibold,
           textAlign: 'center',
         }}
       >

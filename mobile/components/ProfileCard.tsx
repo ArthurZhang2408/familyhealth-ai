@@ -1,17 +1,10 @@
 import { View, Text, Pressable, type ViewStyle } from 'react-native';
 import * as Haptics from 'expo-haptics';
-import { Colors } from '@/constants/colors';
-import { Spacing, FontSize, FontWeight, BorderRadius, Shadow } from '@/constants/theme';
+import { useColors } from '@/hooks/useColors';
+import { useShadow } from '@/hooks/useShadow';
+import { Spacing, FontSize, FontWeight, BorderRadius } from '@/constants/theme';
 import type { Profile, Relationship } from '@/types/api';
-
-const RELATIONSHIP_COLORS: Record<Relationship, string> = {
-  self: Colors.relationshipSelf,
-  parent: Colors.relationshipParent,
-  spouse: Colors.relationshipSpouse,
-  child: Colors.relationshipChild,
-  sibling: Colors.relationshipSibling,
-  other: Colors.relationshipOther,
-};
+import type { ColorPalette } from '@/constants/colors';
 
 const RELATIONSHIP_LABELS: Record<Relationship, string> = {
   self: 'Me',
@@ -21,6 +14,17 @@ const RELATIONSHIP_LABELS: Record<Relationship, string> = {
   sibling: 'Sibling',
   other: 'Other',
 };
+
+function getRelationshipColors(Colors: ColorPalette): Record<Relationship, string> {
+  return {
+    self: Colors.relationshipSelf,
+    parent: Colors.relationshipParent,
+    spouse: Colors.relationshipSpouse,
+    child: Colors.relationshipChild,
+    sibling: Colors.relationshipSibling,
+    other: Colors.relationshipOther,
+  };
+}
 
 function getInitials(name: string): string {
   return name
@@ -38,7 +42,9 @@ interface Props {
 }
 
 export function ProfileCard({ profile, onPress, style }: Props) {
-  const color = RELATIONSHIP_COLORS[profile.relationship];
+  const Colors = useColors();
+  const Shadow = useShadow();
+  const color = getRelationshipColors(Colors)[profile.relationship];
 
   const handlePress = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);

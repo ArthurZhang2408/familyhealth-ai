@@ -1,22 +1,26 @@
-import { View, Text, Pressable, Alert } from 'react-native';
+import { useMemo } from 'react';
+import { View, Text, Pressable, Alert, ScrollView } from 'react-native';
 import { useLocalSearchParams, Stack } from 'expo-router';
-import { ScreenContainer } from '@/components/ScreenContainer';
 import { LoadingSpinner } from '@/components/LoadingSpinner';
+import { NoProfileGuard } from '@/components/NoProfileGuard';
+import { useProfileStore } from '@/stores/profile';
 import { useReport } from '@/hooks/useReports';
 import { reportsApi } from '@/services/api';
-import { Colors } from '@/constants/colors';
-import { Spacing, FontSize, FontWeight, BorderRadius, Shadow } from '@/constants/theme';
+import { useColors } from '@/hooks/useColors';
+import { useShadow } from '@/hooks/useShadow';
+import { Spacing, FontSize, FontWeight, BorderRadius } from '@/constants/theme';
+import type { ColorPalette } from '@/constants/colors';
 import type { Finding } from '@/types/api';
 
-const STATUS_COLOR = {
-  normal: Colors.success,
-  low: Colors.info,
-  high: Colors.warning,
-  critical: Colors.error,
-};
+function FindingRow({ finding, colors: Colors }: { finding: Finding; colors: ColorPalette }) {
+  const statusColor: Record<string, string> = useMemo(() => ({
+    normal: Colors.success,
+    low: Colors.info,
+    high: Colors.warning,
+    critical: Colors.error,
+  }), [Colors]);
 
-function FindingRow({ finding }: { finding: Finding }) {
-  const color = STATUS_COLOR[finding.status];
+  const color = statusColor[finding.status];
   return (
     <View
       style={{
@@ -51,7 +55,12 @@ function FindingRow({ finding }: { finding: Finding }) {
 }
 
 export default function ReportDetailScreen() {
-  const { pid, rid } = useLocalSearchParams<{ pid: string; rid: string }>();
+  const Colors = useColors();
+  const Shadow = useShadow();
+  const { rid } = useLocalSearchParams<{ rid: string }>();
+  const activeProfile = useProfileStore((s) => s.activeProfile);
+  const pid = activeProfile?.id ?? '';
+
   const { data: report, isLoading, refetch } = useReport(pid, rid);
 
   const handleReanalyze = async () => {
@@ -70,15 +79,20 @@ export default function ReportDetailScreen() {
   const result = report.analysis_result;
 
   return (
-    <>
+    <NoProfileGuard>
       <Stack.Screen options={{ title: report.original_filename }} />
-      <ScreenContainer contentStyle={{ gap: Spacing.lg }}>
+      <ScrollView
+        contentInsetAdjustmentBehavior="automatic"
+        contentContainerStyle={{ padding: Spacing.md, gap: Spacing.lg, paddingBottom: Spacing.xxl }}
+        style={{ flex: 1, backgroundColor: Colors.background }}
+      >
         {/* Status banner */}
         {report.status === 'processing' && (
           <View
             style={{
               backgroundColor: Colors.warningLight,
               borderRadius: BorderRadius.md,
+              borderCurve: 'continuous',
               padding: Spacing.md,
             }}
           >
@@ -93,6 +107,7 @@ export default function ReportDetailScreen() {
             style={{
               backgroundColor: Colors.errorLight,
               borderRadius: BorderRadius.md,
+              borderCurve: 'continuous',
               padding: Spacing.md,
               gap: Spacing.sm,
             }}
@@ -115,6 +130,7 @@ export default function ReportDetailScreen() {
               style={{
                 backgroundColor: Colors.surface,
                 borderRadius: BorderRadius.lg,
+                borderCurve: 'continuous',
                 padding: Spacing.lg,
                 ...Shadow.sm,
               }}
@@ -133,6 +149,7 @@ export default function ReportDetailScreen() {
                 style={{
                   backgroundColor: Colors.errorLight,
                   borderRadius: BorderRadius.lg,
+                  borderCurve: 'continuous',
                   padding: Spacing.md,
                   gap: Spacing.xs,
                 }}
@@ -154,6 +171,7 @@ export default function ReportDetailScreen() {
                 style={{
                   backgroundColor: Colors.surface,
                   borderRadius: BorderRadius.lg,
+                  borderCurve: 'continuous',
                   padding: Spacing.md,
                   ...Shadow.sm,
                 }}
@@ -169,7 +187,7 @@ export default function ReportDetailScreen() {
                   FINDINGS
                 </Text>
                 {result.findings.map((f, i) => (
-                  <FindingRow key={i} finding={f} />
+                  <FindingRow key={i} finding={f} colors={Colors} />
                 ))}
               </View>
             )}
@@ -180,6 +198,7 @@ export default function ReportDetailScreen() {
                 style={{
                   backgroundColor: Colors.surface,
                   borderRadius: BorderRadius.lg,
+                  borderCurve: 'continuous',
                   padding: Spacing.md,
                   ...Shadow.sm,
                 }}
@@ -210,7 +229,7 @@ export default function ReportDetailScreen() {
             {report.disclaimer}
           </Text>
         )}
-      </ScreenContainer>
-    </>
+      </ScrollView>
+    </NoProfileGuard>
   );
 }
