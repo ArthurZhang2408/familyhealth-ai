@@ -2,9 +2,8 @@ import { View, TextInput, Pressable, ActivityIndicator } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { Icon } from '@/components/Icon';
 import { useColors } from '@/hooks/useColors';
+import { useShadow } from '@/hooks/useShadow';
 import { Spacing, FontSize, BorderRadius } from '@/constants/theme';
-
-export type ConversationMode = 'chat' | 'diagnosis';
 
 interface Props {
   value: string;
@@ -24,6 +23,7 @@ export function ChatInput({
   onAttach,
 }: Props) {
   const Colors = useColors();
+  const Shadow = useShadow();
   const canSend = value.trim().length > 0 && !isBusy;
 
   return (
@@ -45,7 +45,7 @@ export function ChatInput({
           borderCurve: 'continuous',
           paddingHorizontal: Spacing.xs,
           paddingVertical: Spacing.xs,
-          boxShadow: '0 1px 4px rgba(0, 0, 0, 0.08)',
+          ...Shadow.md,
         }}
       >
         {/* Attach button */}

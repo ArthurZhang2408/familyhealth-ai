@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useMemo } from 'react';
+import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
 import { View, Text, Pressable, FlatList, KeyboardAvoidingView } from 'react-native';
 import { useLocalSearchParams, Stack } from 'expo-router';
 import { ChatBubble, TypingIndicator } from '@/components/ChatBubble';
@@ -37,6 +37,14 @@ export default function DiagnosisScreen() {
 
   const { data: session, isLoading, error, refetch } = useDiagnosisSession(pid, sid);
   const sendMessage = useSendDiagnosisMessage(pid, sid);
+
+  // Clear pending once server data catches up (prevents duplicates on refetch)
+  const serverMsgCount = session?.messages?.length ?? 0;
+  useEffect(() => {
+    if (serverMsgCount > 0 && pendingMessages.length > 0) {
+      setPendingMessages([]);
+    }
+  }, [serverMsgCount, pendingMessages.length]);
 
   // Merge server messages + locally sent messages
   const serverMessages: LocalMessage[] = (session?.messages ?? []).map((m, i) => ({

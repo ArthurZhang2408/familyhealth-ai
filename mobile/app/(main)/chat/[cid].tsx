@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { View, Text, Pressable, FlatList, KeyboardAvoidingView } from 'react-native';
 import { useLocalSearchParams, Stack } from 'expo-router';
 import { ChatBubble, TypingIndicator } from '@/components/ChatBubble';
@@ -32,6 +32,14 @@ export default function ChatScreen() {
 
   const { data: conversation, isLoading, error, refetch } = useChatConversation(pid, cid);
   const sendMessage = useSendChatMessage(pid);
+
+  // Clear pending when server data includes them (prevents duplicates on refetch)
+  useEffect(() => {
+    if (conversation?.messages && pendingMessages.length > 0) {
+      const serverIds = new Set(conversation.messages.map((m) => m.id));
+      setPendingMessages((prev) => prev.filter((m) => !serverIds.has(m.id)));
+    }
+  }, [conversation, pendingMessages.length]);
 
   // Merge server messages + locally sent messages
   const serverMessages: LocalMessage[] = (conversation?.messages ?? []).map((m) => ({
