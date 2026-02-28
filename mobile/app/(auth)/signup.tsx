@@ -5,16 +5,18 @@ import {
   TextInput,
   Pressable,
   KeyboardAvoidingView,
-  Platform,
   ScrollView,
   Alert,
 } from 'react-native';
 import { Link, useRouter } from 'expo-router';
-import { Colors } from '@/constants/colors';
-import { Spacing, FontSize, FontWeight, BorderRadius, Shadow } from '@/constants/theme';
+import { useColors } from '@/hooks/useColors';
+import { useShadow } from '@/hooks/useShadow';
+import { Spacing, FontSize, FontWeight, BorderRadius } from '@/constants/theme';
 import { signUpWithEmail } from '@/services/auth';
 
 export default function SignupScreen() {
+  const Colors = useColors();
+  const Shadow = useShadow();
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -43,7 +45,7 @@ export default function SignupScreen() {
   return (
     <KeyboardAvoidingView
       style={{ flex: 1, backgroundColor: Colors.background }}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      behavior={process.env.EXPO_OS === 'ios' ? 'padding' : undefined}
     >
       <ScrollView
         contentInsetAdjustmentBehavior="automatic"

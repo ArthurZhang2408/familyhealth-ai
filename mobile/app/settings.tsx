@@ -1,20 +1,21 @@
-import { View, Text, Pressable, Alert } from 'react-native';
+import { View, Text, Pressable, Alert, ScrollView } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Stack } from 'expo-router';
-import { ScreenContainer } from '@/components/ScreenContainer';
 import { useAuthStore } from '@/stores/auth';
 import { signOut } from '@/services/auth';
-import { Colors } from '@/constants/colors';
-import { Spacing, FontSize, FontWeight, BorderRadius, Shadow } from '@/constants/theme';
+import { useColors } from '@/hooks/useColors';
+import { useShadow } from '@/hooks/useShadow';
+import { Spacing, FontSize, FontWeight, BorderRadius } from '@/constants/theme';
+import type { ColorPalette } from '@/constants/colors';
 
 interface SettingsRowProps {
   label: string;
   value?: string;
   onPress?: () => void;
   destructive?: boolean;
+  colors: ColorPalette;
 }
 
-function SettingsRow({ label, value, onPress, destructive }: SettingsRowProps) {
+function SettingsRow({ label, value, onPress, destructive, colors: Colors }: SettingsRowProps) {
   return (
     <Pressable
       onPress={onPress}
@@ -42,7 +43,7 @@ function SettingsRow({ label, value, onPress, destructive }: SettingsRowProps) {
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({ title, children, colors: Colors, shadow: Shadow }: { title: string; children: React.ReactNode; colors: ColorPalette; shadow: ReturnType<typeof useShadow> }) {
   return (
     <View>
       <Text
@@ -61,6 +62,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
       <View
         style={{
           borderRadius: BorderRadius.md,
+          borderCurve: 'continuous',
           overflow: 'hidden',
           borderWidth: 1,
           borderColor: Colors.border,
@@ -74,6 +76,8 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 
 export default function SettingsScreen() {
+  const Colors = useColors();
+  const Shadow = useShadow();
   const router = useRouter();
   const user = useAuthStore((s) => s.user);
 
@@ -92,29 +96,29 @@ export default function SettingsScreen() {
   };
 
   return (
-    <>
-      <Stack.Screen options={{ title: 'Settings', headerShown: true }} />
-      <ScreenContainer contentStyle={{ gap: Spacing.lg }}>
-        <Section title="Account">
-          <SettingsRow label="Email" value={user?.email ?? '–'} />
-        </Section>
+    <ScrollView
+      contentContainerStyle={{ padding: Spacing.md, gap: Spacing.lg, paddingBottom: Spacing.xxl }}
+      style={{ flex: 1, backgroundColor: Colors.surface }}
+    >
+      <Section title="Account" colors={Colors} shadow={Shadow}>
+        <SettingsRow label="Email" value={user?.email ?? '–'} colors={Colors} />
+      </Section>
 
-        <Section title="App">
-          <SettingsRow label="Notifications" value="Off" />
-          <View style={{ height: 1, backgroundColor: Colors.border, marginLeft: Spacing.md }} />
-          <SettingsRow label="App version" value="1.0.0" />
-        </Section>
+      <Section title="App" colors={Colors} shadow={Shadow}>
+        <SettingsRow label="Notifications" value="Off" colors={Colors} />
+        <View style={{ height: 1, backgroundColor: Colors.border, marginLeft: Spacing.md }} />
+        <SettingsRow label="App version" value="1.0.0" colors={Colors} />
+      </Section>
 
-        <Section title="Legal">
-          <SettingsRow label="Privacy Policy" onPress={() => {}} />
-          <View style={{ height: 1, backgroundColor: Colors.border, marginLeft: Spacing.md }} />
-          <SettingsRow label="Terms of Service" onPress={() => {}} />
-        </Section>
+      <Section title="Legal" colors={Colors} shadow={Shadow}>
+        <SettingsRow label="Privacy Policy" onPress={() => {}} colors={Colors} />
+        <View style={{ height: 1, backgroundColor: Colors.border, marginLeft: Spacing.md }} />
+        <SettingsRow label="Terms of Service" onPress={() => {}} colors={Colors} />
+      </Section>
 
-        <Section title="Danger zone">
-          <SettingsRow label="Sign out" onPress={handleSignOut} destructive />
-        </Section>
-      </ScreenContainer>
-    </>
+      <Section title="Danger zone" colors={Colors} shadow={Shadow}>
+        <SettingsRow label="Sign out" onPress={handleSignOut} destructive colors={Colors} />
+      </Section>
+    </ScrollView>
   );
 }

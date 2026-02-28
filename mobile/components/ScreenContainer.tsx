@@ -1,5 +1,5 @@
 import { ScrollView, View, type ViewStyle } from 'react-native';
-import { Colors } from '@/constants/colors';
+import { useColors } from '@/hooks/useColors';
 import { Spacing } from '@/constants/theme';
 
 interface Props {
@@ -10,6 +10,7 @@ interface Props {
 }
 
 export function ScreenContainer({ children, scrollable = true, style, contentStyle }: Props) {
+  const Colors = useColors();
   if (!scrollable) {
     return (
       <View style={[{ flex: 1, backgroundColor: Colors.background }, style]}>

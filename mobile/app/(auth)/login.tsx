@@ -5,16 +5,18 @@ import {
   TextInput,
   Pressable,
   KeyboardAvoidingView,
-  Platform,
   ScrollView,
   Alert,
 } from 'react-native';
 import { Link, useRouter } from 'expo-router';
-import { Colors } from '@/constants/colors';
-import { Spacing, FontSize, FontWeight, BorderRadius, Shadow } from '@/constants/theme';
+import { useColors } from '@/hooks/useColors';
+import { useShadow } from '@/hooks/useShadow';
+import { Spacing, FontSize, FontWeight, BorderRadius } from '@/constants/theme';
 import { signInWithEmail, signInWithGoogle, signInWithApple } from '@/services/auth';
 
 export default function LoginScreen() {
+  const Colors = useColors();
+  const Shadow = useShadow();
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -25,7 +27,7 @@ export default function LoginScreen() {
     setLoading(true);
     try {
       await signInWithEmail(email, password);
-      router.replace('/(tabs)');
+      router.replace('/(main)');
     } catch (err: unknown) {
       Alert.alert('Sign in failed', err instanceof Error ? err.message : 'Unknown error');
     } finally {
@@ -44,7 +46,7 @@ export default function LoginScreen() {
   const handleAppleLogin = async () => {
     try {
       await signInWithApple();
-      router.replace('/(tabs)');
+      router.replace('/(main)');
     } catch (err: unknown) {
       Alert.alert('Apple sign in failed', err instanceof Error ? err.message : 'Unknown error');
     }
@@ -53,7 +55,7 @@ export default function LoginScreen() {
   return (
     <KeyboardAvoidingView
       style={{ flex: 1, backgroundColor: Colors.background }}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      behavior={process.env.EXPO_OS === 'ios' ? 'padding' : undefined}
     >
       <ScrollView
         contentInsetAdjustmentBehavior="automatic"
@@ -194,7 +196,7 @@ export default function LoginScreen() {
           </Text>
         </Pressable>
 
-        {Platform.OS === 'ios' && (
+        {process.env.EXPO_OS === 'ios' && (
           <Pressable
             onPress={handleAppleLogin}
             style={({ pressed }) => ({

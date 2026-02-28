@@ -1,9 +1,11 @@
 import { useEffect } from 'react';
+import { useColorScheme } from 'react-native';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/useAuth';
-import { Colors } from '@/constants/colors';
+import { useColors } from '@/hooks/useColors';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -28,7 +30,7 @@ function AuthGuard() {
       queryClient.clear();
       router.replace('/(auth)/login');
     } else if (isAuthenticated && inAuthGroup) {
-      router.replace('/(tabs)');
+      router.replace('/(main)');
     }
   }, [isAuthenticated, loading, segments, router]);
 
@@ -36,16 +38,55 @@ function AuthGuard() {
 }
 
 export default function RootLayout() {
+  const Colors = useColors();
+  const scheme = useColorScheme();
+
   return (
-    <QueryClientProvider client={queryClient}>
-      <AuthGuard />
-      <StatusBar style="dark" />
-      <Stack screenOptions={{ headerShown: false }}>
-        <Stack.Screen name="(auth)" />
-        <Stack.Screen name="(tabs)" options={{ headerBackTitle: 'Home' }} />
-        <Stack.Screen name="profile/new" />
-        <Stack.Screen name="profile/[pid]" />
-      </Stack>
-    </QueryClientProvider>
+    <GestureHandlerRootView style={{ flex: 1, backgroundColor: Colors.background }}>
+      <QueryClientProvider client={queryClient}>
+        <AuthGuard />
+        <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
+        <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: Colors.background } }}>
+          <Stack.Screen name="(auth)" />
+          <Stack.Screen name="(main)" />
+          <Stack.Screen
+            name="settings"
+            options={{
+              presentation: 'formSheet',
+              sheetGrabberVisible: true,
+              sheetAllowedDetents: [0.85],
+              headerShown: true,
+              headerTitle: 'Settings',
+              headerStyle: { backgroundColor: Colors.surface },
+              headerShadowVisible: false,
+            }}
+          />
+          <Stack.Screen
+            name="profile-picker"
+            options={{
+              presentation: 'formSheet',
+              sheetGrabberVisible: true,
+              sheetAllowedDetents: [0.5, 0.85],
+              headerShown: true,
+              headerTitle: 'Select Profile',
+              headerStyle: { backgroundColor: Colors.surface },
+              headerShadowVisible: false,
+            }}
+          />
+          <Stack.Screen
+            name="profile/new"
+            options={{
+              presentation: 'formSheet',
+              sheetGrabberVisible: true,
+              sheetAllowedDetents: [0.7, 1.0],
+              headerShown: true,
+              headerTitle: 'New Profile',
+              headerStyle: { backgroundColor: Colors.surface },
+              headerShadowVisible: false,
+            }}
+          />
+        </Stack>
+      </QueryClientProvider>
+    </GestureHandlerRootView>
   );
 }
