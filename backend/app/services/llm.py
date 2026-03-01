@@ -83,18 +83,20 @@ class LLMRouter:
     def __init__(self, providers: dict[str, LLMProvider]) -> None:
         self._providers = providers
 
-    def _resolve(self, task: LLMTask) -> LLMProvider:
-        provider_name = self.ROUTING_TABLE[task]
+    def _resolve(self, request: LLMRequest) -> LLMProvider:
+        # Auto-upgrade to Gemini when images are present (Qwen doesn't support multimodal)
+        has_images = any(m.image_parts for m in request.messages if m.image_parts)
+        provider_name = "gemini" if has_images else self.ROUTING_TABLE[request.task]
         provider = self._providers.get(provider_name)
         if provider is None:
             raise ValueError(f"No provider registered for '{provider_name}'")
         return provider
 
     async def route(self, request: LLMRequest) -> LLMResponse:
-        provider = self._resolve(request.task)
+        provider = self._resolve(request)
         return await provider.generate(request)
 
     async def route_stream(self, request: LLMRequest) -> AsyncIterator[str]:
-        provider = self._resolve(request.task)
+        provider = self._resolve(request)
         async for chunk in provider.generate_stream(request):
             yield chunk

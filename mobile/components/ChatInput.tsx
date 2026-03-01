@@ -1,9 +1,8 @@
-import { View, TextInput, Pressable, ActivityIndicator } from 'react-native';
+import { View, Text, TextInput, Pressable, ActivityIndicator } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { Icon } from '@/components/Icon';
 import { useColors } from '@/hooks/useColors';
-import { useShadow } from '@/hooks/useShadow';
-import { Spacing, FontSize, BorderRadius } from '@/constants/theme';
+import { Spacing, FontSize, FontWeight, BorderRadius } from '@/constants/theme';
 
 interface Props {
   value: string;
@@ -12,6 +11,8 @@ interface Props {
   isBusy: boolean;
   placeholder?: string;
   onAttach?: () => void;
+  /** Show an attachment indicator badge on the + button */
+  hasAttachment?: boolean;
 }
 
 export function ChatInput({
@@ -21,10 +22,10 @@ export function ChatInput({
   isBusy,
   placeholder = 'Type a message…',
   onAttach,
+  hasAttachment,
 }: Props) {
   const Colors = useColors();
-  const Shadow = useShadow();
-  const canSend = value.trim().length > 0 && !isBusy;
+  const canSend = (value.trim().length > 0 || hasAttachment) && !isBusy;
 
   return (
     <View
@@ -37,85 +38,110 @@ export function ChatInput({
     >
       <View
         style={{
-          flexDirection: 'row',
-          alignItems: 'flex-end',
-          gap: Spacing.sm,
           backgroundColor: Colors.surface,
           borderRadius: BorderRadius.xl,
           borderCurve: 'continuous',
-          paddingHorizontal: Spacing.xs,
-          paddingVertical: Spacing.xs,
-          ...Shadow.md,
+          borderWidth: 1,
+          borderColor: Colors.border,
         }}
       >
-        {/* Attach button */}
-        {onAttach && (
+        {/* Attachment indicator */}
+        {hasAttachment && (
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: Spacing.xs,
+              paddingHorizontal: Spacing.md,
+              paddingTop: Spacing.sm,
+            }}
+          >
+            <Icon name="image" size={14} color={Colors.primary} />
+            <Text style={{ fontSize: FontSize.xs, color: Colors.primary, fontWeight: FontWeight.medium }}>
+              Image attached
+            </Text>
+          </View>
+        )}
+
+        {/* Text input area */}
+        <TextInput
+          value={value}
+          onChangeText={onChangeText}
+          placeholder={hasAttachment ? 'Add a message (optional)…' : placeholder}
+          placeholderTextColor={Colors.textMuted}
+          multiline
+          style={{
+            fontSize: FontSize.md,
+            color: Colors.text,
+            maxHeight: 120,
+            minHeight: 44,
+            paddingHorizontal: Spacing.md,
+            paddingTop: hasAttachment ? Spacing.xs : Spacing.md,
+            paddingBottom: Spacing.sm,
+          }}
+        />
+
+        {/* Bottom toolbar */}
+        <View
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            paddingHorizontal: Spacing.sm,
+            paddingBottom: Spacing.sm,
+          }}
+        >
+          {/* Left actions */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.xs }}>
+            {onAttach && (
+              <Pressable
+                onPress={() => {
+                  if (process.env.EXPO_OS === 'ios') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  onAttach();
+                }}
+                style={({ pressed }) => ({
+                  width: 36,
+                  height: 36,
+                  borderRadius: BorderRadius.full,
+                  backgroundColor: hasAttachment ? Colors.primary + '20' : Colors.surfaceSecondary,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  borderCurve: 'continuous',
+                  opacity: pressed ? 0.6 : 1,
+                })}
+              >
+                <Icon name="plus" size={20} color={hasAttachment ? Colors.primary : Colors.textSecondary} />
+              </Pressable>
+            )}
+          </View>
+
+          {/* Send button */}
           <Pressable
             onPress={() => {
-              if (process.env.EXPO_OS === 'ios') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              onAttach();
+              if (canSend) {
+                if (process.env.EXPO_OS === 'ios') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                onSend();
+              }
             }}
+            disabled={!canSend}
             style={({ pressed }) => ({
               width: 36,
               height: 36,
               borderRadius: BorderRadius.full,
-              backgroundColor: Colors.surfaceSecondary,
+              backgroundColor: canSend ? Colors.primary : Colors.primaryLight,
               alignItems: 'center',
               justifyContent: 'center',
               borderCurve: 'continuous',
-              opacity: pressed ? 0.6 : 1,
-              alignSelf: 'flex-end',
+              opacity: pressed ? 0.85 : 1,
             })}
           >
-            <Icon name="plus" size={20} color={Colors.textSecondary} />
+            {isBusy ? (
+              <ActivityIndicator size="small" color={Colors.textInverse} />
+            ) : (
+              <Icon name="arrow-up" size={18} color={Colors.textInverse} />
+            )}
           </Pressable>
-        )}
-
-        {/* Text input */}
-        <TextInput
-          value={value}
-          onChangeText={onChangeText}
-          placeholder={placeholder}
-          placeholderTextColor={Colors.textMuted}
-          multiline
-          style={{
-            flex: 1,
-            fontSize: FontSize.md,
-            color: Colors.text,
-            maxHeight: 120,
-            minHeight: 36,
-            paddingHorizontal: Spacing.sm,
-            paddingVertical: Spacing.sm,
-          }}
-        />
-
-        {/* Send button */}
-        <Pressable
-          onPress={() => {
-            if (canSend) {
-              if (process.env.EXPO_OS === 'ios') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-              onSend();
-            }
-          }}
-          disabled={!canSend}
-          style={({ pressed }) => ({
-            width: 36,
-            height: 36,
-            borderRadius: BorderRadius.full,
-            backgroundColor: canSend ? Colors.primary : Colors.primaryLight,
-            alignItems: 'center',
-            justifyContent: 'center',
-            borderCurve: 'continuous',
-            opacity: pressed ? 0.85 : 1,
-            alignSelf: 'flex-end',
-          })}
-        >
-          {isBusy ? (
-            <ActivityIndicator size="small" color={Colors.textInverse} />
-          ) : (
-            <Icon name="arrow-up" size={18} color={Colors.textInverse} />
-          )}
-        </Pressable>
+        </View>
       </View>
     </View>
   );

@@ -723,7 +723,7 @@ class TestDiagnosisRoutes:
         # Send message
         msg_resp = await client.post(
             f"/api/v1/profiles/{pid}/diagnosis/{session_id}/messages",
-            json={"content": "The cough started 3 days ago"},
+            data={"content": "The cough started 3 days ago"},
         )
         assert msg_resp.status_code == 201
         data = msg_resp.json()
@@ -801,7 +801,7 @@ class TestDiagnosisRoutes:
         # Try to send message
         resp = await client.post(
             f"/api/v1/profiles/{pid}/diagnosis/{session_id}/messages",
-            json={"content": "Follow-up question"},
+            data={"content": "Follow-up question"},
         )
         assert resp.status_code == 400
 
@@ -901,7 +901,7 @@ class TestFullSessionLifecycle:
         ]:
             resp = await client.post(
                 f"/api/v1/profiles/{pid}/diagnosis/{session_id}/messages",
-                json={"content": msg},
+                data={"content": msg},
             )
             assert resp.status_code == 201
             assert resp.json()["message"]["role"] == "assistant"

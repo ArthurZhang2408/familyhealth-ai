@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, UploadFile
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,8 +15,8 @@ from app.core.database import get_db
 from app.models.diagnosis import DiagnosisSession
 from app.models.profile import Profile
 from app.schemas.common import PaginatedResponse
+from app.api.upload_helpers import read_image_parts
 from app.schemas.diagnosis import (
-    DiagnosisMessageCreate,
     DiagnosisSessionCreate,
     DiagnosisSessionDetailResponse,
     DiagnosisSessionResponse,
@@ -125,27 +125,31 @@ async def get_session(
 @router.post("/{sid}/messages", response_model=DiagnosisTurnResponse, status_code=201)
 async def send_message(
     sid: UUID,
-    data: DiagnosisMessageCreate,
     background_tasks: BackgroundTasks,
+    content: str = Form(...),
+    files: list[UploadFile] = File(default=[]),
     profile: Profile = Depends(get_verified_profile),
     db: AsyncSession = Depends(get_db),
     agent_core: AgentCore = Depends(get_agent_core),
     context_builder: ContextBuilder = Depends(get_context_builder),
     memory_extractor: MemoryExtractor = Depends(get_memory_extractor),
 ) -> DiagnosisTurnResponse:
-    """Send a message in a diagnosis session. Returns AI response with assessment state."""
+    """Send a message with optional image attachments in a diagnosis session."""
+    image_parts = await read_image_parts(files)
     svc = _build_service(db, agent_core, context_builder, memory_extractor)
     session = await svc.get_session(sid, profile.id)
     if not session:
         raise HTTPException(status_code=404, detail="Diagnosis session not found")
 
-    turn_response = await svc.send_message(session, profile, data.content)
+    turn_response = await svc.send_message(
+        session, profile, content, image_parts=image_parts or None
+    )
 
     background_tasks.add_task(
         memory_extractor.extract_and_store,
         profile_id=profile.id,
         messages=[
-            {"role": "user", "content": data.content},
+            {"role": "user", "content": content},
             {"role": "assistant", "content": turn_response.message.content},
         ],
         source=f"diagnosis:{session.id}",

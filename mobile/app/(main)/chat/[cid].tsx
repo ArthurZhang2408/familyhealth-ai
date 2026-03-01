@@ -1,14 +1,16 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { View, Text, Pressable, FlatList, KeyboardAvoidingView } from 'react-native';
-import { useLocalSearchParams, Stack } from 'expo-router';
+import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { ChatBubble, TypingIndicator } from '@/components/ChatBubble';
 import { ChatInput } from '@/components/ChatInput';
+import { HeaderIconButton } from '@/components/HeaderIconButton';
 import { LoadingSpinner } from '@/components/LoadingSpinner';
 import { Icon } from '@/components/Icon';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import { NoProfileGuard } from '@/components/NoProfileGuard';
 import { useProfileStore } from '@/stores/profile';
 import { useChatConversation, useSendChatMessage } from '@/hooks/useChat';
+import { useAttachMenu, type Attachment } from '@/hooks/useAttachMenu';
 import { useColors } from '@/hooks/useColors';
 import { Spacing, FontSize, FontWeight, BorderRadius } from '@/constants/theme';
 
@@ -20,20 +22,22 @@ interface LocalMessage {
 
 export default function ChatScreen() {
   const Colors = useColors();
+  const router = useRouter();
   const { cid } = useLocalSearchParams<{ cid: string }>();
   const activeProfile = useProfileStore((s) => s.activeProfile);
   const pid = activeProfile?.id ?? '';
 
-  // Local messages sent during this session (appended on top of server data)
   const [pendingMessages, setPendingMessages] = useState<LocalMessage[]>([]);
   const [input, setInput] = useState('');
   const [disclaimer, setDisclaimer] = useState<string | null>(null);
+  const [pendingAttachment, setPendingAttachment] = useState<Attachment | null>(null);
   const flatListRef = useRef<FlatList>(null);
 
   const { data: conversation, isLoading, error, refetch } = useChatConversation(pid, cid);
   const sendMessage = useSendChatMessage(pid);
 
-  // Clear pending when server data includes them (prevents duplicates on refetch)
+  const handleAttach = useAttachMenu((attachment) => setPendingAttachment(attachment));
+
   useEffect(() => {
     if (conversation?.messages && pendingMessages.length > 0) {
       const serverIds = new Set(conversation.messages.map((m) => m.id));
@@ -41,7 +45,6 @@ export default function ChatScreen() {
     }
   }, [conversation, pendingMessages.length]);
 
-  // Merge server messages + locally sent messages
   const serverMessages: LocalMessage[] = (conversation?.messages ?? []).map((m) => ({
     id: m.id,
     role: m.role,
@@ -50,9 +53,11 @@ export default function ChatScreen() {
   const allMessages = [...serverMessages, ...pendingMessages];
 
   const handleSend = useCallback(async () => {
-    if (!input.trim() || sendMessage.isPending || !pid) return;
-    const text = input.trim();
+    const text = input.trim() || (pendingAttachment ? 'Please look at this image.' : '');
+    if (!text || sendMessage.isPending || !pid) return;
     setInput('');
+    const files = pendingAttachment ? [pendingAttachment] : undefined;
+    setPendingAttachment(null);
 
     const userMsg: LocalMessage = { id: Date.now().toString(), role: 'user', content: text };
     setPendingMessages((prev) => [...prev, userMsg]);
@@ -61,6 +66,7 @@ export default function ChatScreen() {
       const response = await sendMessage.mutateAsync({
         content: text,
         conversation_id: cid,
+        files,
       });
 
       setDisclaimer(response.disclaimer);
@@ -79,12 +85,10 @@ export default function ChatScreen() {
     }
 
     setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
-  }, [input, sendMessage, pid, cid]);
+  }, [input, sendMessage, pid, cid, pendingAttachment]);
 
-  // Single loading state — skeleton until data or error arrives
   if (isLoading) return <LoadingSpinner />;
 
-  // Error state with retry
   if (error && allMessages.length === 0) {
     return (
       <View style={{ flex: 1, backgroundColor: Colors.background, alignItems: 'center', justifyContent: 'center', padding: Spacing.xl }}>
@@ -117,7 +121,14 @@ export default function ChatScreen() {
 
   return (
     <NoProfileGuard>
-      <Stack.Screen options={{ title: conversation?.topic || 'Health Chat' }} />
+      <Stack.Screen
+        options={{
+          title: conversation?.topic || 'Health Chat',
+          headerRight: () => (
+            <HeaderIconButton icon="pen-square" onPress={() => router.push('/(main)')} />
+          ),
+        }}
+      />
       <KeyboardAvoidingView
         style={{ flex: 1, backgroundColor: Colors.background }}
         behavior={process.env.EXPO_OS === 'ios' ? 'padding' : undefined}
@@ -171,6 +182,8 @@ export default function ChatScreen() {
           onChangeText={setInput}
           onSend={handleSend}
           isBusy={sendMessage.isPending}
+          onAttach={handleAttach}
+          hasAttachment={!!pendingAttachment}
           placeholder="Ask a health question…"
         />
       </KeyboardAvoidingView>

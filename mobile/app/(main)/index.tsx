@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { View, Text, KeyboardAvoidingView, Alert } from 'react-native';
 import { useRouter, Stack } from 'expo-router';
 import Animated, { FadeIn, FadeInUp } from 'react-native-reanimated';
-import * as DocumentPicker from 'expo-document-picker';
 import { Icon } from '@/components/Icon';
 import { NoProfileGuard } from '@/components/NoProfileGuard';
 import { ChatInput } from '@/components/ChatInput';
@@ -10,7 +9,7 @@ import { ModeToggle, type ConversationMode } from '@/components/ModeToggle';
 import { useProfileStore } from '@/stores/profile';
 import { useCreateDiagnosisSession } from '@/hooks/useDiagnosis';
 import { useSendChatMessage } from '@/hooks/useChat';
-import { useUploadReport } from '@/hooks/useReports';
+import { useAttachMenu, type Attachment } from '@/hooks/useAttachMenu';
 import { useColors } from '@/hooks/useColors';
 import { Spacing, FontSize, FontWeight, BorderRadius } from '@/constants/theme';
 
@@ -22,21 +21,25 @@ export default function NewConversationScreen() {
 
   const [input, setInput] = useState('');
   const [mode, setMode] = useState<ConversationMode>('chat');
+  const [pendingAttachment, setPendingAttachment] = useState<Attachment | null>(null);
 
   const sendChat = useSendChatMessage(pid);
   const createDiagnosis = useCreateDiagnosisSession(pid);
-  const uploadReport = useUploadReport(pid);
+
+  const handleAttach = useAttachMenu((attachment) => setPendingAttachment(attachment));
 
   const isBusy = sendChat.isPending || createDiagnosis.isPending;
 
   const handleSend = async () => {
-    if (!input.trim() || isBusy || !pid) return;
-    const text = input.trim();
+    const text = input.trim() || (pendingAttachment ? 'Please look at this image.' : '');
+    if (!text || isBusy || !pid) return;
     setInput('');
+    const files = pendingAttachment ? [pendingAttachment] : undefined;
+    setPendingAttachment(null);
 
     try {
       if (mode === 'chat') {
-        const response = await sendChat.mutateAsync({ content: text });
+        const response = await sendChat.mutateAsync({ content: text, files });
         router.replace(`/(main)/chat/${response.message.conversation_id}`);
       } else {
         const session = await createDiagnosis.mutateAsync(text);
@@ -45,29 +48,6 @@ export default function NewConversationScreen() {
     } catch (err: unknown) {
       Alert.alert('Error', err instanceof Error ? err.message : 'Something went wrong');
       setInput(text);
-    }
-  };
-
-  const handleAttach = async () => {
-    if (!pid) return;
-    const result = await DocumentPicker.getDocumentAsync({
-      type: ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'],
-      copyToCacheDirectory: true,
-    });
-
-    if (result.canceled || !result.assets?.[0]) return;
-
-    const asset = result.assets[0];
-    try {
-      const report = await uploadReport.mutateAsync({
-        uri: asset.uri,
-        name: asset.name,
-        type: asset.mimeType ?? 'application/pdf',
-      });
-      Alert.alert('Uploaded', 'Your report is being analyzed.');
-      router.push(`/(main)/report/${report.id}`);
-    } catch (err: unknown) {
-      Alert.alert('Upload failed', err instanceof Error ? err.message : 'Unknown error');
     }
   };
 
@@ -139,6 +119,7 @@ export default function NewConversationScreen() {
           onSend={handleSend}
           isBusy={isBusy}
           onAttach={handleAttach}
+          hasAttachment={!!pendingAttachment}
           placeholder={
             mode === 'chat'
               ? 'Ask a health question…'

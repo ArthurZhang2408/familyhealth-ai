@@ -1,14 +1,16 @@
 import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
 import { View, Text, Pressable, FlatList, KeyboardAvoidingView } from 'react-native';
-import { useLocalSearchParams, Stack } from 'expo-router';
+import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { ChatBubble, TypingIndicator } from '@/components/ChatBubble';
 import { ChatInput } from '@/components/ChatInput';
+import { HeaderIconButton } from '@/components/HeaderIconButton';
 import { LoadingSpinner } from '@/components/LoadingSpinner';
 import { Icon } from '@/components/Icon';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import { NoProfileGuard } from '@/components/NoProfileGuard';
 import { useProfileStore } from '@/stores/profile';
 import { useDiagnosisSession, useSendDiagnosisMessage } from '@/hooks/useDiagnosis';
+import { useAttachMenu, type Attachment } from '@/hooks/useAttachMenu';
 import { useColors } from '@/hooks/useColors';
 import { Spacing, FontSize, FontWeight, BorderRadius } from '@/constants/theme';
 
@@ -20,6 +22,7 @@ interface LocalMessage {
 
 export default function DiagnosisScreen() {
   const Colors = useColors();
+  const router = useRouter();
   const { sid } = useLocalSearchParams<{ sid: string }>();
   const activeProfile = useProfileStore((s) => s.activeProfile);
   const pid = activeProfile?.id ?? '';
@@ -33,10 +36,13 @@ export default function DiagnosisScreen() {
   const [pendingMessages, setPendingMessages] = useState<LocalMessage[]>([]);
   const [input, setInput] = useState('');
   const [disclaimer, setDisclaimer] = useState<string | null>(null);
+  const [pendingAttachment, setPendingAttachment] = useState<Attachment | null>(null);
   const flatListRef = useRef<FlatList>(null);
 
   const { data: session, isLoading, error, refetch } = useDiagnosisSession(pid, sid);
   const sendMessage = useSendDiagnosisMessage(pid, sid);
+
+  const handleAttach = useAttachMenu((attachment) => setPendingAttachment(attachment));
 
   // Clear pending once server data catches up (prevents duplicates on refetch)
   const serverMsgCount = session?.messages?.length ?? 0;
@@ -55,15 +61,17 @@ export default function DiagnosisScreen() {
   const allMessages = [...serverMessages, ...pendingMessages];
 
   const handleSend = useCallback(async () => {
-    if (!input.trim() || sendMessage.isPending || !pid) return;
-    const text = input.trim();
+    const text = input.trim() || (pendingAttachment ? 'Please look at this image.' : '');
+    if (!text || sendMessage.isPending || !pid) return;
     setInput('');
+    const files = pendingAttachment ? [pendingAttachment] : undefined;
+    setPendingAttachment(null);
 
     const userMsg: LocalMessage = { role: 'user', content: text, id: Date.now().toString() };
     setPendingMessages((prev) => [...prev, userMsg]);
 
     try {
-      const response = await sendMessage.mutateAsync(text);
+      const response = await sendMessage.mutateAsync({ content: text, files });
       const msgContent =
         typeof response.message === 'string'
           ? response.message
@@ -83,7 +91,7 @@ export default function DiagnosisScreen() {
     }
 
     setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
-  }, [input, sendMessage, pid]);
+  }, [input, sendMessage, pid, pendingAttachment]);
 
   if (isLoading) return <LoadingSpinner />;
 
@@ -125,8 +133,9 @@ export default function DiagnosisScreen() {
       <Stack.Screen
         options={{
           title: session?.chief_complaint || 'AI Diagnosis',
-          headerRight: phaseInfo
-            ? () => (
+          headerRight: () => (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
+              {phaseInfo && (
                 <View
                   style={{
                     backgroundColor: phaseInfo.color + '18',
@@ -134,7 +143,6 @@ export default function DiagnosisScreen() {
                     paddingVertical: Spacing.xs,
                     borderRadius: BorderRadius.full,
                     borderCurve: 'continuous',
-                    marginRight: Spacing.sm,
                   }}
                 >
                   <Text
@@ -147,8 +155,10 @@ export default function DiagnosisScreen() {
                     {phaseInfo.label}
                   </Text>
                 </View>
-              )
-            : undefined,
+              )}
+              <HeaderIconButton icon="pen-square" onPress={() => router.push('/(main)')} />
+            </View>
+          ),
         }}
       />
       <KeyboardAvoidingView
@@ -206,6 +216,8 @@ export default function DiagnosisScreen() {
           onChangeText={setInput}
           onSend={handleSend}
           isBusy={sendMessage.isPending}
+          onAttach={handleAttach}
+          hasAttachment={!!pendingAttachment}
           placeholder="Describe your symptoms…"
         />
       </KeyboardAvoidingView>

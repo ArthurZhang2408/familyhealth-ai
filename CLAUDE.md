@@ -29,10 +29,12 @@ AI-powered diagnosis, medical report analysis, and health chat.
 
 ## Frontend Architecture
 - **Navigation**: Drawer sidebar (Claude/ChatGPT-style), no bottom tabs
+- **Header**: Custom `HeaderBar` component (not React Navigation default). All buttons via `HeaderIconButton`. Sizes from `useHeaderScale()` hook (dynamic, respects system font scale + screen width)
 - **Dark mode**: `useColors()` hook returns light/dark palette based on system setting. `useShadow()` for theme-aware shadows. Bidirectional type safety in `colors.ts`
 - **Styling**: Inline styles + theme constants (`Spacing`, `FontSize`, `BorderRadius`). NO NativeWind/Tailwind
 - **State**: Zustand (auth, active profile with AsyncStorage persistence) + React Query (server data)
-- **Icons**: `@expo/vector-icons` via centralized `components/Icon.tsx`
+- **Icons**: `@expo/vector-icons` via centralized `components/Icon.tsx` with exported `IconName` type
+- **Attachments**: `useAttachMenu()` hook for Camera/Photos/Files action sheet. HEIC auto-converted to JPEG. `pendingAttachment` state pattern on screens
 - **Design system**: See `.interface-design/system.md` for full design system documentation
 - **Key constraint**: Use `ScrollView` not `FlatList` inside formSheet modals (Expo bug)
 
@@ -57,4 +59,7 @@ AI-powered diagnosis, medical report analysis, and health chat.
 - Use Plan Mode before any multi-file change
 - ALWAYS use `useColors()` hook in components, never static `Colors` import
 - ALWAYS use `useShadow()` hook, never static `Shadow` from theme
-- ALWAYS guard haptics with `process.env.EXPO_OS === 'ios'`
+- ALWAYS use `useHapticPress()` hook or guard haptics with `process.env.EXPO_OS === 'ios'`
+- ALWAYS use `HeaderIconButton` for header buttons, never inline Pressable with hardcoded sizes
+- ALWAYS use `useHeaderScale()` for header sizing, never static `Header` constants
+- Chat/diagnosis endpoints use `Form()` + `File()` (multipart), NOT `json` body — tests must use `data=` not `json=`

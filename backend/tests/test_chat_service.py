@@ -566,7 +566,7 @@ class TestChatRoutes:
 
         resp = await client.post(
             f"/api/v1/profiles/{pid}/chat",
-            json={"content": "How much water should I drink?"},
+            data={"content": "How much water should I drink?"},
         )
         assert resp.status_code == 201
         data = resp.json()
@@ -583,7 +583,7 @@ class TestChatRoutes:
         # First message
         resp1 = await client.post(
             f"/api/v1/profiles/{pid}/chat",
-            json={"content": "How much water?"},
+            data={"content": "How much water?"},
         )
         assert resp1.status_code == 201
         convo_id = resp1.json()["message"]["conversation_id"]
@@ -591,7 +591,7 @@ class TestChatRoutes:
         # Continue
         resp2 = await client.post(
             f"/api/v1/profiles/{pid}/chat",
-            json={"content": "And during exercise?", "conversation_id": convo_id},
+            data={"content": "And during exercise?", "conversation_id": str(convo_id)},
         )
         assert resp2.status_code == 201
         assert resp2.json()["message"]["conversation_id"] == convo_id
@@ -604,7 +604,7 @@ class TestChatRoutes:
 
         resp = await client.post(
             f"/api/v1/profiles/{pid}/chat",
-            json={"content": "Hello", "conversation_id": str(uuid.uuid4())},
+            data={"content": "Hello", "conversation_id": str(uuid.uuid4())},
         )
         assert resp.status_code == 404
 
@@ -616,7 +616,7 @@ class TestChatRoutes:
 
         resp = await client.post(
             f"/api/v1/profiles/{pid}/chat",
-            json={"content": "I want to kill myself"},
+            data={"content": "I want to kill myself"},
         )
         assert resp.status_code == 201
         data = resp.json()
@@ -630,7 +630,7 @@ class TestChatRoutes:
 
         resp = await client.post(
             f"/api/v1/profiles/{pid}/chat",
-            json={},
+            data={},
         )
         assert resp.status_code == 422
 
@@ -653,11 +653,11 @@ class TestChatRoutes:
 
         await client.post(
             f"/api/v1/profiles/{pid}/chat",
-            json={"content": "Question 1", "topic": "Topic A"},
+            data={"content": "Question 1", "topic": "Topic A"},
         )
         await client.post(
             f"/api/v1/profiles/{pid}/chat",
-            json={"content": "Question 2", "topic": "Topic B"},
+            data={"content": "Question 2", "topic": "Topic B"},
         )
 
         resp = await client.get(f"/api/v1/profiles/{pid}/chat")
@@ -673,11 +673,11 @@ class TestChatRoutes:
 
         await client.post(
             f"/api/v1/profiles/{pid}/chat",
-            json={"content": "Water question", "topic": "Hydration"},
+            data={"content": "Water question", "topic": "Hydration"},
         )
         await client.post(
             f"/api/v1/profiles/{pid}/chat",
-            json={"content": "Exercise question", "topic": "Fitness"},
+            data={"content": "Exercise question", "topic": "Fitness"},
         )
 
         resp = await client.get(f"/api/v1/profiles/{pid}/chat?topic=Hydration")
@@ -694,7 +694,7 @@ class TestChatRoutes:
         for i in range(3):
             await client.post(
                 f"/api/v1/profiles/{pid}/chat",
-                json={"content": f"Question {i}", "topic": f"Topic {i}"},
+                data={"content": f"Question {i}", "topic": f"Topic {i}"},
             )
 
         resp = await client.get(f"/api/v1/profiles/{pid}/chat?page=1&per_page=2")
@@ -713,7 +713,7 @@ class TestChatRoutes:
 
         resp1 = await client.post(
             f"/api/v1/profiles/{pid}/chat",
-            json={"content": "Hello"},
+            data={"content": "Hello"},
         )
         convo_id = resp1.json()["message"]["conversation_id"]
 
@@ -741,7 +741,7 @@ class TestChatRoutes:
         # Create conversation on profile A
         resp1 = await client.post(
             f"/api/v1/profiles/{pid_a}/chat",
-            json={"content": "Hello"},
+            data={"content": "Hello"},
         )
         convo_id = resp1.json()["message"]["conversation_id"]
 
@@ -765,7 +765,7 @@ class TestChatRoutes:
 
         await client.post(
             f"/api/v1/profiles/{pid}/chat",
-            json={"content": "Hello"},
+            data={"content": "Hello"},
         )
 
         # Switch to other account
@@ -782,7 +782,7 @@ class TestChatRoutes:
 
         resp = await client.post(
             f"/api/v1/profiles/{pid}/chat",
-            json={"content": "How to lower cholesterol?", "topic": "Cholesterol"},
+            data={"content": "How to lower cholesterol?", "topic": "Cholesterol"},
         )
         assert resp.status_code == 201
 

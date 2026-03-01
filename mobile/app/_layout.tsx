@@ -58,6 +58,7 @@ export default function RootLayout() {
               headerShown: true,
               headerTitle: 'Settings',
               headerStyle: { backgroundColor: Colors.surface },
+              headerTintColor: Colors.text,
               headerShadowVisible: false,
             }}
           />
@@ -70,6 +71,7 @@ export default function RootLayout() {
               headerShown: true,
               headerTitle: 'Select Profile',
               headerStyle: { backgroundColor: Colors.surface },
+              headerTintColor: Colors.text,
               headerShadowVisible: false,
             }}
           />
@@ -82,6 +84,7 @@ export default function RootLayout() {
               headerShown: true,
               headerTitle: 'New Profile',
               headerStyle: { backgroundColor: Colors.surface },
+              headerTintColor: Colors.text,
               headerShadowVisible: false,
             }}
           />
