@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, UploadFile
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,13 +11,13 @@ from app.api.deps import (
     get_memory_extractor,
     get_verified_profile,
 )
+from app.api.upload_helpers import read_image_parts
 from app.core.database import get_db
 from app.models.chat import ChatConversation
 from app.models.profile import Profile
 from app.schemas.chat import (
     ChatConversationDetailResponse,
     ChatConversationResponse,
-    ChatMessageCreate,
     ChatTurnResponse,
 )
 from app.schemas.common import PaginatedResponse
@@ -44,28 +44,33 @@ def _build_service(
 
 @router.post("", response_model=ChatTurnResponse, status_code=201)
 async def send_message(
-    data: ChatMessageCreate,
     background_tasks: BackgroundTasks,
+    content: str = Form(...),
+    conversation_id: UUID | None = Form(None),
+    topic: str | None = Form(None),
+    files: list[UploadFile] = File(default=[]),
     profile: Profile = Depends(get_verified_profile),
     db: AsyncSession = Depends(get_db),
     agent_core: AgentCore = Depends(get_agent_core),
     context_builder: ContextBuilder = Depends(get_context_builder),
     memory_extractor: MemoryExtractor = Depends(get_memory_extractor),
 ) -> ChatTurnResponse:
-    """Send a chat message. Creates a new conversation or continues an existing one."""
+    """Send a chat message with optional image attachments."""
+    image_parts = await read_image_parts(files)
     svc = _build_service(db, agent_core, context_builder, memory_extractor)
     conversation, turn_response = await svc.send_message(
         profile,
-        data.content,
-        conversation_id=data.conversation_id,
-        topic=data.topic,
+        content,
+        conversation_id=conversation_id,
+        topic=topic,
+        image_parts=image_parts or None,
     )
 
     background_tasks.add_task(
         memory_extractor.extract_and_store,
         profile_id=profile.id,
         messages=[
-            {"role": "user", "content": data.content},
+            {"role": "user", "content": content},
             {"role": "assistant", "content": turn_response.message.content},
         ],
         source=f"chat:{conversation.id}",

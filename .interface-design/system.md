@@ -10,14 +10,39 @@ Not clinical-cold, not startup-playful. Warm paper, not cool glass.
 - **iOS-native feel**: continuous border curves, haptics, system font scaling
 - **Bubble design language**: no line separations, capsule shapes, floating elements
 - **Dark mode as first-class**: 3-tier slate-blue surfaces, desaturated status colors, border-glow shadows
+- **Dynamic sizing**: all header elements scale with system font setting + screen width via `useHeaderScale()`
 
 ## Navigation Pattern
 - Drawer sidebar for session history (swipe or hamburger)
 - Main screen is always a conversation or report detail
-- Profile pill in header center (tap → formSheet picker)
-- Mode toggle (Chat/Diagnosis) in header right on new conversation screen
+- Profile name in header center (tap → formSheet picker)
+- Mode toggle (Chat/Diagnosis) icon-only in header right on new conversation screen
+- Compose (pen-square) icon in header right on active chat/diagnosis screens
 - Settings via user avatar capsule in sidebar footer
 - No bottom tabs
+
+## Header System
+Custom `HeaderBar` component replaces React Navigation's default header entirely for full layout control.
+
+### Components
+- **`HeaderBar`** — flex row: left slot, center slot (flex:1), right slot. Uses `useSafeAreaInsets()` for status bar. Height = `buttonSize + Spacing.sm * 2`
+- **`HeaderIconButton`** — the one component for ALL circular header buttons. Takes `icon`, `onPress`, optional `tint`. Includes haptic via `useHapticPress()`
+- **`ProfilePill`** — name text + chevron-down. No avatar circle. Height matches `buttonSize`
+- **`ModeToggle`** — wraps `HeaderIconButton` with tint color. Icon-only (no text labels)
+
+### Dynamic Sizing — `useHeaderScale()` hook
+All header sizes computed at runtime from `useWindowDimensions()`:
+- `buttonSize` — circle diameter, adapts to screen width (base 34-38px), dampened font scale growth
+- `iconSize` — 53% of buttonSize
+- `accessorySize` — 33% of buttonSize (chevrons, carets)
+- `titleSize` — 44% of buttonSize (profile name text)
+
+No static `Header` constants in `theme.ts`. Changing system font scale updates everything live.
+
+### Rules
+- ALWAYS use `HeaderIconButton` for header buttons — never inline Pressable with hardcoded sizes
+- ALWAYS use `useHeaderScale()` for any header dimension — never hardcode pixel values
+- New header buttons get haptics for free via `HeaderIconButton`
 
 ## Color System
 Source: `constants/colors.ts` — dual palettes (`LightColors`, `DarkColors`).
@@ -51,6 +76,7 @@ Source: `constants/theme.ts → Spacing`. No hardcoded pixel values.
 ## Typography
 Static sizes: 12 (xs), 14 (sm), 16 (md), 18 (lg), 22 (xl), 28 (xxl), 34 (xxxl).
 Sidebar uses `useDynamicFonts()` — scales with `useWindowDimensions().fontScale` and screen width.
+Header uses `useHeaderScale()` — `titleSize` derived from `buttonSize`.
 Weights: 400, 500, 600, 700 via `FontWeight` constants.
 
 ## Border Radius
@@ -59,18 +85,28 @@ Always `borderCurve: 'continuous'` on rounded elements.
 
 ## Icons
 `@expo/vector-icons` (Ionicons, Feather, MaterialCommunityIcons) via centralized `components/Icon.tsx`.
+Exported `IconName` type for type-safe icon references.
+Available icons: gearshape, arrow-up, paperclip, chat-fill, stethoscope, chevron-down, chevron-right, heart-clipboard, plus, people, doc-search, chat-bubbles, menu, pen-square, camera, image, document.
 When migrating to dev builds, swap internals to `expo-image` SF Symbols without changing call sites.
+
+## Haptics
+- `useHapticPress(onPress, style?)` hook — wraps any callback with iOS haptic feedback
+- `HeaderIconButton` uses this automatically — no manual haptic code needed for header buttons
+- Other interactive elements: guard with `process.env.EXPO_OS === 'ios'`
+- Styles: `Light` for navigation/selection, `Medium` for send/confirm actions
 
 ## Interactive
 - Press: `opacity: pressed ? 0.6–0.85 : 1`
-- Haptics: iOS only (`process.env.EXPO_OS === 'ios'`), Light/Medium/Success feedback styles
 - Active sidebar item: `primary + '15'` background, primary text color, semibold weight
 
 ## Component Patterns
 
-### Chat Input (capsule)
-Floating capsule with `Shadow.md`, `BorderRadius.xl`. No border-top line.
-`+` button left (attach), text input center, send button right (40x40 circle, primary bg).
+### Chat Input (stacked layout)
+Rounded container with `BorderRadius.xl`, 1px border, `backgroundColor: surface`. No heavy shadow.
+Layout: TextInput on top (generous `Spacing.md` padding), toolbar row below.
+Toolbar: `+` attach button left, send button right (36px circle, primary bg).
+`hasAttachment` prop: shows "Image attached" indicator, tints + button primary, enables send without text.
+`onAttach` opens `useAttachMenu()` action sheet (Camera / Photos / Files).
 
 ### Chat Bubble
 User: primary bg, no border. Assistant: surface bg, 1px border.
@@ -82,16 +118,18 @@ Circular `+` new-conversation button (48x48, primary bg) on right.
 `justifyContent: 'space-between'`, generous bottom padding including safe area.
 
 ### Mode Toggle
-Header pill showing current mode icon + label. Chat = primary tint, Diagnosis = accent tint.
-Tapping toggles. Only visible on new conversation screen.
+Header icon-only button. Chat = primary tint (chat-fill icon), Diagnosis = accent tint (stethoscope icon).
+Wraps `HeaderIconButton` with tint. Only visible on new conversation screen.
 
 ### Profile Pill
-Header center. Avatar circle (relationship color) + name + chevron-down.
+Header center. Name text + chevron-down (no avatar circle).
+Height = `headerScale.buttonSize`. Font = `headerScale.titleSize`.
 Tapping opens formSheet profile picker.
 
 ### FormSheet Modals
 Use `ScrollView` (not `FlatList`) inside formSheets — known Expo bug with FlatList layout.
 No `contentInsetAdjustmentBehavior` inside sheets. No `KeyboardAvoidingView` wrapping (iOS sheets handle keyboard natively).
+`headerTintColor: Colors.text` on all formSheet screens (settings, profile-picker, profile/new).
 
 ### Loading State
 Skeleton chat bubbles on themed background. No white flash, no spinner, no text.

@@ -37,7 +37,7 @@ from app.services.diagnosis_safety import (
     sanitize_response,
     validate_response,
 )
-from app.services.llm import LLMMessage, LLMRequest, LLMResponse, LLMTask
+from app.services.llm import ImagePart, LLMMessage, LLMRequest, LLMResponse, LLMTask
 from app.services.memory import build_conversation_window
 from app.services.memory_extractor import MemoryExtractor
 
@@ -154,6 +154,7 @@ class DiagnosisService:
         session: DiagnosisSession,
         profile: Profile,
         content: str,
+        image_parts: list[ImagePart] | None = None,
     ) -> DiagnosisTurnResponse:
         """Send a user message and get the agent's response."""
         if session.status != "active":
@@ -178,7 +179,9 @@ class DiagnosisService:
                 information_gathered={"chief_complaint": session.chief_complaint},
             )
         else:
-            conversation_text, diagnosis_state = await self._handle_turn(session, profile, content)
+            conversation_text, diagnosis_state = await self._handle_turn(
+                session, profile, content, image_parts=image_parts
+            )
 
         # Store messages
         user_msg = DiagnosisMessage(session_id=session.id, role="user", content=content)
@@ -330,6 +333,7 @@ class DiagnosisService:
         session: DiagnosisSession,
         profile: Profile,
         user_content: str,
+        image_parts: list[ImagePart] | None = None,
     ) -> tuple[str, DiagnosisState]:
         """Process a single turn: context -> LLM Pass 1 -> safety -> Pass 2."""
         # 1. Build context via ContextBuilder
@@ -344,7 +348,9 @@ class DiagnosisService:
         system_prompt = ctx.system_prompt
 
         # 2. Build conversation messages with sliding window
-        messages = await self._build_conversation_messages(session.id, user_content)
+        messages = await self._build_conversation_messages(
+            session.id, user_content, image_parts=image_parts
+        )
 
         # Inject turn number — count user messages in history + the new one
         turn_number = sum(1 for m in messages if m["role"] == "user")
@@ -372,7 +378,8 @@ class DiagnosisService:
         self,
         session_id: UUID,
         new_user_message: str,
-    ) -> list[dict[str, str]]:
+        image_parts: list[ImagePart] | None = None,
+    ) -> list[dict]:
         """Load session history, apply sliding window, append new message."""
         stmt = (
             select(DiagnosisMessage)
@@ -391,7 +398,10 @@ class DiagnosisService:
             windowed = []
 
         # Append the new user message
-        windowed.append({"role": "user", "content": new_user_message})
+        new_msg: dict = {"role": "user", "content": new_user_message}
+        if image_parts:
+            new_msg["image_parts"] = image_parts
+        windowed.append(new_msg)
 
         return windowed
 

@@ -12,6 +12,7 @@ import type {
   ChatConversationDetail,
   ChatTurnResponse,
 } from '@/types/api';
+import type { Attachment } from '@/hooks/useAttachMenu';
 
 async function getAuthHeaders(): Promise<Record<string, string>> {
   const { data } = await supabase.auth.getSession();
@@ -63,11 +64,12 @@ export const diagnosisApi = {
       method: 'POST',
       body: JSON.stringify({ chief_complaint }),
     }),
-  sendMessage: (pid: string, sid: string, content: string) =>
-    request<DiagnosisTurnResponse>(`/profiles/${pid}/diagnosis/${sid}/messages`, {
-      method: 'POST',
-      body: JSON.stringify({ content }),
-    }),
+  sendMessage: (pid: string, sid: string, content: string, files?: Attachment[]) =>
+    multipartRequest<DiagnosisTurnResponse>(
+      `/profiles/${pid}/diagnosis/${sid}/messages`,
+      { content },
+      files,
+    ),
   updateStatus: (pid: string, sid: string, status: 'closed' | 'resolved' | 'abandoned') =>
     request<DiagnosisSession>(`/profiles/${pid}/diagnosis/${sid}`, {
       method: 'PATCH',
@@ -101,6 +103,33 @@ export const reportsApi = {
     request<Report>(`/profiles/${pid}/reports/${rid}/reanalyze`, { method: 'POST' }),
 };
 
+// ── Multipart helper ─────────────────────────────────────────────────────────
+
+async function multipartRequest<T>(
+  path: string,
+  fields: Record<string, string>,
+  files: Attachment[] = [],
+): Promise<T> {
+  const headers = await getAuthHeaders();
+  const formData = new FormData();
+  for (const [key, value] of Object.entries(fields)) {
+    formData.append(key, value);
+  }
+  for (const f of files) {
+    formData.append('files', { uri: f.uri, name: f.name, type: f.type } as unknown as Blob);
+  }
+  const response = await fetch(`${Config.apiUrl}${path}`, {
+    method: 'POST',
+    headers: { Authorization: headers.Authorization ?? '' },
+    body: formData,
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Request failed' }));
+    throw new Error(error.detail ?? `HTTP ${response.status}`);
+  }
+  return response.json() as Promise<T>;
+}
+
 // ── Chat ─────────────────────────────────────────────────────────────────────
 
 export const chatApi = {
@@ -108,9 +137,10 @@ export const chatApi = {
     request<PaginatedResponse<ChatConversation>>(`/profiles/${pid}/chat?page=${page}`),
   get: (pid: string, cid: string) =>
     request<ChatConversationDetail>(`/profiles/${pid}/chat/${cid}`),
-  send: (pid: string, content: string, conversation_id?: string, topic?: string) =>
-    request<ChatTurnResponse>(`/profiles/${pid}/chat`, {
-      method: 'POST',
-      body: JSON.stringify({ content, conversation_id, topic }),
-    }),
+  send: (pid: string, content: string, conversation_id?: string, topic?: string, files?: Attachment[]) => {
+    const fields: Record<string, string> = { content };
+    if (conversation_id) fields.conversation_id = conversation_id;
+    if (topic) fields.topic = topic;
+    return multipartRequest<ChatTurnResponse>(`/profiles/${pid}/chat`, fields, files);
+  },
 };

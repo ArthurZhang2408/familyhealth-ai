@@ -1,67 +1,21 @@
-import { Text, Pressable, View } from 'react-native';
+import { Text, Pressable } from 'react-native';
 import { useRouter } from 'expo-router';
-import * as Haptics from 'expo-haptics';
 import { Icon } from '@/components/Icon';
 import { useProfileStore } from '@/stores/profile';
 import { useColors } from '@/hooks/useColors';
-import { FontSize, FontWeight, Spacing, BorderRadius } from '@/constants/theme';
-import type { Relationship } from '@/types/api';
-import type { ColorPalette } from '@/constants/colors';
-
-function getRelationshipColors(Colors: ColorPalette): Record<Relationship, string> {
-  return {
-    self: Colors.relationshipSelf,
-    parent: Colors.relationshipParent,
-    spouse: Colors.relationshipSpouse,
-    child: Colors.relationshipChild,
-    sibling: Colors.relationshipSibling,
-    other: Colors.relationshipOther,
-  };
-}
-
-function getInitials(name: string): string {
-  return name
-    .split(' ')
-    .map((w) => w[0])
-    .slice(0, 2)
-    .join('')
-    .toUpperCase();
-}
+import { useHapticPress } from '@/hooks/useHapticPress';
+import { useHeaderScale } from '@/hooks/useHeaderScale';
+import { FontWeight, Spacing, BorderRadius } from '@/constants/theme';
 
 export function ProfilePill() {
   const Colors = useColors();
   const router = useRouter();
+  const header = useHeaderScale();
   const activeProfile = useProfileStore((s) => s.activeProfile);
+  const handlePress = useHapticPress(() => router.push('/profile-picker'));
 
-  const handlePress = () => {
-    if (process.env.EXPO_OS === 'ios') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    router.push('/profile-picker');
-  };
-
-  if (!activeProfile) {
-    return (
-      <Pressable
-        onPress={handlePress}
-        style={({ pressed }) => ({
-          flexDirection: 'row',
-          alignItems: 'center',
-          gap: Spacing.xs,
-          paddingHorizontal: Spacing.sm,
-          paddingVertical: Spacing.xs,
-          borderRadius: BorderRadius.sm,
-          borderCurve: 'continuous',
-          opacity: pressed ? 0.6 : 1,
-        })}
-      >
-        <Text style={{ fontSize: FontSize.md, fontWeight: FontWeight.medium, color: Colors.textSecondary }}>
-          Select profile
-        </Text>
-        <Icon name="chevron-down" size={12} color={Colors.textMuted} />
-      </Pressable>
-    );
-  }
-
-  const color = getRelationshipColors(Colors)[activeProfile.relationship];
+  const label = activeProfile?.name ?? 'Select profile';
+  const textColor = activeProfile ? Colors.text : Colors.textSecondary;
 
   return (
     <Pressable
@@ -69,32 +23,25 @@ export function ProfilePill() {
       style={({ pressed }) => ({
         flexDirection: 'row',
         alignItems: 'center',
-        gap: Spacing.sm,
+        gap: Spacing.xs,
+        height: header.buttonSize,
         paddingHorizontal: Spacing.sm,
-        paddingVertical: Spacing.xs,
-        borderRadius: BorderRadius.sm,
+        borderRadius: BorderRadius.full,
         borderCurve: 'continuous',
         opacity: pressed ? 0.6 : 1,
       })}
     >
-      <View
+      <Text
         style={{
-          width: 26,
-          height: 26,
-          borderRadius: BorderRadius.full,
-          backgroundColor: color + '20',
-          alignItems: 'center',
-          justifyContent: 'center',
+          fontSize: header.titleSize,
+          fontWeight: activeProfile ? FontWeight.semibold : FontWeight.medium,
+          color: textColor,
         }}
+        numberOfLines={1}
       >
-        <Text style={{ fontSize: 11, fontWeight: FontWeight.bold, color }}>
-          {getInitials(activeProfile.name)}
-        </Text>
-      </View>
-      <Text style={{ fontSize: FontSize.md, fontWeight: FontWeight.semibold, color: Colors.text }}>
-        {activeProfile.name}
+        {label}
       </Text>
-      <Icon name="chevron-down" size={12} color={Colors.textMuted} />
+      <Icon name="chevron-down" size={header.accessorySize} color={Colors.textMuted} />
     </Pressable>
   );
 }

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import AsyncIterator
 
 import openai
 
 from app.services.llm import LLMProvider, LLMRequest, LLMResponse
+
+logger = logging.getLogger(__name__)
 
 
 class QwenProvider(LLMProvider):
@@ -21,7 +24,15 @@ class QwenProvider(LLMProvider):
         messages: list[dict[str, str]] = [
             {"role": "system", "content": request.system_prompt},
         ]
-        messages.extend({"role": msg.role, "content": msg.content} for msg in request.messages)
+        for msg in request.messages:
+            if msg.image_parts:
+                logger.warning(
+                    "QwenProvider received message with %d image_parts — "
+                    "images will be dropped (Qwen is text-only). "
+                    "This indicates a routing bug; images should route to Gemini.",
+                    len(msg.image_parts),
+                )
+            messages.append({"role": msg.role, "content": msg.content})
         return messages
 
     async def generate(self, request: LLMRequest) -> LLMResponse:

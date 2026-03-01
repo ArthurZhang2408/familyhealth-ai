@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { chatApi } from '@/services/api';
+import type { Attachment } from '@/hooks/useAttachMenu';
 
 export function useChatConversations(pid: string) {
   return useQuery({
@@ -24,11 +25,13 @@ export function useSendChatMessage(pid: string) {
       content,
       conversation_id,
       topic,
+      files,
     }: {
       content: string;
       conversation_id?: string;
       topic?: string;
-    }) => chatApi.send(pid, content, conversation_id, topic),
+      files?: Attachment[];
+    }) => chatApi.send(pid, content, conversation_id, topic, files),
     onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: ['chat', pid] });
       if (variables.conversation_id) {

@@ -7,7 +7,7 @@ import Feather from '@expo/vector-icons/Feather';
  * swap internals to expo-image SF Symbols without changing call sites.
  */
 
-type IconName =
+export type IconName =
   | 'gearshape'
   | 'arrow-up'
   | 'paperclip'
@@ -19,7 +19,12 @@ type IconName =
   | 'plus'
   | 'people'
   | 'doc-search'
-  | 'chat-bubbles';
+  | 'chat-bubbles'
+  | 'menu'
+  | 'pen-square'
+  | 'camera'
+  | 'image'
+  | 'document';
 
 interface Props {
   name: IconName;
@@ -53,5 +58,15 @@ export function Icon({ name, size, color }: Props) {
       return <Ionicons name="document-text-outline" size={size} color={color} />;
     case 'chat-bubbles':
       return <Ionicons name="chatbubbles-outline" size={size} color={color} />;
+    case 'menu':
+      return <Ionicons name="menu-outline" size={size} color={color} />;
+    case 'pen-square':
+      return <Ionicons name="create-outline" size={size} color={color} />;
+    case 'camera':
+      return <Ionicons name="camera-outline" size={size} color={color} />;
+    case 'image':
+      return <Ionicons name="image-outline" size={size} color={color} />;
+    case 'document':
+      return <Ionicons name="document-outline" size={size} color={color} />;
   }
 }

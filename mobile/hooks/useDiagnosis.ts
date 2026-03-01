@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { diagnosisApi } from '@/services/api';
+import type { Attachment } from '@/hooks/useAttachMenu';
 
 export function useDiagnosisSessions(pid: string) {
   return useQuery({
@@ -28,7 +29,8 @@ export function useCreateDiagnosisSession(pid: string) {
 export function useSendDiagnosisMessage(pid: string, sid: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (content: string) => diagnosisApi.sendMessage(pid, sid, content),
+    mutationFn: ({ content, files }: { content: string; files?: Attachment[] }) =>
+      diagnosisApi.sendMessage(pid, sid, content, files),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['diagnosis', pid, sid] }),
   });
 }

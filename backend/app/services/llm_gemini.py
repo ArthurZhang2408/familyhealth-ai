@@ -35,11 +35,14 @@ class GeminiProvider(LLMProvider):
         self._report_model = report_model
         self._default_model = default_model
 
-    def _select_model(self, task: LLMTask) -> str:
+    def _select_model(self, task: LLMTask, has_images: bool = False) -> str:
         if task == LLMTask.DIAGNOSIS:
             return self._diagnosis_model
         if task == LLMTask.REPORT_ANALYSIS:
             return self._report_model
+        # Auto-upgraded tasks with images need the full model, not lite
+        if has_images:
+            return self._diagnosis_model
         return self._default_model
 
     @staticmethod
@@ -97,7 +100,8 @@ class GeminiProvider(LLMProvider):
         return tool_calls
 
     async def generate(self, request: LLMRequest) -> LLMResponse:
-        model = self._select_model(request.task)
+        has_images = any(m.image_parts for m in request.messages if m.image_parts)
+        model = self._select_model(request.task, has_images=has_images)
 
         contents = [
             types.Content(
@@ -139,7 +143,8 @@ class GeminiProvider(LLMProvider):
         )
 
     async def generate_stream(self, request: LLMRequest) -> AsyncIterator[str]:
-        model = self._select_model(request.task)
+        has_images = any(m.image_parts for m in request.messages if m.image_parts)
+        model = self._select_model(request.task, has_images=has_images)
 
         contents = [
             types.Content(

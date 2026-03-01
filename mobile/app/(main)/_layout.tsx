@@ -2,6 +2,8 @@ import { useEffect } from 'react';
 import { Drawer } from 'expo-router/drawer';
 import { SidebarContent } from '@/components/SidebarContent';
 import { ProfilePill } from '@/components/ProfilePill';
+import { HeaderBar } from '@/components/HeaderBar';
+import { HeaderIconButton } from '@/components/HeaderIconButton';
 import { useProfileStore } from '@/stores/profile';
 import { useProfiles } from '@/hooks/useProfiles';
 import { useColors } from '@/hooks/useColors';
@@ -21,19 +23,20 @@ export default function MainLayout() {
   return (
     <Drawer
       drawerContent={(props) => <SidebarContent {...props} />}
-      screenOptions={{
+      screenOptions={({ navigation }) => ({
         drawerStyle: {
           width: 280,
           backgroundColor: Colors.surface,
         },
-        headerStyle: {
-          backgroundColor: Colors.background,
-        },
-        headerShadowVisible: false,
-        headerTintColor: Colors.text,
-        headerTitle: () => <ProfilePill />,
+        header: ({ options }) => (
+          <HeaderBar
+            left={<HeaderIconButton icon="menu" onPress={() => navigation.toggleDrawer()} />}
+            center={<ProfilePill />}
+            right={options.headerRight?.({ canGoBack: false })}
+          />
+        ),
         sceneStyle: { backgroundColor: Colors.background },
-      }}
+      })}
     >
       <Drawer.Screen name="index" options={{ drawerItemStyle: { display: 'none' } }} />
       <Drawer.Screen name="chat/[cid]" options={{ drawerItemStyle: { display: 'none' } }} />

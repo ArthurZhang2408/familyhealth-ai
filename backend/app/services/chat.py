@@ -26,7 +26,7 @@ from app.services.chat_safety import (
     validate_response,
 )
 from app.services.context_builder import ContextBuilder
-from app.services.llm import LLMMessage, LLMRequest, LLMTask
+from app.services.llm import ImagePart, LLMMessage, LLMRequest, LLMTask
 from app.services.memory import build_conversation_window
 from app.services.memory_extractor import MemoryExtractor
 
@@ -68,6 +68,7 @@ class ChatService:
         content: str,
         conversation_id: UUID | None = None,
         topic: str | None = None,
+        image_parts: list[ImagePart] | None = None,
     ) -> tuple[ChatConversation, ChatTurnResponse]:
         """Send a chat message and get the AI response.
 
@@ -131,7 +132,9 @@ class ChatService:
         )
 
         # 4. Build conversation messages with sliding window
-        messages = await self._build_conversation_messages(conversation.id, content)
+        messages = await self._build_conversation_messages(
+            conversation.id, content, image_parts=image_parts
+        )
 
         # 5. Generate response via AgentCore
         agent_session = AgentSession(
@@ -230,7 +233,8 @@ class ChatService:
         self,
         conversation_id: UUID,
         new_user_message: str,
-    ) -> list[dict[str, str]]:
+        image_parts: list[ImagePart] | None = None,
+    ) -> list[dict]:
         """Load conversation history, apply sliding window, append new message.
 
         Note: crisis messages (stored when detect_mental_health_crisis fired)
@@ -258,7 +262,10 @@ class ChatService:
         else:
             windowed = []
 
-        windowed.append({"role": "user", "content": new_user_message})
+        new_msg: dict = {"role": "user", "content": new_user_message}
+        if image_parts:
+            new_msg["image_parts"] = image_parts
+        windowed.append(new_msg)
         return windowed
 
     async def _auto_generate_topic(
