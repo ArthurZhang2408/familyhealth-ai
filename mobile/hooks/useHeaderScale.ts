@@ -14,7 +14,8 @@ export function useHeaderScale() {
   const base = width < 375 ? 34 : 38;
 
   // Dampen font scale growth for touch targets (grow, but not as aggressively as text)
-  const scale = 1 + (fontScale - 1) * 0.5;
+  // Cap at 1.5x to prevent header from becoming excessively tall at max accessibility sizes
+  const scale = Math.min(1 + (fontScale - 1) * 0.5, 1.5);
 
   const buttonSize = Math.round(base * scale);
 

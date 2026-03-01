@@ -212,6 +212,19 @@ class TestUploadHelpers:
         assert parts[0].mime_type == "application/pdf"
 
     @pytest.mark.asyncio
+    async def test_read_image_parts_rejects_too_many_files(self) -> None:
+        from fastapi import HTTPException, UploadFile
+
+        files = [
+            UploadFile(filename=f"img{i}.jpg", file=io.BytesIO(TINY_JPEG), headers={"content-type": "image/jpeg"})
+            for i in range(6)
+        ]
+        with pytest.raises(HTTPException) as exc_info:
+            await read_image_parts(files)
+        assert exc_info.value.status_code == 400
+        assert "too many" in exc_info.value.detail.lower()
+
+    @pytest.mark.asyncio
     async def test_read_image_parts_multiple_files(self) -> None:
         from fastapi import UploadFile
 
