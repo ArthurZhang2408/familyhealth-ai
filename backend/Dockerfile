@@ -7,7 +7,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml .
-RUN pip install --no-cache-dir .
+
+# Install dependencies only (not the project itself) so this layer is cached
+RUN pip install --no-cache-dir $(python -c "\
+import tomllib, pathlib; \
+cfg = tomllib.loads(pathlib.Path('pyproject.toml').read_text()); \
+print(' '.join(cfg['project']['dependencies']))")
 
 COPY . .
 
