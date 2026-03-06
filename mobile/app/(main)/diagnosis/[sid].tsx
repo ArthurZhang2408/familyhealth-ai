@@ -65,6 +65,7 @@ function DiagnosisScreenInner() {
     id: `${activeSid ?? sid}-${i}`,
     role: m.role,
     content: m.content,
+    contentParts: m.content_parts,
   }));
 
   const streamSendFn = useCallback(
@@ -115,12 +116,15 @@ function DiagnosisScreenInner() {
   useFocusEffect(
     useCallback(() => {
       if (activeSid) refetch();
-      return () => {
-        conv.abort();
-      };
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activeSid, refetch]),
   );
+
+  // Abort stream only on true unmount, not on activeSid changes mid-stream
+  useEffect(() => {
+    return () => conv.abort();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (!isNew || didAutoSend.current) return;
@@ -172,7 +176,7 @@ function DiagnosisScreenInner() {
         onChangeText={conv.setInput}
         onAttach={conv.handleAttach}
         hasAttachment={!!conv.pendingAttachment}
-        isLoading={!!activeSid && isLoading}
+        isLoading={!!activeSid && isLoading && !conv.isBusy}
         error={isNew ? null : error}
         refetch={refetch}
         errorIcon="stethoscope"

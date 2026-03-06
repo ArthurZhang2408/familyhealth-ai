@@ -100,9 +100,11 @@ class DiagnosisMessageResponse(BaseModel):
     session_id: UUID
     role: str
     content: str
+    content_parts: list[dict[str, Any]] | None = None
+    metadata: dict[str, Any] | None = Field(None, validation_alias="metadata_")
     created_at: datetime
 
-    model_config = {"from_attributes": True}
+    model_config = {"from_attributes": True, "populate_by_name": True}
 
 
 class DiagnosisSessionResponse(BaseModel):

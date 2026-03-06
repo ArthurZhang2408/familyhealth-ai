@@ -200,7 +200,15 @@ function streamMultipartRequest(
 
       xhr.onload = () => {
         if (!resolved) {
-          reject(new Error(`Stream ended without done event: HTTP ${xhr!.status}`));
+          // Parse error detail from non-200 responses (e.g. 400 Bad Request)
+          let detail = `HTTP ${xhr!.status}`;
+          if (xhr!.status !== 200) {
+            try {
+              const body = JSON.parse(xhr!.responseText);
+              detail = body.detail || detail;
+            } catch { /* ignore parse failure */ }
+          }
+          reject(new Error(detail));
         }
       };
       xhr.onerror = () => {

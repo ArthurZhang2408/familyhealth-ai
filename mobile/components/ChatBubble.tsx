@@ -1,49 +1,38 @@
+import React from 'react';
 import { View, Text } from 'react-native';
 import Animated, { FadeInUp } from 'react-native-reanimated';
 import Markdown from '@ronradtke/react-native-markdown-display';
 import { useColors } from '@/hooks/useColors';
 import { useMarkdownStyles } from '@/hooks/useMarkdownStyles';
 import { Spacing, FontSize, BorderRadius } from '@/constants/theme';
+import {
+  AgentStepsPartView,
+  MemoryContextPartView,
+  ToolCallPartView,
+  ImagePartView,
+} from '@/components/message-parts';
+import type { MessagePart } from '@/types/api';
+
+class PartErrorBoundary extends React.Component<{ fallback: React.ReactNode; children: React.ReactNode }, { hasError: boolean }> {
+  state = { hasError: false };
+  static getDerivedStateFromError() { return { hasError: true }; }
+  render() { return this.state.hasError ? this.props.fallback : this.props.children; }
+}
 
 interface Props {
   content: string;
+  contentParts?: MessagePart[];
   isUser: boolean;
-  /** Only animate entrance for newly sent messages, not historical ones */
   animate?: boolean;
 }
 
-export function ChatBubble({ content, isUser, animate }: Props) {
+export function ChatBubble({ content, contentParts, isUser, animate }: Props) {
   const Colors = useColors();
   const markdownStyles = useMarkdownStyles();
 
-  const inner = isUser ? (
-    <View
-      style={{
-        backgroundColor: Colors.surfaceSecondary,
-        borderRadius: BorderRadius.lg,
-        borderBottomRightRadius: BorderRadius.sm,
-        borderCurve: 'continuous',
-        padding: Spacing.md,
-        maxWidth: '75%',
-        marginTop: Spacing.sm,
-      }}
-    >
-      <Text
-        style={{
-          fontSize: FontSize.md,
-          color: Colors.text,
-          lineHeight: 22,
-        }}
-        selectable
-      >
-        {content}
-      </Text>
-    </View>
-  ) : (
-    <View style={{ width: '100%', paddingVertical: Spacing.xs }}>
-      <Markdown style={markdownStyles}>{content}</Markdown>
-    </View>
-  );
+  const inner = isUser
+    ? <UserBubble content={content} contentParts={contentParts} Colors={Colors} />
+    : <AssistantBubble content={content} contentParts={contentParts} Colors={Colors} markdownStyles={markdownStyles} />;
 
   if (animate) {
     return (
@@ -60,6 +49,85 @@ export function ChatBubble({ content, isUser, animate }: Props) {
     <View style={{ alignItems: isUser ? 'flex-end' : 'flex-start' }}>
       {inner}
     </View>
+  );
+}
+
+function UserBubble({ content, contentParts, Colors }: { content: string; contentParts?: MessagePart[]; Colors: any }) {
+  const images = contentParts?.filter((p): p is Extract<MessagePart, { type: 'image' }> => p.type === 'image');
+  const hasText = content.trim().length > 0;
+
+  return (
+    <View style={{ alignItems: 'flex-end', maxWidth: '75%', gap: Spacing.xs, marginTop: Spacing.sm }}>
+      {images && images.length > 0 && (
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-end', gap: Spacing.xs }}>
+          {images.map((img, i) => <ImagePartView key={i} part={img} />)}
+        </View>
+      )}
+      {hasText && (
+        <View
+          style={{
+            backgroundColor: Colors.surfaceSecondary,
+            borderRadius: BorderRadius.lg,
+            borderBottomRightRadius: BorderRadius.sm,
+            borderCurve: 'continuous',
+            padding: Spacing.md,
+          }}
+        >
+          <Text
+            style={{ fontSize: FontSize.md, color: Colors.text, lineHeight: 22 }}
+            selectable
+          >
+            {content}
+          </Text>
+        </View>
+      )}
+    </View>
+  );
+}
+
+function AssistantBubble({ content, contentParts, Colors, markdownStyles }: { content: string; contentParts?: MessagePart[]; Colors: any; markdownStyles: any }) {
+  if (!contentParts || contentParts.length === 0) {
+    return (
+      <View style={{ width: '100%', paddingVertical: Spacing.xs }}>
+        <Markdown style={markdownStyles}>{content}</Markdown>
+      </View>
+    );
+  }
+
+  const toolResults = new Map<string, Extract<MessagePart, { type: 'tool_result' }>>();
+  for (const p of contentParts) {
+    if (p.type === 'tool_result') {
+      toolResults.set(p.call_id, p);
+    }
+  }
+
+  return (
+    <PartErrorBoundary fallback={
+      <View style={{ width: '100%', paddingVertical: Spacing.xs }}>
+        <Markdown style={markdownStyles}>{content}</Markdown>
+      </View>
+    }>
+      <View style={{ width: '100%', paddingVertical: Spacing.xs }}>
+        {contentParts.map((part, i) => {
+          switch (part.type) {
+            case 'agent_steps':
+              return <AgentStepsPartView key={i} part={part} />;
+            case 'memory_context':
+              return <MemoryContextPartView key={i} part={part} />;
+            case 'tool_call':
+              return <ToolCallPartView key={i} call={part} result={toolResults.get(part.id)} />;
+            case 'tool_result':
+              return null;
+            case 'image':
+              return <ImagePartView key={i} part={part} />;
+            case 'text':
+              return <Markdown key={i} style={markdownStyles}>{part.text}</Markdown>;
+            default:
+              return null;
+          }
+        })}
+      </View>
+    </PartErrorBoundary>
   );
 }
 

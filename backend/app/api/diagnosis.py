@@ -3,7 +3,16 @@ import json
 import logging
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    UploadFile,
+)
 from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,11 +25,11 @@ from app.api.deps import (
     get_memory_extractor,
     get_verified_profile,
 )
+from app.api.upload_helpers import read_image_parts
 from app.core.database import async_session_factory, get_db
 from app.models.diagnosis import DiagnosisSession
 from app.models.profile import Profile
 from app.schemas.common import PaginatedResponse
-from app.api.upload_helpers import read_image_parts
 from app.schemas.diagnosis import (
     DiagnosisSessionCreate,
     DiagnosisSessionDetailResponse,
@@ -263,7 +272,14 @@ async def stream_diagnosis(
         except asyncio.CancelledError:
             pass
 
-    return StreamingResponse(event_generator(), media_type="text/event-stream")
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.post("/{sid}/messages/stream")
@@ -335,7 +351,14 @@ async def send_message_stream(
         except asyncio.CancelledError:
             pass
 
-    return StreamingResponse(event_generator(), media_type="text/event-stream")
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.patch("/{sid}", response_model=DiagnosisSessionResponse)

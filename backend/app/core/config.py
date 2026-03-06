@@ -27,6 +27,11 @@ class Settings(BaseSettings):
     qwen_base_url: str = "https://ollama.com/v1"
     qwen_model: str = "qwen3.5:397b"
 
+    # LLM — Cerebras
+    cerebras_api_key: str = ""
+    cerebras_base_url: str = "https://api.cerebras.ai/v1"
+    cerebras_model: str = "gpt-oss-120b"
+
     # Mem0 internal LLM (fact extraction / dedup — lightweight, non-thinking)
     mem0_model: str = "nemotron-3-nano:30b"
 

@@ -123,6 +123,8 @@ export interface DiagnosisSession {
 export interface DiagnosisMessage {
   role: 'user' | 'assistant';
   content: string;
+  content_parts?: MessagePart[];
+  metadata?: Record<string, unknown>;
   created_at: string;
 }
 
@@ -168,6 +170,17 @@ export interface Report {
   updated_at: string;
 }
 
+// ── Message Parts ────────────────────────────────────────────────────────────
+
+export type MessagePart =
+  | { type: 'text'; text: string }
+  | { type: 'image'; url: string; mime_type: string; filename?: string }
+  | { type: 'tool_call'; id: string; name: string; arguments: Record<string, unknown> }
+  | { type: 'tool_result'; call_id: string; name: string; output: Record<string, unknown>; is_error?: boolean; summary?: string }
+  | { type: 'agent_steps'; steps: Array<{ id: string; message: string; tool?: string; details?: string[] }> }
+  | { type: 'memory_context'; memories: Array<{ text: string; date?: string }>; count: number }
+  | { type: 'structured_input'; input_type: string; prompt: string; options?: Array<Record<string, unknown>>; range?: Record<string, unknown>; selected?: unknown };
+
 // ── Chat ─────────────────────────────────────────────────────────────────────
 
 export interface ChatMessage {
@@ -175,6 +188,8 @@ export interface ChatMessage {
   conversation_id: string;
   role: 'user' | 'assistant';
   content: string;
+  content_parts?: MessagePart[];
+  metadata?: Record<string, unknown>;
   created_at: string;
 }
 

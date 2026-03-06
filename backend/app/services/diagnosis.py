@@ -6,6 +6,7 @@ import copy
 import json
 import logging
 from collections.abc import AsyncIterator
+from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 from sqlalchemy import func, select
@@ -42,6 +43,13 @@ from app.services.diagnosis_safety import (
 from app.services.llm import ImagePart, LLMMessage, LLMRequest, LLMResponse, LLMTask
 from app.services.memory import build_conversation_window
 from app.services.memory_extractor import MemoryExtractor
+from app.services.message_parts_builder import (
+    PartsAccumulator,
+    build_assistant_parts,
+    build_assistant_parts_from_result,
+    build_user_parts,
+    upload_images_for_parts,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -132,11 +140,25 @@ class DiagnosisService:
                 session, profile, chief_complaint
             )
 
-        # Store messages
-        user_msg = DiagnosisMessage(session_id=session.id, role="user", content=chief_complaint)
-        assistant_msg = DiagnosisMessage(
-            session_id=session.id, role="assistant", content=conversation_text
+        # Store messages with content parts
+        user_parts = build_user_parts(chief_complaint)
+        assistant_parts = build_assistant_parts_from_result(conversation_text)
+
+        user_msg = DiagnosisMessage(
+            session_id=session.id,
+            role="user",
+            content=chief_complaint,
+            content_parts=user_parts,
         )
+        assistant_msg = DiagnosisMessage(
+            session_id=session.id,
+            role="assistant",
+            content=conversation_text,
+            content_parts=assistant_parts,
+        )
+        now = datetime.now(timezone.utc)
+        user_msg.created_at = now
+        assistant_msg.created_at = now + timedelta(milliseconds=1)
         self._db.add_all([user_msg, assistant_msg])
 
         # Update session with differential if available
@@ -203,11 +225,28 @@ class DiagnosisService:
                 session, profile, content, image_parts=image_parts
             )
 
-        # Store messages
-        user_msg = DiagnosisMessage(session_id=session.id, role="user", content=content)
-        assistant_msg = DiagnosisMessage(
-            session_id=session.id, role="assistant", content=conversation_text
+        # Store messages with content parts
+        image_urls = (
+            await upload_images_for_parts(image_parts, profile.id) if image_parts else None
         )
+        user_parts = build_user_parts(content, image_urls)
+        assistant_parts = build_assistant_parts_from_result(conversation_text)
+
+        user_msg = DiagnosisMessage(
+            session_id=session.id,
+            role="user",
+            content=content,
+            content_parts=user_parts,
+        )
+        assistant_msg = DiagnosisMessage(
+            session_id=session.id,
+            role="assistant",
+            content=conversation_text,
+            content_parts=assistant_parts,
+        )
+        now = datetime.now(timezone.utc)
+        user_msg.created_at = now
+        assistant_msg.created_at = now + timedelta(milliseconds=1)
         self._db.add_all([user_msg, assistant_msg])
 
         # Update session differential
@@ -257,7 +296,9 @@ class DiagnosisService:
         if session_id:
             session = await self.get_session(session_id, profile.id)
             if not session:
-                raise AppError(status_code=404, detail="Diagnosis session not found", code="NOT_FOUND")
+                raise AppError(
+                    status_code=404, detail="Diagnosis session not found", code="NOT_FOUND"
+                )
         else:
             session = DiagnosisSession(
                 profile_id=profile.id,
@@ -285,6 +326,8 @@ class DiagnosisService:
         )
 
         # Red flag pre-check
+        accumulator = PartsAccumulator()
+        ctx = None
         profile_age = self._calculate_age(profile)
         red_flags = pre_check_red_flags(content, profile_age)
 
@@ -302,10 +345,13 @@ class DiagnosisService:
             )
         else:
             # Stream the main agent response (Pass 1)
-            yield AgentEvent(
+            ctx_event = AgentEvent(
                 type=AgentEventType.STATUS,
                 data={"step": "context", "message": "Loading patient context..."},
             )
+            accumulator.record_event(ctx_event)
+            yield ctx_event
+
             ctx = await self._ctx.build(
                 db=self._db,
                 profile_id=profile.id,
@@ -318,10 +364,12 @@ class DiagnosisService:
 
             # Emit detailed context results
             profile_name = ctx.profile_context.get("name", "patient")
-            yield AgentEvent(
+            profile_event = AgentEvent(
                 type=AgentEventType.STATUS,
                 data={"step": "profile", "message": f"Loaded profile for {profile_name}"},
             )
+            accumulator.record_event(profile_event)
+            yield profile_event
 
             if ctx.raw_memories:
                 summaries = []
@@ -339,7 +387,7 @@ class DiagnosisService:
                             pass
                     prefix = f"[{date_str}] " if date_str else ""
                     summaries.append(f"{prefix}{text}")
-                yield AgentEvent(
+                mem_event = AgentEvent(
                     type=AgentEventType.STATUS,
                     data={
                         "step": "memory",
@@ -347,11 +395,15 @@ class DiagnosisService:
                         "details": summaries,
                     },
                 )
+                accumulator.record_event(mem_event)
+                yield mem_event
             else:
-                yield AgentEvent(
+                mem_event = AgentEvent(
                     type=AgentEventType.STATUS,
                     data={"step": "memory", "message": "No relevant memories found"},
                 )
+                accumulator.record_event(mem_event)
+                yield mem_event
 
             messages = await self._build_conversation_messages(
                 session.id, content, image_parts=image_parts
@@ -373,6 +425,7 @@ class DiagnosisService:
                 elif event.type == AgentEventType.DONE:
                     conversation_text = event.data.get("content", conversation_text)
                 else:
+                    accumulator.record_event(event)
                     yield event
 
             # Safety validation
@@ -380,17 +433,36 @@ class DiagnosisService:
             conversation_text = sanitize_response(conversation_text, violations)
 
             # Pass 2 — Extract structured state (silent, not streamed)
-            yield AgentEvent(
+            analyzing_event = AgentEvent(
                 type=AgentEventType.STATUS,
                 data={"step": "analyzing", "message": "Updating diagnosis..."},
             )
+            accumulator.record_event(analyzing_event)
+            yield analyzing_event
             diagnosis_state = await self._extract_state(system_prompt, messages, conversation_text)
 
-        # Persist messages
-        user_msg = DiagnosisMessage(session_id=session.id, role="user", content=content)
-        assistant_msg = DiagnosisMessage(
-            session_id=session.id, role="assistant", content=conversation_text
+        # Build rich content parts and persist
+        image_urls = (
+            await upload_images_for_parts(image_parts, profile.id) if image_parts else None
         )
+        user_parts = build_user_parts(content, image_urls)
+        assistant_parts = build_assistant_parts(conversation_text, accumulator, ctx)
+
+        user_msg = DiagnosisMessage(
+            session_id=session.id,
+            role="user",
+            content=content,
+            content_parts=user_parts,
+        )
+        assistant_msg = DiagnosisMessage(
+            session_id=session.id,
+            role="assistant",
+            content=conversation_text,
+            content_parts=assistant_parts,
+        )
+        now = datetime.now(timezone.utc)
+        user_msg.created_at = now
+        assistant_msg.created_at = now + timedelta(milliseconds=1)
         self._db.add_all([user_msg, assistant_msg])
 
         if diagnosis_state.differential_diagnoses:

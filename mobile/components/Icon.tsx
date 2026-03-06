@@ -14,6 +14,7 @@ export type IconName =
   | 'chat-fill'
   | 'stethoscope'
   | 'chevron-down'
+  | 'chevron-up'
   | 'chevron-right'
   | 'heart-clipboard'
   | 'plus'
@@ -24,7 +25,11 @@ export type IconName =
   | 'pen-square'
   | 'camera'
   | 'image'
-  | 'document';
+  | 'document'
+  | 'close'
+  | 'checkmark-circle'
+  | 'close-circle'
+  | 'brain';
 
 interface Props {
   name: IconName;
@@ -68,5 +73,15 @@ export function Icon({ name, size, color }: Props) {
       return <Ionicons name="image-outline" size={size} color={color} />;
     case 'document':
       return <Ionicons name="document-outline" size={size} color={color} />;
+    case 'close':
+      return <Ionicons name="close" size={size} color={color} />;
+    case 'chevron-up':
+      return <Ionicons name="chevron-up" size={size} color={color} />;
+    case 'checkmark-circle':
+      return <Ionicons name="checkmark-circle" size={size} color={color} />;
+    case 'close-circle':
+      return <Ionicons name="close-circle" size={size} color={color} />;
+    case 'brain':
+      return <MaterialCommunityIcons name="brain" size={size} color={color} />;
   }
 }
