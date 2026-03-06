@@ -5,7 +5,7 @@ from collections.abc import AsyncIterator
 
 import openai
 
-from app.services.llm import LLMProvider, LLMRequest, LLMResponse
+from app.services.llm import LLMProvider, LLMRequest, LLMResponse, StreamChunk
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +64,7 @@ class QwenProvider(LLMProvider):
             usage=usage,
         )
 
-    async def generate_stream(self, request: LLMRequest) -> AsyncIterator[str]:
+    async def generate_stream(self, request: LLMRequest) -> AsyncIterator[StreamChunk]:
         messages = self._build_messages(request)
 
         kwargs: dict = {
@@ -81,5 +81,10 @@ class QwenProvider(LLMProvider):
         response = await self._client.chat.completions.create(**kwargs)
 
         async for chunk in response:
-            if chunk.choices and chunk.choices[0].delta.content is not None:
-                yield chunk.choices[0].delta.content
+            if not chunk.choices:
+                continue
+            delta = chunk.choices[0].delta
+            if delta.content is not None:
+                yield StreamChunk(type="text_delta", content=delta.content)
+
+        yield StreamChunk(type="finish", finish_reason="stop")

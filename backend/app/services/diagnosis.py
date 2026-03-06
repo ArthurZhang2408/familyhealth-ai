@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import json
 import logging
+from collections.abc import AsyncIterator
 from uuid import UUID
 
 from sqlalchemy import func, select
@@ -13,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.agents.core import AgentCore
 from app.agents.definitions import DIAGNOSIS_AGENT
 from app.agents.session import AgentSession
+from app.agents.types import AgentEvent, AgentEventType
 from app.models.diagnosis import DiagnosisMessage, DiagnosisSession
 from app.models.profile import Profile
 from app.schemas.action_log import ActionType
@@ -73,6 +75,24 @@ class DiagnosisService:
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
+
+    async def create_session_only(
+        self,
+        profile: Profile,
+        chief_complaint: str,
+    ) -> DiagnosisSession:
+        """Create a diagnosis session record without generating an AI response.
+
+        Used by the streaming flow: create session → navigate → stream first message.
+        """
+        session = DiagnosisSession(
+            profile_id=profile.id,
+            chief_complaint=chief_complaint,
+            status="active",
+        )
+        self._db.add(session)
+        await self._db.commit()
+        return session
 
     async def create_session(
         self,
@@ -137,7 +157,7 @@ class DiagnosisService:
             },
         )
 
-        await self._db.flush()
+        await self._db.commit()
         await self._db.refresh(user_msg)
         await self._db.refresh(assistant_msg)
 
@@ -208,7 +228,7 @@ class DiagnosisService:
             },
         )
 
-        await self._db.flush()
+        await self._db.commit()
         await self._db.refresh(user_msg)
         await self._db.refresh(assistant_msg)
 
@@ -216,6 +236,195 @@ class DiagnosisService:
             message=DiagnosisMessageResponse.model_validate(assistant_msg),
             diagnosis_state=diagnosis_state,
             disclaimer=MEDICAL_DISCLAIMER,
+        )
+
+    async def send_message_stream(
+        self,
+        profile: Profile,
+        content: str,
+        session_id: UUID | None = None,
+        chief_complaint: str | None = None,
+        image_parts: list[ImagePart] | None = None,
+    ) -> AsyncIterator[AgentEvent]:
+        """Streaming send_message. Creates session if session_id not provided.
+
+        Mirrors ChatService.send_message_stream() — optional session_id,
+        auto-create if missing, emit session_id in an early status event.
+        """
+        from app.core.exceptions import AppError
+
+        # 1. Resolve or create session
+        if session_id:
+            session = await self.get_session(session_id, profile.id)
+            if not session:
+                raise AppError(status_code=404, detail="Diagnosis session not found", code="NOT_FOUND")
+        else:
+            session = DiagnosisSession(
+                profile_id=profile.id,
+                chief_complaint=chief_complaint or content,
+                status="active",
+            )
+            self._db.add(session)
+            await self._db.commit()
+
+        if session.status != "active":
+            raise AppError(
+                status_code=400,
+                detail=f"Cannot send messages to a {session.status} session",
+                code="SESSION_NOT_ACTIVE",
+            )
+
+        # Emit session_id immediately so the client can update its URL
+        yield AgentEvent(
+            type=AgentEventType.STATUS,
+            data={
+                "step": "session_created",
+                "message": "Starting diagnosis...",
+                "session_id": str(session.id),
+            },
+        )
+
+        # Red flag pre-check
+        profile_age = self._calculate_age(profile)
+        red_flags = pre_check_red_flags(content, profile_age)
+
+        if red_flags:
+            conversation_text, severity = get_emergency_response(red_flags)
+            diagnosis_state = DiagnosisState(
+                phase="triage",
+                severity=severity,
+                red_flags_detected=red_flags,
+                information_gathered={"chief_complaint": session.chief_complaint},
+            )
+            yield AgentEvent(
+                type=AgentEventType.TEXT_DELTA,
+                data={"content": conversation_text},
+            )
+        else:
+            # Stream the main agent response (Pass 1)
+            yield AgentEvent(
+                type=AgentEventType.STATUS,
+                data={"step": "context", "message": "Loading patient context..."},
+            )
+            ctx = await self._ctx.build(
+                db=self._db,
+                profile_id=profile.id,
+                query=content,
+                interaction_type="diagnosis",
+                memory_budget=2000,
+                template=DIAGNOSIS_SYSTEM_PROMPT,
+            )
+            system_prompt = ctx.system_prompt
+
+            # Emit detailed context results
+            profile_name = ctx.profile_context.get("name", "patient")
+            yield AgentEvent(
+                type=AgentEventType.STATUS,
+                data={"step": "profile", "message": f"Loaded profile for {profile_name}"},
+            )
+
+            if ctx.raw_memories:
+                summaries = []
+                for mem in ctx.raw_memories[:5]:
+                    text = mem.get("memory", "")[:80]
+                    ts = mem.get("updated_at") or mem.get("created_at") or ""
+                    date_str = ""
+                    if ts:
+                        try:
+                            from datetime import datetime
+
+                            dt = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+                            date_str = dt.strftime("%b %Y")
+                        except (ValueError, AttributeError):
+                            pass
+                    prefix = f"[{date_str}] " if date_str else ""
+                    summaries.append(f"{prefix}{text}")
+                yield AgentEvent(
+                    type=AgentEventType.STATUS,
+                    data={
+                        "step": "memory",
+                        "message": f"Retrieved {ctx.memories_used} memories",
+                        "details": summaries,
+                    },
+                )
+            else:
+                yield AgentEvent(
+                    type=AgentEventType.STATUS,
+                    data={"step": "memory", "message": "No relevant memories found"},
+                )
+
+            messages = await self._build_conversation_messages(
+                session.id, content, image_parts=image_parts
+            )
+            turn_number = sum(1 for m in messages if m["role"] == "user")
+            system_prompt = system_prompt.replace("{turn_number}", str(turn_number))
+
+            agent_session = AgentSession(
+                profile_id=profile.id,
+                system_prompt=system_prompt,
+                messages=messages,
+            )
+
+            conversation_text = ""
+            async for event in self._agent.run_stream(agent_session, DIAGNOSIS_AGENT):
+                if event.type == AgentEventType.TEXT_DELTA:
+                    conversation_text += event.data.get("content", "")
+                    yield event
+                elif event.type == AgentEventType.DONE:
+                    conversation_text = event.data.get("content", conversation_text)
+                else:
+                    yield event
+
+            # Safety validation
+            violations = validate_response(conversation_text)
+            conversation_text = sanitize_response(conversation_text, violations)
+
+            # Pass 2 — Extract structured state (silent, not streamed)
+            yield AgentEvent(
+                type=AgentEventType.STATUS,
+                data={"step": "analyzing", "message": "Updating diagnosis..."},
+            )
+            diagnosis_state = await self._extract_state(system_prompt, messages, conversation_text)
+
+        # Persist messages
+        user_msg = DiagnosisMessage(session_id=session.id, role="user", content=content)
+        assistant_msg = DiagnosisMessage(
+            session_id=session.id, role="assistant", content=conversation_text
+        )
+        self._db.add_all([user_msg, assistant_msg])
+
+        if diagnosis_state.differential_diagnoses:
+            session.differential_diagnoses = [
+                d.model_dump() for d in diagnosis_state.differential_diagnoses
+            ]
+
+        await self._db.commit()
+        await self._db.refresh(user_msg)
+        await self._db.refresh(assistant_msg)
+
+        # Yield DONE immediately — client resolves on this
+        yield AgentEvent(
+            type=AgentEventType.DONE,
+            data={
+                "content": conversation_text,
+                "session_id": str(session.id),
+                "id": str(assistant_msg.id),
+                "user_message_id": str(user_msg.id),
+                "diagnosis_state": diagnosis_state.model_dump(),
+                "disclaimer": MEDICAL_DISCLAIMER,
+            },
+        )
+
+        # Best-effort post-processing (runs after client already has the response)
+        await self._log_action(
+            profile,
+            ActionType.DIAGNOSIS_MESSAGE,
+            {
+                "session_id": str(session.id),
+                "turn": diagnosis_state.turn_number,
+                "phase": diagnosis_state.phase,
+                "severity": diagnosis_state.severity,
+            },
         )
 
     async def get_session(

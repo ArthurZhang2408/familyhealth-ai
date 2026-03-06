@@ -51,11 +51,14 @@ class ToolResult:
 
 
 class AgentEventType(StrEnum):
+    STATUS = "status"
+    TEXT_DELTA = "text_delta"
     TEXT = "text"
     TOOL_CALL = "tool_call"
     TOOL_RESULT = "tool_result"
     ERROR = "error"
     COMPLETE = "complete"
+    DONE = "done"
 
 
 @dataclass

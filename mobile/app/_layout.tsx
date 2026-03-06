@@ -1,11 +1,22 @@
 import { useEffect } from 'react';
-import { useColorScheme } from 'react-native';
+import { AppState, Platform, useColorScheme } from 'react-native';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { focusManager, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/useAuth';
 import { useColors } from '@/hooks/useColors';
+
+// Refetch active queries when app comes back from background.
+// This ensures server-persisted data (from interrupted streams) shows up.
+focusManager.setEventListener((handleFocus) => {
+  const subscription = AppState.addEventListener('change', (state) => {
+    if (Platform.OS !== 'web') {
+      handleFocus(state === 'active');
+    }
+  });
+  return () => subscription.remove();
+});
 
 const queryClient = new QueryClient({
   defaultOptions: {

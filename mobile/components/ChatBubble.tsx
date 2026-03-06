@@ -1,6 +1,8 @@
 import { View, Text } from 'react-native';
 import Animated, { FadeInUp } from 'react-native-reanimated';
+import Markdown from '@ronradtke/react-native-markdown-display';
 import { useColors } from '@/hooks/useColors';
+import { useMarkdownStyles } from '@/hooks/useMarkdownStyles';
 import { Spacing, FontSize, BorderRadius } from '@/constants/theme';
 
 interface Props {
@@ -12,31 +14,34 @@ interface Props {
 
 export function ChatBubble({ content, isUser, animate }: Props) {
   const Colors = useColors();
+  const markdownStyles = useMarkdownStyles();
 
-  const bubble = (
+  const inner = isUser ? (
     <View
       style={{
-        backgroundColor: isUser ? Colors.primary : Colors.surface,
+        backgroundColor: Colors.surfaceSecondary,
         borderRadius: BorderRadius.lg,
-        borderBottomRightRadius: isUser ? BorderRadius.sm : BorderRadius.lg,
-        borderBottomLeftRadius: isUser ? BorderRadius.lg : BorderRadius.sm,
+        borderBottomRightRadius: BorderRadius.sm,
         borderCurve: 'continuous',
         padding: Spacing.md,
-        maxWidth: '80%',
-        borderWidth: isUser ? 0 : 1,
-        borderColor: Colors.border,
+        maxWidth: '75%',
+        marginTop: Spacing.sm,
       }}
     >
       <Text
         style={{
           fontSize: FontSize.md,
-          color: isUser ? Colors.textInverse : Colors.text,
+          color: Colors.text,
           lineHeight: 22,
         }}
         selectable
       >
         {content}
       </Text>
+    </View>
+  ) : (
+    <View style={{ width: '100%', paddingVertical: Spacing.xs }}>
+      <Markdown style={markdownStyles}>{content}</Markdown>
     </View>
   );
 
@@ -46,14 +51,14 @@ export function ChatBubble({ content, isUser, animate }: Props) {
         entering={FadeInUp.duration(250).springify().damping(20)}
         style={{ alignItems: isUser ? 'flex-end' : 'flex-start' }}
       >
-        {bubble}
+        {inner}
       </Animated.View>
     );
   }
 
   return (
     <View style={{ alignItems: isUser ? 'flex-end' : 'flex-start' }}>
-      {bubble}
+      {inner}
     </View>
   );
 }

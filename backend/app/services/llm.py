@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
+from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Literal
 
 from pydantic import BaseModel
 
@@ -62,12 +63,22 @@ class LLMResponse(BaseModel):
     finish_reason: str | None = None  # "stop" | "tool_calls"
 
 
+@dataclass
+class StreamChunk:
+    """A chunk emitted during streaming LLM generation."""
+
+    type: Literal["text_delta", "tool_call", "finish"]
+    content: str = ""
+    tool_calls: list[ToolCallResponse] = field(default_factory=list)
+    finish_reason: str | None = None
+
+
 class LLMProvider(ABC):
     @abstractmethod
     async def generate(self, request: LLMRequest) -> LLMResponse: ...
 
     @abstractmethod
-    async def generate_stream(self, request: LLMRequest) -> AsyncIterator[str]: ...
+    async def generate_stream(self, request: LLMRequest) -> AsyncIterator[StreamChunk]: ...
 
 
 class LLMRouter:
@@ -96,7 +107,7 @@ class LLMRouter:
         provider = self._resolve(request)
         return await provider.generate(request)
 
-    async def route_stream(self, request: LLMRequest) -> AsyncIterator[str]:
+    async def route_stream(self, request: LLMRequest) -> AsyncIterator[StreamChunk]:
         provider = self._resolve(request)
         async for chunk in provider.generate_stream(request):
             yield chunk

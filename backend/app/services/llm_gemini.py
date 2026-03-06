@@ -15,6 +15,7 @@ from app.services.llm import (
     LLMRequest,
     LLMResponse,
     LLMTask,
+    StreamChunk,
     ToolCallResponse,
 )
 
@@ -142,7 +143,7 @@ class GeminiProvider(LLMProvider):
             finish_reason="tool_calls" if tool_calls else "stop",
         )
 
-    async def generate_stream(self, request: LLMRequest) -> AsyncIterator[str]:
+    async def generate_stream(self, request: LLMRequest) -> AsyncIterator[StreamChunk]:
         has_images = any(m.image_parts for m in request.messages if m.image_parts)
         model = self._select_model(request.task, has_images=has_images)
 
@@ -161,5 +162,22 @@ class GeminiProvider(LLMProvider):
             contents=contents,
             config=config,
         ):
-            if chunk.text:
-                yield chunk.text
+            if not chunk.candidates:
+                continue
+            for part in chunk.candidates[0].content.parts:
+                fc = getattr(part, "function_call", None)
+                if fc and fc.name:
+                    yield StreamChunk(
+                        type="tool_call",
+                        tool_calls=[
+                            ToolCallResponse(
+                                id=f"tc_{uuid.uuid4().hex[:12]}",
+                                name=fc.name,
+                                arguments=dict(fc.args) if fc.args else {},
+                            )
+                        ],
+                    )
+                elif hasattr(part, "text") and part.text:
+                    yield StreamChunk(type="text_delta", content=part.text)
+
+        yield StreamChunk(type="finish", finish_reason="stop")
