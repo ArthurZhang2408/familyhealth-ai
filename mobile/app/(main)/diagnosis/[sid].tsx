@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text } from 'react-native';
-import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
+import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
+import { Stack } from 'expo-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { ConversationView } from '@/components/ConversationView';
 import { HeaderIconButton } from '@/components/HeaderIconButton';
@@ -15,14 +16,35 @@ import type { StreamEvent } from '@/types/api';
 import type { Attachment } from '@/hooks/useAttachMenu';
 
 export default function DiagnosisScreen() {
+  const { sid } = useLocalSearchParams<{ sid: string }>();
+  const keyRef = useRef({ sid, key: sid === 'new' ? `new-${Date.now()}` : sid });
+
+  if (sid !== keyRef.current.sid) {
+    const wasNew = keyRef.current.sid === 'new';
+    if (wasNew && sid !== 'new') {
+      keyRef.current = { ...keyRef.current, sid };
+    } else {
+      keyRef.current = { sid, key: sid === 'new' ? `new-${Date.now()}` : sid };
+    }
+  }
+
+  return <DiagnosisScreenInner key={keyRef.current.key} />;
+}
+
+function DiagnosisScreenInner() {
   const Colors = useColors();
   const router = useRouter();
   const qc = useQueryClient();
   const { sid } = useLocalSearchParams<{ sid: string }>();
   const pid = useProfileStore((s) => s.activeProfile?.id) ?? '';
   const isNew = sid === 'new';
-  const realSidRef = useRef<string | null>(null);
+
+  const [activeSid, setActiveSid] = useState<string | null>(isNew ? null : sid);
   const didAutoSend = useRef(false);
+
+  useEffect(() => {
+    if (!isNew) setActiveSid(sid);
+  }, [sid, isNew]);
 
   const PHASE_LABELS = useMemo(
     () =>
@@ -36,68 +58,51 @@ export default function DiagnosisScreen() {
 
   const { data: session, isLoading, error, refetch } = useDiagnosisSession(
     pid,
-    isNew ? '' : sid,
+    activeSid ?? '',
   );
 
   const serverMessages: LocalMessage[] = (session?.messages ?? []).map((m, i) => ({
-    id: `${sid}-${i}`,
+    id: `${activeSid ?? sid}-${i}`,
     role: m.role,
     content: m.content,
   }));
 
-  // Reset refs when navigating to a new session (refs persist across param changes)
-  useEffect(() => {
-    if (sid === 'new') {
-      realSidRef.current = null;
-      didAutoSend.current = false;
-    }
-  }, [sid]);
-
-  // Mirrors chat's streamSendFn — intercepts session_id from early status event
   const streamSendFn = useCallback(
     (text: string, onEvent: (event: StreamEvent) => void, files?: Attachment[]) => {
       const wrappedOnEvent = (event: StreamEvent) => {
-        // Only replace URL when the server-assigned ID differs from the current URL
-        // (i.e., new sessions getting their real ID). For existing sessions,
-        // event.session_id === sid so this is skipped.
         if (
           event.type === 'status' &&
           'session_id' in event &&
-          event.session_id &&
-          event.session_id !== sid
+          event.session_id
         ) {
-          realSidRef.current = event.session_id;
-          router.replace(`/(main)/diagnosis/${event.session_id}`);
+          setActiveSid(event.session_id);
         }
         onEvent(event);
       };
-      const existingSid = realSidRef.current ?? (isNew ? undefined : sid);
       return diagnosisStreamApi.sendMessage(
         pid,
         text,
         wrappedOnEvent,
-        existingSid,
-        isNew && !realSidRef.current ? text : undefined,
+        activeSid ?? undefined,
+        isNew && !activeSid ? text : undefined,
         files,
       );
     },
-    [pid, sid, isNew, router],
+    [pid, activeSid, isNew],
   );
 
   const onSendComplete = useCallback(
     (done?: { session_id?: string }) => {
-      // Fallback: replace URL from done event if status event didn't arrive
-      if (done?.session_id && !realSidRef.current) {
-        realSidRef.current = done.session_id;
-        router.replace(`/(main)/diagnosis/${done.session_id}`);
+      const realId = done?.session_id ?? activeSid;
+      if (realId && sid !== realId) {
+        router.navigate(`/(main)/diagnosis/${realId}` as never);
       }
-      const activeSid = realSidRef.current ?? sid;
       qc.invalidateQueries({ queryKey: ['diagnosis', pid] });
-      if (activeSid && activeSid !== 'new') {
-        qc.invalidateQueries({ queryKey: ['diagnosis', pid, activeSid] });
+      if (realId) {
+        qc.invalidateQueries({ queryKey: ['diagnosis', pid, realId] });
       }
     },
-    [qc, pid, sid, router],
+    [qc, pid, sid, activeSid, router],
   );
 
   const conv = useConversation({
@@ -107,7 +112,16 @@ export default function DiagnosisScreen() {
     onSendComplete,
   });
 
-  // Auto-send — identical pattern to chat/[cid].tsx
+  useFocusEffect(
+    useCallback(() => {
+      if (activeSid) refetch();
+      return () => {
+        conv.abort();
+      };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [activeSid, refetch]),
+  );
+
   useEffect(() => {
     if (!isNew || didAutoSend.current) return;
     const pending = consumePendingSend();
@@ -148,7 +162,7 @@ export default function DiagnosisScreen() {
                   </Text>
                 </View>
               )}
-              <HeaderIconButton icon="pen-square" onPress={() => router.push('/(main)')} />
+              <HeaderIconButton icon="pen-square" onPress={() => router.navigate('/(main)' as never)} />
             </View>
           ),
         }}
@@ -158,7 +172,7 @@ export default function DiagnosisScreen() {
         onChangeText={conv.setInput}
         onAttach={conv.handleAttach}
         hasAttachment={!!conv.pendingAttachment}
-        isLoading={!isNew && isLoading}
+        isLoading={!!activeSid && isLoading}
         error={isNew ? null : error}
         refetch={refetch}
         errorIcon="stethoscope"

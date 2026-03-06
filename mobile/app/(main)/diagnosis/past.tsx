@@ -40,7 +40,7 @@ export default function PastDiagnosisScreen() {
               <Pressable
                 onPress={() => {
                   if (process.env.EXPO_OS === 'ios') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  router.push(`/(main)/diagnosis/${session.id}`);
+                  router.navigate(`/(main)/diagnosis/${session.id}` as never);
                 }}
                 style={({ pressed }) => ({
                   backgroundColor: Colors.surface,

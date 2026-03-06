@@ -50,7 +50,16 @@ export function SidebarContent({ navigation }: DrawerContentComponentProps) {
   const navigateTo = (path: string) => {
     if (process.env.EXPO_OS === 'ios') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     close();
-    setTimeout(() => router.push(path as never), 150);
+    // Drawer doesn't support push (it falls through to the parent Stack).
+    // Use navigate for intra-Drawer routes, push for root-level modals.
+    const isDrawerRoute = path.startsWith('/(main)');
+    setTimeout(() => {
+      if (isDrawerRoute) {
+        router.navigate(path as never);
+      } else {
+        router.push(path as never);
+      }
+    }, 150);
   };
 
   const handleUpload = async () => {
