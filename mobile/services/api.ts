@@ -141,65 +141,85 @@ async function multipartRequest<T>(
 
 type DoneEvent = Extract<StreamEvent, { type: 'done' }>;
 
-async function streamMultipartRequest(
+export interface StreamHandle {
+  promise: Promise<DoneEvent>;
+  abort: () => void;
+}
+
+function streamMultipartRequest(
   path: string,
   fields: Record<string, string>,
   files: Attachment[] = [],
   onEvent: (event: StreamEvent) => void,
-): Promise<DoneEvent> {
-  const headers = await getAuthHeaders();
-  const formData = new FormData();
-  for (const [key, value] of Object.entries(fields)) {
-    formData.append(key, value);
-  }
-  for (const f of files) {
-    formData.append('files', { uri: f.uri, name: f.name, type: f.type } as unknown as Blob);
-  }
+): StreamHandle {
+  let xhr: XMLHttpRequest | null = null;
+  let aborted = false;
 
-  return new Promise<DoneEvent>((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    xhr.open('POST', `${Config.apiUrl}${path}`);
-    xhr.setRequestHeader('Authorization', headers.Authorization ?? '');
-    xhr.responseType = 'text';
+  const promise = (async () => {
+    const headers = await getAuthHeaders();
+    if (aborted) throw new Error('Stream aborted');
 
-    let cursor = 0;
-    let resolved = false;
+    const formData = new FormData();
+    for (const [key, value] of Object.entries(fields)) {
+      formData.append(key, value);
+    }
+    for (const f of files) {
+      formData.append('files', { uri: f.uri, name: f.name, type: f.type } as unknown as Blob);
+    }
 
-    xhr.onreadystatechange = () => {
-      if (xhr.readyState >= 3 && xhr.status === 200) {
-        const newText = xhr.responseText.substring(cursor);
-        cursor = xhr.responseText.length;
+    return new Promise<DoneEvent>((resolve, reject) => {
+      xhr = new XMLHttpRequest();
+      xhr.open('POST', `${Config.apiUrl}${path}`);
+      xhr.setRequestHeader('Authorization', headers.Authorization ?? '');
+      xhr.responseType = 'text';
 
-        for (const line of newText.split('\n')) {
-          const trimmed = line.trim();
-          if (!trimmed.startsWith('data: ')) continue;
-          try {
-            const event = JSON.parse(trimmed.substring(6)) as StreamEvent;
-            onEvent(event);
-            // Resolve immediately when done arrives — don't wait for connection close.
-            // The backend may continue with post-processing (topic generation, logging)
-            // but the client doesn't need to wait for that.
-            if (event.type === 'done' && !resolved) {
-              resolved = true;
-              resolve(event);
+      let cursor = 0;
+      let resolved = false;
+
+      xhr.onreadystatechange = () => {
+        if (xhr!.readyState >= 3 && xhr!.status === 200) {
+          const newText = xhr!.responseText.substring(cursor);
+          cursor = xhr!.responseText.length;
+
+          for (const line of newText.split('\n')) {
+            const trimmed = line.trim();
+            if (!trimmed.startsWith('data: ')) continue;
+            try {
+              const event = JSON.parse(trimmed.substring(6)) as StreamEvent;
+              onEvent(event);
+              if (event.type === 'done' && !resolved) {
+                resolved = true;
+                resolve(event);
+              }
+            } catch {
+              // Incomplete JSON in this chunk — will arrive in next onreadystatechange
             }
-          } catch {
-            // Incomplete JSON in this chunk — will arrive in next onreadystatechange
           }
         }
-      }
-    };
+      };
 
-    xhr.onload = () => {
-      if (!resolved) {
-        reject(new Error(`Stream ended without done event: HTTP ${xhr.status}`));
-      }
-    };
-    xhr.onerror = () => {
-      if (!resolved) reject(new Error('Stream connection failed'));
-    };
-    xhr.send(formData);
-  });
+      xhr.onload = () => {
+        if (!resolved) {
+          reject(new Error(`Stream ended without done event: HTTP ${xhr!.status}`));
+        }
+      };
+      xhr.onerror = () => {
+        if (!resolved) reject(new Error('Stream connection failed'));
+      };
+      xhr.onabort = () => {
+        if (!resolved) reject(new Error('Stream aborted'));
+      };
+      xhr.send(formData);
+    });
+  })();
+
+  return {
+    promise,
+    abort: () => {
+      aborted = true;
+      xhr?.abort();
+    },
+  };
 }
 
 // ── Chat ─────────────────────────────────────────────────────────────────────

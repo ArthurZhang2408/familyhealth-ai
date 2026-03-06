@@ -36,9 +36,9 @@ export default function NewConversationScreen() {
     // Navigate immediately — the target screen handles the streaming send
     setPendingSend(text, files);
     if (mode === 'chat') {
-      router.replace('/(main)/chat/new');
+      router.navigate('/(main)/chat/new' as never);
     } else {
-      router.replace('/(main)/diagnosis/new');
+      router.navigate('/(main)/diagnosis/new' as never);
     }
   };
 

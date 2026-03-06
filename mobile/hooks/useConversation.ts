@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { FlatList } from 'react-native';
 import { useAttachMenu, type Attachment } from '@/hooks/useAttachMenu';
 import type { StreamEvent, AgentStep } from '@/types/api';
+import type { StreamHandle } from '@/services/api';
 
 export interface LocalMessage {
   id: string;
@@ -15,7 +16,7 @@ export type StreamSendFn = (
   text: string,
   onEvent: (event: StreamEvent) => void,
   files?: Attachment[],
-) => Promise<DoneEvent>;
+) => StreamHandle;
 
 interface UseConversationConfig {
   serverMessages: LocalMessage[];
@@ -37,6 +38,7 @@ export function useConversation({ serverMessages, streamSendFn, dedupMode, onSen
   const flatListRef = useRef<FlatList>(null);
   const isSendingRef = useRef(false);
   const streamingContentRef = useRef('');
+  const activeAbortRef = useRef<(() => void) | null>(null);
 
   const handleAttach = useAttachMenu((attachment) => setPendingAttachment(attachment));
 
@@ -57,18 +59,11 @@ export function useConversation({ serverMessages, streamSendFn, dedupMode, onSen
         setPendingMessages([]);
       }
     }
-  // Only re-run when server data changes — NOT when pending changes.
-  // Adding pendingMessages.length here causes 'count' mode to immediately
-  // clear pending (since serverMessages.length > 0 for existing sessions),
-  // which makes user messages disappear before the AI responds.
-  // The allMessages memo already handles display-level dedup.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [serverIdKey, dedupMode]);
 
   const allMessages = useMemo(() => {
     if (pendingMessages.length === 0) return serverMessages;
-    // Filter out pending messages that already exist in server data (by ID)
-    // to prevent duplicate keys even before the dedup effect runs.
     const serverIds = new Set(serverMessages.map((m) => m.id));
     const uniquePending = pendingMessages.filter((m) => !serverIds.has(m.id));
     return [...serverMessages, ...uniquePending];
@@ -122,6 +117,12 @@ export function useConversation({ serverMessages, streamSendFn, dedupMode, onSen
     }
   }, []);
 
+  /** Abort any in-flight stream. Safe to call multiple times. */
+  const abort = useCallback(() => {
+    activeAbortRef.current?.();
+    activeAbortRef.current = null;
+  }, []);
+
   /** Core send logic — used by both onSend (from input) and sendMessage (programmatic). */
   const doSend = useCallback(
     async (text: string, files?: Attachment[]) => {
@@ -139,7 +140,10 @@ export function useConversation({ serverMessages, streamSendFn, dedupMode, onSen
       let doneEvent: DoneEvent | undefined;
 
       try {
-        const done = await streamSendFn(text, handleStreamEvent, files);
+        const handle = streamSendFn(text, handleStreamEvent, files);
+        activeAbortRef.current = handle.abort;
+        const done = await handle.promise;
+        activeAbortRef.current = null;
         doneEvent = done;
 
         setDisclaimer(done.disclaimer ?? null);
@@ -157,7 +161,7 @@ export function useConversation({ serverMessages, streamSendFn, dedupMode, onSen
           return [...updated, aiMsg];
         });
       } catch {
-        // Stream interrupted (app backgrounded, network lost, etc.).
+        // Stream interrupted (app backgrounded, navigated away, network lost, etc.).
         // Preserve any partial content that was streamed before the interruption.
         // onSendComplete will refetch — if the backend finished, server data replaces this.
         const partial = streamingContentRef.current;
@@ -172,6 +176,7 @@ export function useConversation({ serverMessages, streamSendFn, dedupMode, onSen
         setStreamingContent('');
         setAgentSteps([]);
         isSendingRef.current = false;
+        activeAbortRef.current = null;
         onSendComplete?.(doneEvent);
       }
 
@@ -203,6 +208,7 @@ export function useConversation({ serverMessages, streamSendFn, dedupMode, onSen
     setInput,
     onSend,
     sendMessage,
+    abort,
     disclaimer,
     pendingAttachment,
     handleAttach,
