@@ -13,10 +13,11 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import AsyncIterator
 
 from app.agents.registry import ToolRegistry
 from app.agents.session import AgentSession
-from app.agents.types import AgentDefinition, AgentResult, ToolCall
+from app.agents.types import AgentDefinition, AgentEvent, AgentEventType, AgentResult, ToolCall
 from app.services.llm import LLMMessage, LLMRequest, LLMResponse, LLMRouter
 
 logger = logging.getLogger(__name__)
@@ -136,6 +137,103 @@ class AgentCore:
             tool_results=list(session.tool_results),
             rounds=agent_def.max_tool_rounds + 1,
             max_rounds_hit=True,
+        )
+
+    async def run_stream(
+        self,
+        session: AgentSession,
+        agent_def: AgentDefinition,
+    ) -> AsyncIterator[AgentEvent]:
+        """Streaming version of run(). Yields AgentEvents as they occur.
+
+        Every round uses route_stream() for true token-by-token output.
+        If the model returns tool calls in the stream, they are detected,
+        executed, and the next round streams again.
+        """
+        tool_declarations = self._tools.get_declarations(agent_def.tool_names)
+        last_text = ""
+
+        for round_num in range(agent_def.max_tool_rounds + 1):
+            request = self._build_request(session, agent_def, tool_declarations)
+
+            text_buffer = ""
+            tool_calls: list[ToolCall] = []
+
+            try:
+                async for chunk in self._llm.route_stream(request):
+                    if chunk.type == "text_delta":
+                        text_buffer += chunk.content
+                        yield AgentEvent(
+                            type=AgentEventType.TEXT_DELTA,
+                            data={"content": chunk.content},
+                        )
+                    elif chunk.type == "tool_call":
+                        for tc_resp in chunk.tool_calls:
+                            tool_calls.append(
+                                ToolCall(
+                                    id=tc_resp.id,
+                                    name=tc_resp.name,
+                                    arguments=tc_resp.arguments,
+                                )
+                            )
+            except Exception:
+                logger.exception(
+                    "Agent '%s' LLM call failed on round %d",
+                    agent_def.name,
+                    round_num + 1,
+                )
+                raise
+
+            session.turn_count += 1
+            last_text = text_buffer
+
+            if not tool_calls:
+                # Final response — text already streamed token-by-token
+                yield AgentEvent(
+                    type=AgentEventType.DONE,
+                    data={"content": text_buffer},
+                )
+                return
+
+            # Tool calls detected — execute them and continue
+            session.messages.append({"role": "assistant", "content": text_buffer})
+
+            injected = {"profile_id": str(session.profile_id)}
+            for tc in tool_calls:
+                session.tool_calls_made.append(tc)
+
+                yield AgentEvent(
+                    type=AgentEventType.TOOL_CALL,
+                    data={"tool": tc.name, "arguments": tc.arguments},
+                )
+
+                result = await self._tools.execute(tc, injected_args=injected)
+                session.tool_results.append(result)
+
+                result_summary = (
+                    f"Error: {result.output.get('error', 'unknown')}"
+                    if result.is_error
+                    else f"{result.output.get('count', len(result.output))} results"
+                )
+                yield AgentEvent(
+                    type=AgentEventType.TOOL_RESULT,
+                    data={"tool": tc.name, "summary": result_summary},
+                )
+
+                result_text = json.dumps(result.output, default=str)
+                session.messages.append(
+                    {"role": "user", "content": f"[Tool {tc.name}] {result_text}"}
+                )
+
+        # Max rounds exceeded — last streamed text is the final response
+        logger.warning(
+            "Agent '%s' hit max_tool_rounds (%d)",
+            agent_def.name,
+            agent_def.max_tool_rounds,
+        )
+        yield AgentEvent(
+            type=AgentEventType.DONE,
+            data={"content": last_text},
         )
 
     @staticmethod

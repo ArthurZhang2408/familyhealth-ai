@@ -15,7 +15,12 @@ export default function MainLayout() {
   const { data } = useProfiles();
 
   useEffect(() => {
-    if (!activeProfile && data?.items && data.items.length > 0) {
+    if (!data?.items || data.items.length === 0) return;
+
+    // If no active profile, or the persisted profile doesn't belong to this account
+    // (stale from a previous sign-in), auto-select the first profile.
+    const belongsToAccount = activeProfile && data.items.some((p) => p.id === activeProfile.id);
+    if (!belongsToAccount) {
       setActiveProfile(data.items[0]);
     }
   }, [activeProfile, data, setActiveProfile]);

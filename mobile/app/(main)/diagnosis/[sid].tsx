@@ -1,135 +1,127 @@
-import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
-import { View, Text, Pressable, FlatList, KeyboardAvoidingView } from 'react-native';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { View, Text } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
-import { ChatBubble, TypingIndicator } from '@/components/ChatBubble';
-import { ChatInput } from '@/components/ChatInput';
+import { useQueryClient } from '@tanstack/react-query';
+import { ConversationView } from '@/components/ConversationView';
 import { HeaderIconButton } from '@/components/HeaderIconButton';
-import { LoadingSpinner } from '@/components/LoadingSpinner';
-import { Icon } from '@/components/Icon';
-import Animated, { FadeIn } from 'react-native-reanimated';
-import { NoProfileGuard } from '@/components/NoProfileGuard';
 import { useProfileStore } from '@/stores/profile';
-import { useDiagnosisSession, useSendDiagnosisMessage } from '@/hooks/useDiagnosis';
-import { useAttachMenu, type Attachment } from '@/hooks/useAttachMenu';
+import { useDiagnosisSession } from '@/hooks/useDiagnosis';
+import { useConversation, type LocalMessage } from '@/hooks/useConversation';
+import { diagnosisStreamApi } from '@/services/api';
+import { consumePendingSend } from '@/services/pendingSend';
 import { useColors } from '@/hooks/useColors';
 import { Spacing, FontSize, FontWeight, BorderRadius } from '@/constants/theme';
-
-interface LocalMessage {
-  role: 'user' | 'assistant';
-  content: string;
-  id: string;
-}
+import type { StreamEvent } from '@/types/api';
+import type { Attachment } from '@/hooks/useAttachMenu';
 
 export default function DiagnosisScreen() {
   const Colors = useColors();
   const router = useRouter();
+  const qc = useQueryClient();
   const { sid } = useLocalSearchParams<{ sid: string }>();
-  const activeProfile = useProfileStore((s) => s.activeProfile);
-  const pid = activeProfile?.id ?? '';
+  const pid = useProfileStore((s) => s.activeProfile?.id) ?? '';
+  const isNew = sid === 'new';
+  const realSidRef = useRef<string | null>(null);
+  const didAutoSend = useRef(false);
 
-  const PHASE_LABELS = useMemo(() => ({
-    gathering: { label: 'Gathering info', color: Colors.info },
-    analyzing: { label: 'Analyzing', color: Colors.warning },
-    complete: { label: 'Complete', color: Colors.success },
-  } as Record<string, { label: string; color: string }>), [Colors]);
+  const PHASE_LABELS = useMemo(
+    () =>
+      ({
+        gathering: { label: 'Gathering info', color: Colors.info },
+        analyzing: { label: 'Analyzing', color: Colors.warning },
+        complete: { label: 'Complete', color: Colors.success },
+      }) as Record<string, { label: string; color: string }>,
+    [Colors],
+  );
 
-  const [pendingMessages, setPendingMessages] = useState<LocalMessage[]>([]);
-  const [input, setInput] = useState('');
-  const [disclaimer, setDisclaimer] = useState<string | null>(null);
-  const [pendingAttachment, setPendingAttachment] = useState<Attachment | null>(null);
-  const flatListRef = useRef<FlatList>(null);
+  const { data: session, isLoading, error, refetch } = useDiagnosisSession(
+    pid,
+    isNew ? '' : sid,
+  );
 
-  const { data: session, isLoading, error, refetch } = useDiagnosisSession(pid, sid);
-  const sendMessage = useSendDiagnosisMessage(pid, sid);
-
-  const handleAttach = useAttachMenu((attachment) => setPendingAttachment(attachment));
-
-  // Clear pending once server data catches up (prevents duplicates on refetch)
-  const serverMsgCount = session?.messages?.length ?? 0;
-  useEffect(() => {
-    if (serverMsgCount > 0 && pendingMessages.length > 0) {
-      setPendingMessages([]);
-    }
-  }, [serverMsgCount, pendingMessages.length]);
-
-  // Merge server messages + locally sent messages
   const serverMessages: LocalMessage[] = (session?.messages ?? []).map((m, i) => ({
     id: `${sid}-${i}`,
     role: m.role,
     content: m.content,
   }));
-  const allMessages = [...serverMessages, ...pendingMessages];
 
-  const handleSend = useCallback(async () => {
-    const text = input.trim() || (pendingAttachment ? 'Please look at this image.' : '');
-    if (!text || sendMessage.isPending || !pid) return;
-    setInput('');
-    const files = pendingAttachment ? [pendingAttachment] : undefined;
-    setPendingAttachment(null);
-
-    const userMsg: LocalMessage = { role: 'user', content: text, id: Date.now().toString() };
-    setPendingMessages((prev) => [...prev, userMsg]);
-
-    try {
-      const response = await sendMessage.mutateAsync({ content: text, files });
-      const msgContent =
-        typeof response.message === 'string'
-          ? response.message
-          : (response.message as unknown as { content: string }).content;
-      const aiMsg: LocalMessage = {
-        role: 'assistant',
-        content: msgContent,
-        id: (Date.now() + 1).toString(),
-      };
-      setPendingMessages((prev) => [...prev, aiMsg]);
-      setDisclaimer(response.disclaimer);
-    } catch {
-      setPendingMessages((prev) => [
-        ...prev,
-        { role: 'assistant', content: 'Something went wrong. Please try again.', id: (Date.now() + 1).toString() },
-      ]);
+  // Reset refs when navigating to a new session (refs persist across param changes)
+  useEffect(() => {
+    if (sid === 'new') {
+      realSidRef.current = null;
+      didAutoSend.current = false;
     }
+  }, [sid]);
 
-    setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
-  }, [input, sendMessage, pid, pendingAttachment]);
+  // Mirrors chat's streamSendFn — intercepts session_id from early status event
+  const streamSendFn = useCallback(
+    (text: string, onEvent: (event: StreamEvent) => void, files?: Attachment[]) => {
+      const wrappedOnEvent = (event: StreamEvent) => {
+        // Only replace URL when the server-assigned ID differs from the current URL
+        // (i.e., new sessions getting their real ID). For existing sessions,
+        // event.session_id === sid so this is skipped.
+        if (
+          event.type === 'status' &&
+          'session_id' in event &&
+          event.session_id &&
+          event.session_id !== sid
+        ) {
+          realSidRef.current = event.session_id;
+          router.replace(`/(main)/diagnosis/${event.session_id}`);
+        }
+        onEvent(event);
+      };
+      const existingSid = realSidRef.current ?? (isNew ? undefined : sid);
+      return diagnosisStreamApi.sendMessage(
+        pid,
+        text,
+        wrappedOnEvent,
+        existingSid,
+        isNew && !realSidRef.current ? text : undefined,
+        files,
+      );
+    },
+    [pid, sid, isNew, router],
+  );
 
-  if (isLoading) return <LoadingSpinner />;
+  const onSendComplete = useCallback(
+    (done?: { session_id?: string }) => {
+      // Fallback: replace URL from done event if status event didn't arrive
+      if (done?.session_id && !realSidRef.current) {
+        realSidRef.current = done.session_id;
+        router.replace(`/(main)/diagnosis/${done.session_id}`);
+      }
+      const activeSid = realSidRef.current ?? sid;
+      qc.invalidateQueries({ queryKey: ['diagnosis', pid] });
+      if (activeSid && activeSid !== 'new') {
+        qc.invalidateQueries({ queryKey: ['diagnosis', pid, activeSid] });
+      }
+    },
+    [qc, pid, sid, router],
+  );
 
-  if (error && allMessages.length === 0) {
-    return (
-      <View style={{ flex: 1, backgroundColor: Colors.background, alignItems: 'center', justifyContent: 'center', padding: Spacing.xl }}>
-        <Icon name="stethoscope" size={32} color={Colors.textMuted} />
-        <Text style={{ fontSize: FontSize.md, color: Colors.textSecondary, textAlign: 'center', marginTop: Spacing.md }}>
-          Couldn't load session
-        </Text>
-        <Text style={{ fontSize: FontSize.sm, color: Colors.textMuted, textAlign: 'center', marginTop: Spacing.xs }}>
-          Check your connection and try again
-        </Text>
-        <Pressable
-          onPress={() => refetch()}
-          style={({ pressed }) => ({
-            marginTop: Spacing.lg,
-            backgroundColor: Colors.primary,
-            borderRadius: BorderRadius.md,
-            borderCurve: 'continuous',
-            paddingHorizontal: Spacing.lg,
-            paddingVertical: Spacing.sm,
-            opacity: pressed ? 0.85 : 1,
-          })}
-        >
-          <Text style={{ fontSize: FontSize.sm, fontWeight: FontWeight.semibold, color: Colors.textInverse }}>
-            Retry
-          </Text>
-        </Pressable>
-      </View>
-    );
-  }
+  const conv = useConversation({
+    serverMessages,
+    streamSendFn,
+    dedupMode: 'count',
+    onSendComplete,
+  });
+
+  // Auto-send — identical pattern to chat/[cid].tsx
+  useEffect(() => {
+    if (!isNew || didAutoSend.current) return;
+    const pending = consumePendingSend();
+    if (!pending) return;
+    didAutoSend.current = true;
+    conv.sendMessage(pending.text, pending.files);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isNew]);
 
   const phase = session?.diagnosis_state?.phase;
   const phaseInfo = phase ? PHASE_LABELS[phase] : undefined;
 
   return (
-    <NoProfileGuard>
+    <>
       <Stack.Screen
         options={{
           title: session?.chief_complaint || 'AI Diagnosis',
@@ -161,66 +153,18 @@ export default function DiagnosisScreen() {
           ),
         }}
       />
-      <KeyboardAvoidingView
-        style={{ flex: 1, backgroundColor: Colors.background }}
-        behavior={process.env.EXPO_OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={90}
-      >
-        <FlatList
-          ref={flatListRef}
-          data={allMessages}
-          keyExtractor={(m) => m.id}
-          contentContainerStyle={{
-            padding: Spacing.md,
-            gap: Spacing.sm,
-            flexGrow: 1,
-            justifyContent: allMessages.length === 0 ? 'center' : 'flex-start',
-          }}
-          contentInsetAdjustmentBehavior="automatic"
-          renderItem={({ item }) => (
-            <ChatBubble
-              content={item.content}
-              isUser={item.role === 'user'}
-              animate={pendingMessages.some((m) => m.id === item.id)}
-            />
-          )}
-          ListEmptyComponent={
-            <View style={{ alignItems: 'center', padding: Spacing.xl }}>
-              <Text style={{ fontSize: FontSize.md, color: Colors.textMuted, textAlign: 'center' }}>
-                No messages yet
-              </Text>
-            </View>
-          }
-          ListFooterComponent={
-            allMessages.length > 0 ? (
-              <>
-                {sendMessage.isPending && <TypingIndicator />}
-                {disclaimer && (
-                  <Animated.Text
-                    entering={FadeIn.duration(300)}
-                    style={{ fontSize: FontSize.xs, color: Colors.textMuted, textAlign: 'center', marginTop: Spacing.md }}
-                  >
-                    {disclaimer}
-                  </Animated.Text>
-                )}
-              </>
-            ) : null
-          }
-          onLayout={() => {
-            if (allMessages.length > 0) flatListRef.current?.scrollToEnd({ animated: false });
-          }}
-        />
-
-        <ChatInput
-          value={input}
-          onChangeText={setInput}
-          onSend={handleSend}
-          isBusy={sendMessage.isPending}
-          onAttach={handleAttach}
-          hasAttachment={!!pendingAttachment}
-          placeholder="Describe your symptoms…"
-        />
-      </KeyboardAvoidingView>
-    </NoProfileGuard>
+      <ConversationView
+        {...conv}
+        onChangeText={conv.setInput}
+        onAttach={conv.handleAttach}
+        hasAttachment={!!conv.pendingAttachment}
+        isLoading={!isNew && isLoading}
+        error={isNew ? null : error}
+        refetch={refetch}
+        errorIcon="stethoscope"
+        errorTitle="Couldn't load session"
+        placeholder="Describe your symptoms…"
+      />
+    </>
   );
 }

@@ -194,3 +194,21 @@ export interface ChatTurnResponse {
   message: ChatMessage;
   disclaimer: string;
 }
+
+// ── Streaming ────────────────────────────────────────────────────────────────
+
+export interface AgentStep {
+  id: string;
+  message: string;
+  tool?: string;
+  details?: string[];
+  status: 'active' | 'done';
+}
+
+/** Server-Sent Event from /stream endpoints */
+export type StreamEvent =
+  | { type: 'status'; step: string; message: string; tool?: string; details?: string[]; conversation_id?: string; session_id?: string }
+  | { type: 'text_delta'; content: string }
+  | { type: 'tool_call'; tool: string; arguments?: Record<string, unknown> }
+  | { type: 'tool_result'; tool: string; summary: string }
+  | { type: 'done'; content: string; id?: string; user_message_id?: string; conversation_id?: string; session_id?: string; disclaimer?: string; diagnosis_state?: DiagnosisState };

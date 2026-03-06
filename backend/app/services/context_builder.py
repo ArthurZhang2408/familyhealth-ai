@@ -27,6 +27,7 @@ class ContextResult:
     profile_context: dict
     memories_used: int
     token_counts: dict  # {"profile": N, "memories": N, "total": N}
+    raw_memories: list[dict] | None = None  # raw memory dicts from Mem0
 
 
 # ---------------------------------------------------------------------------
@@ -284,6 +285,7 @@ class ContextBuilder:
                 "memories": memories_tokens,
                 "total": total_tokens,
             },
+            raw_memories=memories,
         )
 
     async def _safe_retrieve_memories(

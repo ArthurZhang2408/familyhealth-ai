@@ -1,126 +1,101 @@
-import { useState, useRef, useCallback, useEffect } from 'react';
-import { View, Text, Pressable, FlatList, KeyboardAvoidingView } from 'react-native';
+import { useCallback, useEffect, useRef } from 'react';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
-import { ChatBubble, TypingIndicator } from '@/components/ChatBubble';
-import { ChatInput } from '@/components/ChatInput';
+import { useQueryClient } from '@tanstack/react-query';
+import { ConversationView } from '@/components/ConversationView';
 import { HeaderIconButton } from '@/components/HeaderIconButton';
-import { LoadingSpinner } from '@/components/LoadingSpinner';
-import { Icon } from '@/components/Icon';
-import Animated, { FadeIn } from 'react-native-reanimated';
-import { NoProfileGuard } from '@/components/NoProfileGuard';
 import { useProfileStore } from '@/stores/profile';
-import { useChatConversation, useSendChatMessage } from '@/hooks/useChat';
-import { useAttachMenu, type Attachment } from '@/hooks/useAttachMenu';
-import { useColors } from '@/hooks/useColors';
-import { Spacing, FontSize, FontWeight, BorderRadius } from '@/constants/theme';
-
-interface LocalMessage {
-  id: string;
-  role: 'user' | 'assistant';
-  content: string;
-}
+import { useChatConversation } from '@/hooks/useChat';
+import { useConversation, type LocalMessage } from '@/hooks/useConversation';
+import { chatApi } from '@/services/api';
+import { consumePendingSend } from '@/services/pendingSend';
+import type { StreamEvent } from '@/types/api';
+import type { Attachment } from '@/hooks/useAttachMenu';
 
 export default function ChatScreen() {
-  const Colors = useColors();
   const router = useRouter();
+  const qc = useQueryClient();
   const { cid } = useLocalSearchParams<{ cid: string }>();
-  const activeProfile = useProfileStore((s) => s.activeProfile);
-  const pid = activeProfile?.id ?? '';
+  const pid = useProfileStore((s) => s.activeProfile?.id) ?? '';
+  const isNew = cid === 'new';
+  const realCidRef = useRef<string | null>(null);
+  const didAutoSend = useRef(false);
 
-  const [pendingMessages, setPendingMessages] = useState<LocalMessage[]>([]);
-  const [input, setInput] = useState('');
-  const [disclaimer, setDisclaimer] = useState<string | null>(null);
-  const [pendingAttachment, setPendingAttachment] = useState<Attachment | null>(null);
-  const flatListRef = useRef<FlatList>(null);
-
-  const { data: conversation, isLoading, error, refetch } = useChatConversation(pid, cid);
-  const sendMessage = useSendChatMessage(pid);
-
-  const handleAttach = useAttachMenu((attachment) => setPendingAttachment(attachment));
-
-  useEffect(() => {
-    if (conversation?.messages && pendingMessages.length > 0) {
-      const serverIds = new Set(conversation.messages.map((m) => m.id));
-      setPendingMessages((prev) => prev.filter((m) => !serverIds.has(m.id)));
-    }
-  }, [conversation, pendingMessages.length]);
+  // Skip the GET query for new conversations (no server data yet)
+  const { data: conversation, isLoading, error, refetch } = useChatConversation(
+    pid,
+    isNew ? '' : cid,
+  );
 
   const serverMessages: LocalMessage[] = (conversation?.messages ?? []).map((m) => ({
     id: m.id,
     role: m.role,
     content: m.content,
   }));
-  const allMessages = [...serverMessages, ...pendingMessages];
 
-  const handleSend = useCallback(async () => {
-    const text = input.trim() || (pendingAttachment ? 'Please look at this image.' : '');
-    if (!text || sendMessage.isPending || !pid) return;
-    setInput('');
-    const files = pendingAttachment ? [pendingAttachment] : undefined;
-    setPendingAttachment(null);
-
-    const userMsg: LocalMessage = { id: Date.now().toString(), role: 'user', content: text };
-    setPendingMessages((prev) => [...prev, userMsg]);
-
-    try {
-      const response = await sendMessage.mutateAsync({
-        content: text,
-        conversation_id: cid,
-        files,
-      });
-
-      setDisclaimer(response.disclaimer);
-
-      const aiMsg: LocalMessage = {
-        id: response.message.id,
-        role: 'assistant',
-        content: response.message.content,
-      };
-      setPendingMessages((prev) => [...prev, aiMsg]);
-    } catch {
-      setPendingMessages((prev) => [
-        ...prev,
-        { id: (Date.now() + 1).toString(), role: 'assistant', content: 'Something went wrong. Please try again.' },
-      ]);
+  // Reset refs when navigating to a new conversation (refs persist across param changes)
+  useEffect(() => {
+    if (cid === 'new') {
+      realCidRef.current = null;
+      didAutoSend.current = false;
     }
+  }, [cid]);
 
-    setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
-  }, [input, sendMessage, pid, cid, pendingAttachment]);
+  const streamSendFn = useCallback(
+    (text: string, onEvent: (event: StreamEvent) => void, files?: Attachment[]) => {
+      const wrappedOnEvent = (event: StreamEvent) => {
+        // Only replace URL when the server-assigned ID differs from the current URL
+        if (
+          event.type === 'status' &&
+          'conversation_id' in event &&
+          event.conversation_id &&
+          event.conversation_id !== cid
+        ) {
+          realCidRef.current = event.conversation_id;
+          router.replace(`/(main)/chat/${event.conversation_id}`);
+        }
+        onEvent(event);
+      };
+      const convId = realCidRef.current ?? (isNew ? undefined : cid);
+      return chatApi.sendStream(pid, text, wrappedOnEvent, convId, undefined, files);
+    },
+    [pid, cid, isNew, router],
+  );
 
-  if (isLoading) return <LoadingSpinner />;
+  const onSendComplete = useCallback(
+    (done?: { conversation_id?: string }) => {
+      // Fallback: replace URL from done event if status event didn't arrive
+      if (done?.conversation_id && done.conversation_id !== cid) {
+        realCidRef.current = done.conversation_id;
+        router.replace(`/(main)/chat/${done.conversation_id}`);
+      }
+      const activeCid = realCidRef.current ?? cid;
+      qc.invalidateQueries({ queryKey: ['chat', pid] });
+      if (activeCid && activeCid !== 'new') {
+        qc.invalidateQueries({ queryKey: ['chat', pid, activeCid] });
+      }
+    },
+    [qc, pid, cid, router],
+  );
 
-  if (error && allMessages.length === 0) {
-    return (
-      <View style={{ flex: 1, backgroundColor: Colors.background, alignItems: 'center', justifyContent: 'center', padding: Spacing.xl }}>
-        <Icon name="chat-bubbles" size={32} color={Colors.textMuted} />
-        <Text style={{ fontSize: FontSize.md, color: Colors.textSecondary, textAlign: 'center', marginTop: Spacing.md }}>
-          Couldn't load conversation
-        </Text>
-        <Text style={{ fontSize: FontSize.sm, color: Colors.textMuted, textAlign: 'center', marginTop: Spacing.xs }}>
-          Check your connection and try again
-        </Text>
-        <Pressable
-          onPress={() => refetch()}
-          style={({ pressed }) => ({
-            marginTop: Spacing.lg,
-            backgroundColor: Colors.primary,
-            borderRadius: BorderRadius.md,
-            borderCurve: 'continuous',
-            paddingHorizontal: Spacing.lg,
-            paddingVertical: Spacing.sm,
-            opacity: pressed ? 0.85 : 1,
-          })}
-        >
-          <Text style={{ fontSize: FontSize.sm, fontWeight: FontWeight.semibold, color: Colors.textInverse }}>
-            Retry
-          </Text>
-        </Pressable>
-      </View>
-    );
-  }
+  const conv = useConversation({
+    serverMessages,
+    streamSendFn,
+    dedupMode: 'id',
+    onSendComplete,
+  });
+
+  // Auto-send the initial message for new conversations
+  useEffect(() => {
+    if (!isNew || didAutoSend.current) return;
+    const pending = consumePendingSend();
+    if (!pending) return;
+    didAutoSend.current = true;
+    conv.sendMessage(pending.text, pending.files);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isNew]);
 
   return (
-    <NoProfileGuard>
+    <>
       <Stack.Screen
         options={{
           title: conversation?.topic || 'Health Chat',
@@ -129,64 +104,16 @@ export default function ChatScreen() {
           ),
         }}
       />
-      <KeyboardAvoidingView
-        style={{ flex: 1, backgroundColor: Colors.background }}
-        behavior={process.env.EXPO_OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={90}
-      >
-        <FlatList
-          ref={flatListRef}
-          data={allMessages}
-          keyExtractor={(m) => m.id}
-          contentContainerStyle={{
-            padding: Spacing.md,
-            gap: Spacing.sm,
-            flexGrow: 1,
-            justifyContent: allMessages.length === 0 ? 'center' : 'flex-start',
-          }}
-          contentInsetAdjustmentBehavior="automatic"
-          renderItem={({ item }) => (
-            <ChatBubble
-              content={item.content}
-              isUser={item.role === 'user'}
-              animate={pendingMessages.some((m) => m.id === item.id)}
-            />
-          )}
-          ListEmptyComponent={
-            <View style={{ alignItems: 'center', padding: Spacing.xl }}>
-              <Text style={{ fontSize: FontSize.md, color: Colors.textMuted, textAlign: 'center' }}>
-                No messages yet
-              </Text>
-            </View>
-          }
-          ListFooterComponent={
-            allMessages.length > 0 ? (
-              <>
-                {sendMessage.isPending && <TypingIndicator />}
-                {disclaimer && (
-                  <Animated.Text
-                    entering={FadeIn.duration(300)}
-                    style={{ fontSize: FontSize.xs, color: Colors.textMuted, textAlign: 'center', marginTop: Spacing.md }}
-                  >
-                    {disclaimer}
-                  </Animated.Text>
-                )}
-              </>
-            ) : null
-          }
-          onLayout={() => flatListRef.current?.scrollToEnd({ animated: false })}
-        />
-
-        <ChatInput
-          value={input}
-          onChangeText={setInput}
-          onSend={handleSend}
-          isBusy={sendMessage.isPending}
-          onAttach={handleAttach}
-          hasAttachment={!!pendingAttachment}
-          placeholder="Ask a health question…"
-        />
-      </KeyboardAvoidingView>
-    </NoProfileGuard>
+      <ConversationView
+        {...conv}
+        onChangeText={conv.setInput}
+        onAttach={conv.handleAttach}
+        hasAttachment={!!conv.pendingAttachment}
+        isLoading={!isNew && isLoading}
+        error={isNew ? null : error}
+        refetch={refetch}
+        placeholder="Ask a health question…"
+      />
+    </>
   );
 }

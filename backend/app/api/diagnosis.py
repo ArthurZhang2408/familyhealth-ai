@@ -1,17 +1,22 @@
+import asyncio
+import json
+import logging
 from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.core import AgentCore
+from app.agents.types import AgentEvent, AgentEventType
 from app.api.deps import (
     get_agent_core,
     get_context_builder,
     get_memory_extractor,
     get_verified_profile,
 )
-from app.core.database import get_db
+from app.core.database import async_session_factory, get_db
 from app.models.diagnosis import DiagnosisSession
 from app.models.profile import Profile
 from app.schemas.common import PaginatedResponse
@@ -42,6 +47,24 @@ def _build_service(
         context_builder=context_builder,
         memory_extractor=memory_extractor,
     )
+
+
+@router.post("/create", response_model=DiagnosisSessionDetailResponse, status_code=201)
+async def create_session_only(
+    data: DiagnosisSessionCreate,
+    profile: Profile = Depends(get_verified_profile),
+    db: AsyncSession = Depends(get_db),
+    agent_core: AgentCore = Depends(get_agent_core),
+    context_builder: ContextBuilder = Depends(get_context_builder),
+    memory_extractor: MemoryExtractor = Depends(get_memory_extractor),
+) -> DiagnosisSessionDetailResponse:
+    """Create a diagnosis session without generating an AI response.
+
+    Used by the streaming flow: create → navigate → stream first message.
+    """
+    svc = _build_service(db, agent_core, context_builder, memory_extractor)
+    session = await svc.create_session_only(profile, data.chief_complaint)
+    return DiagnosisSessionDetailResponse.model_validate(session)
 
 
 @router.post("", response_model=DiagnosisTurnResponse, status_code=201)
@@ -157,6 +180,162 @@ async def send_message(
     )
 
     return turn_response
+
+
+_diag_stream_logger = logging.getLogger(__name__)
+
+_DIAG_SENTINEL = object()
+
+
+@router.post("/stream")
+async def stream_diagnosis(
+    content: str = Form(...),
+    session_id: UUID | None = Form(None),
+    chief_complaint: str | None = Form(None),
+    files: list[UploadFile] = File(default=[]),
+    profile: Profile = Depends(get_verified_profile),
+    agent_core: AgentCore = Depends(get_agent_core),
+    context_builder: ContextBuilder = Depends(get_context_builder),
+    memory_extractor: MemoryExtractor = Depends(get_memory_extractor),
+) -> StreamingResponse:
+    """Send a diagnosis message with SSE streaming response.
+
+    Mirrors the chat /stream endpoint: optional session_id creates a new
+    session on the fly. Processing runs in a background task with its own
+    db session — survives client disconnect.
+    """
+    image_parts = await read_image_parts(files)
+    profile_id = profile.id
+
+    queue: asyncio.Queue = asyncio.Queue()
+
+    async def _process():
+        done_data = None
+        async with async_session_factory() as task_db:
+            try:
+                task_db.expire_on_commit = False
+                svc = _build_service(task_db, agent_core, context_builder, memory_extractor)
+                task_profile = await task_db.get(Profile, profile_id)
+                if not task_profile:
+                    return
+
+                async for event in svc.send_message_stream(
+                    task_profile,
+                    content,
+                    session_id=session_id,
+                    chief_complaint=chief_complaint,
+                    image_parts=image_parts or None,
+                ):
+                    queue.put_nowait(event)
+                    if event.type == AgentEventType.DONE:
+                        done_data = event.data
+            except Exception:
+                _diag_stream_logger.exception("Diagnosis stream processing failed")
+                queue.put_nowait(
+                    AgentEvent(type=AgentEventType.ERROR, data={"message": "Processing failed"})
+                )
+            finally:
+                if done_data and done_data.get("content"):
+                    try:
+                        await memory_extractor.extract_and_store(
+                            profile_id=profile_id,
+                            messages=[
+                                {"role": "user", "content": content},
+                                {"role": "assistant", "content": done_data["content"]},
+                            ],
+                            source=f"diagnosis:{done_data.get('session_id', 'unknown')}",
+                            category="diagnoses",
+                        )
+                    except Exception:
+                        pass
+                queue.put_nowait(_DIAG_SENTINEL)
+
+    asyncio.create_task(_process())
+
+    async def event_generator():
+        try:
+            while True:
+                item = await queue.get()
+                if item is _DIAG_SENTINEL:
+                    break
+                payload = {"type": item.type.value, **item.data}
+                yield f"data: {json.dumps(payload)}\n\n"
+        except asyncio.CancelledError:
+            pass
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
+@router.post("/{sid}/messages/stream")
+async def send_message_stream(
+    sid: UUID,
+    content: str = Form(...),
+    files: list[UploadFile] = File(default=[]),
+    profile: Profile = Depends(get_verified_profile),
+    agent_core: AgentCore = Depends(get_agent_core),
+    context_builder: ContextBuilder = Depends(get_context_builder),
+    memory_extractor: MemoryExtractor = Depends(get_memory_extractor),
+) -> StreamingResponse:
+    """Legacy per-session stream endpoint. Delegates to /stream."""
+    image_parts = await read_image_parts(files)
+    profile_id = profile.id
+
+    queue: asyncio.Queue = asyncio.Queue()
+
+    async def _process():
+        done_data = None
+        async with async_session_factory() as task_db:
+            try:
+                task_db.expire_on_commit = False
+                svc = _build_service(task_db, agent_core, context_builder, memory_extractor)
+                task_profile = await task_db.get(Profile, profile_id)
+                if not task_profile:
+                    return
+
+                async for event in svc.send_message_stream(
+                    task_profile,
+                    content,
+                    session_id=sid,
+                    image_parts=image_parts or None,
+                ):
+                    queue.put_nowait(event)
+                    if event.type == AgentEventType.DONE:
+                        done_data = event.data
+            except Exception:
+                _diag_stream_logger.exception("Diagnosis stream processing failed")
+                queue.put_nowait(
+                    AgentEvent(type=AgentEventType.ERROR, data={"message": "Processing failed"})
+                )
+            finally:
+                if done_data and done_data.get("content"):
+                    try:
+                        await memory_extractor.extract_and_store(
+                            profile_id=profile_id,
+                            messages=[
+                                {"role": "user", "content": content},
+                                {"role": "assistant", "content": done_data["content"]},
+                            ],
+                            source=f"diagnosis:{sid}",
+                            category="diagnoses",
+                        )
+                    except Exception:
+                        pass
+                queue.put_nowait(_DIAG_SENTINEL)
+
+    asyncio.create_task(_process())
+
+    async def event_generator():
+        try:
+            while True:
+                item = await queue.get()
+                if item is _DIAG_SENTINEL:
+                    break
+                payload = {"type": item.type.value, **item.data}
+                yield f"data: {json.dumps(payload)}\n\n"
+        except asyncio.CancelledError:
+            pass
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
 @router.patch("/{sid}", response_model=DiagnosisSessionResponse)

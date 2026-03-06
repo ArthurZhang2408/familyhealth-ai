@@ -7,11 +7,10 @@ import { NoProfileGuard } from '@/components/NoProfileGuard';
 import { ChatInput } from '@/components/ChatInput';
 import { ModeToggle, type ConversationMode } from '@/components/ModeToggle';
 import { useProfileStore } from '@/stores/profile';
-import { useCreateDiagnosisSession } from '@/hooks/useDiagnosis';
-import { useSendChatMessage } from '@/hooks/useChat';
 import { useAttachMenu, type Attachment } from '@/hooks/useAttachMenu';
 import { useColors } from '@/hooks/useColors';
 import { Spacing, FontSize, FontWeight, BorderRadius } from '@/constants/theme';
+import { setPendingSend } from '@/services/pendingSend';
 
 export default function NewConversationScreen() {
   const Colors = useColors();
@@ -23,12 +22,9 @@ export default function NewConversationScreen() {
   const [mode, setMode] = useState<ConversationMode>('chat');
   const [pendingAttachment, setPendingAttachment] = useState<Attachment | null>(null);
 
-  const sendChat = useSendChatMessage(pid);
-  const createDiagnosis = useCreateDiagnosisSession(pid);
-
   const handleAttach = useAttachMenu((attachment) => setPendingAttachment(attachment));
 
-  const isBusy = sendChat.isPending || createDiagnosis.isPending;
+  const isBusy = false;
 
   const handleSend = async () => {
     const text = input.trim() || (pendingAttachment ? 'Please look at this image.' : '');
@@ -37,17 +33,12 @@ export default function NewConversationScreen() {
     const files = pendingAttachment ? [pendingAttachment] : undefined;
     setPendingAttachment(null);
 
-    try {
-      if (mode === 'chat') {
-        const response = await sendChat.mutateAsync({ content: text, files });
-        router.replace(`/(main)/chat/${response.message.conversation_id}`);
-      } else {
-        const session = await createDiagnosis.mutateAsync(text);
-        router.replace(`/(main)/diagnosis/${session.id}`);
-      }
-    } catch (err: unknown) {
-      Alert.alert('Error', err instanceof Error ? err.message : 'Something went wrong');
-      setInput(text);
+    // Navigate immediately — the target screen handles the streaming send
+    setPendingSend(text, files);
+    if (mode === 'chat') {
+      router.replace('/(main)/chat/new');
+    } else {
+      router.replace('/(main)/diagnosis/new');
     }
   };
 

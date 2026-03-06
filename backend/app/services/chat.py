@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import AsyncIterator
 from uuid import UUID
 
 from sqlalchemy import func, select
@@ -11,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.agents.core import AgentCore
 from app.agents.definitions import CHAT_AGENT
 from app.agents.session import AgentSession
+from app.agents.types import AgentEvent, AgentEventType
 from app.core.exceptions import AppError
 from app.models.chat import ChatConversation, ChatMessage
 from app.models.profile import Profile
@@ -149,18 +151,20 @@ class ChatService:
         violations = validate_response(response_text)
         response_text = sanitize_response(response_text, violations)
 
-        # 7. Store messages — flush first so they are persisted regardless of
-        # what happens in the best-effort steps below (topic generation, logging).
+        # 7. Store messages and commit — commit early so the client can
+        # immediately GET the conversation after receiving this response.
+        # (get_db auto-commit runs after the response is sent, which creates
+        # a race condition with the client navigating to the new resource.)
         user_msg = ChatMessage(conversation_id=conversation.id, role="user", content=content)
         assistant_msg = ChatMessage(
             conversation_id=conversation.id, role="assistant", content=response_text
         )
         self._db.add_all([user_msg, assistant_msg])
         conversation.updated_at = func.now()
-        await self._db.flush()
+        await self._db.commit()
         await self._db.refresh(assistant_msg)
 
-        # 8. Auto-generate topic for new conversations (best-effort, after flush)
+        # 8. Auto-generate topic for new conversations (best-effort, after commit)
         if is_new_conversation and not topic:
             await self._auto_generate_topic(conversation, content)
 
@@ -178,6 +182,183 @@ class ChatService:
         return conversation, ChatTurnResponse(
             message=ChatMessageResponse.model_validate(assistant_msg),
             disclaimer=CHAT_DISCLAIMER,
+        )
+
+    async def send_message_stream(
+        self,
+        profile: Profile,
+        content: str,
+        conversation_id: UUID | None = None,
+        topic: str | None = None,
+        image_parts: list[ImagePart] | None = None,
+    ) -> AsyncIterator[AgentEvent]:
+        """Streaming version of send_message(). Yields events as they occur."""
+        # 1. Resolve or create conversation
+        is_new_conversation = False
+        if conversation_id:
+            conversation = await self.get_conversation(conversation_id, profile.id)
+            if not conversation:
+                raise AppError(status_code=404, detail="Conversation not found", code="NOT_FOUND")
+        else:
+            conversation = ChatConversation(profile_id=profile.id, topic=topic)
+            self._db.add(conversation)
+            # Commit early so the conversation is visible to other sessions
+            # (e.g., if the client disconnects and refetches via GET later)
+            await self._db.commit()
+            is_new_conversation = True
+
+        # Emit conversation_id immediately so the client can update its URL
+        # and enable the GET query before any LLM work starts
+        yield AgentEvent(
+            type=AgentEventType.STATUS,
+            data={
+                "step": "session_created",
+                "message": "Starting conversation...",
+                "conversation_id": str(conversation.id),
+            },
+        )
+
+        # 2. Mental health crisis pre-check
+        if detect_mental_health_crisis(content):
+            crisis_text = get_crisis_response()
+            user_msg = ChatMessage(conversation_id=conversation.id, role="user", content=content)
+            assistant_msg = ChatMessage(
+                conversation_id=conversation.id, role="assistant", content=crisis_text
+            )
+            self._db.add_all([user_msg, assistant_msg])
+            conversation.updated_at = func.now()
+            await self._db.commit()
+            await self._db.refresh(assistant_msg)
+
+            yield AgentEvent(
+                type=AgentEventType.TEXT_DELTA,
+                data={"content": crisis_text},
+            )
+            yield AgentEvent(
+                type=AgentEventType.DONE,
+                data={
+                    "content": crisis_text,
+                    "id": str(assistant_msg.id),
+                    "conversation_id": str(conversation.id),
+                    "disclaimer": CHAT_DISCLAIMER,
+                },
+            )
+            return
+
+        # 3. Build context
+        yield AgentEvent(
+            type=AgentEventType.STATUS,
+            data={"step": "context", "message": "Loading patient context..."},
+        )
+        ctx = await self._ctx.build(
+            db=self._db,
+            profile_id=profile.id,
+            query=content,
+            interaction_type="chat",
+            memory_budget=1500,
+            template=CHAT_SYSTEM_PROMPT,
+        )
+
+        # Emit detailed context results
+        profile_name = ctx.profile_context.get("name", "patient")
+        yield AgentEvent(
+            type=AgentEventType.STATUS,
+            data={"step": "profile", "message": f"Loaded profile for {profile_name}"},
+        )
+
+        if ctx.raw_memories:
+            summaries = []
+            for mem in ctx.raw_memories[:5]:
+                text = mem.get("memory", "")[:80]
+                ts = mem.get("updated_at") or mem.get("created_at") or ""
+                date_str = ""
+                if ts:
+                    try:
+                        from datetime import datetime
+
+                        dt = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+                        date_str = dt.strftime("%b %Y")
+                    except (ValueError, AttributeError):
+                        pass
+                prefix = f"[{date_str}] " if date_str else ""
+                summaries.append(f"{prefix}{text}")
+            yield AgentEvent(
+                type=AgentEventType.STATUS,
+                data={
+                    "step": "memory",
+                    "message": f"Retrieved {ctx.memories_used} memories",
+                    "details": summaries,
+                },
+            )
+        else:
+            yield AgentEvent(
+                type=AgentEventType.STATUS,
+                data={"step": "memory", "message": "No relevant memories found"},
+            )
+
+        # 4. Build conversation messages
+        messages = await self._build_conversation_messages(
+            conversation.id, content, image_parts=image_parts
+        )
+
+        # 5. Stream response via AgentCore
+        agent_session = AgentSession(
+            profile_id=profile.id,
+            system_prompt=ctx.system_prompt,
+            messages=messages,
+        )
+
+        full_content = ""
+        async for event in self._agent.run_stream(agent_session, CHAT_AGENT):
+            if event.type == AgentEventType.TEXT_DELTA:
+                full_content += event.data.get("content", "")
+                yield event
+            elif event.type == AgentEventType.DONE:
+                # Swallow AgentCore's DONE — we emit our own with full metadata
+                full_content = event.data.get("content", full_content)
+            else:
+                yield event
+
+        # 6. Safety validation
+        violations = validate_response(full_content)
+        full_content = sanitize_response(full_content, violations)
+
+        # 7. Persist messages — commit so client can GET immediately
+        user_msg = ChatMessage(conversation_id=conversation.id, role="user", content=content)
+        assistant_msg = ChatMessage(
+            conversation_id=conversation.id, role="assistant", content=full_content
+        )
+        self._db.add_all([user_msg, assistant_msg])
+        conversation.updated_at = func.now()
+        await self._db.commit()
+        await self._db.refresh(user_msg)
+        await self._db.refresh(assistant_msg)
+
+        # 8. Yield DONE immediately — client resolves on this event.
+        # Topic generation and logging continue after but client doesn't wait.
+        yield AgentEvent(
+            type=AgentEventType.DONE,
+            data={
+                "id": str(assistant_msg.id),
+                "user_message_id": str(user_msg.id),
+                "conversation_id": str(conversation.id),
+                "content": full_content,
+                "disclaimer": CHAT_DISCLAIMER,
+            },
+        )
+
+        # 9. Best-effort post-processing (runs after client already has the response)
+        if is_new_conversation and not topic:
+            await self._auto_generate_topic(conversation, content)
+
+        await self._log_action(
+            profile,
+            ActionType.CHAT_MESSAGE,
+            {
+                "conversation_id": str(conversation.id),
+                "topic": conversation.topic,
+                "message_preview": content[:100],
+            },
         )
 
     async def get_conversation(
@@ -287,6 +468,7 @@ class ChatService:
             topic = response.content.strip().strip('"').strip("'")
             if topic and len(topic) <= 100:
                 conversation.topic = topic
+                await self._db.commit()
         except Exception:
             logger.debug("Topic auto-generation failed, leaving topic as None")
 

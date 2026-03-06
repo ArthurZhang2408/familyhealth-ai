@@ -13,6 +13,7 @@ import type {
   ChatTurnResponse,
 } from '@/types/api';
 import type { Attachment } from '@/hooks/useAttachMenu';
+import type { StreamEvent } from '@/types/api';
 
 async function getAuthHeaders(): Promise<Record<string, string>> {
   const { data } = await supabase.auth.getSession();
@@ -61,6 +62,12 @@ export const diagnosisApi = {
     request<DiagnosisSession>(`/profiles/${pid}/diagnosis/${sid}`),
   create: (pid: string, chief_complaint: string) =>
     request<DiagnosisSession>(`/profiles/${pid}/diagnosis`, {
+      method: 'POST',
+      body: JSON.stringify({ chief_complaint }),
+    }),
+  /** Lightweight create — just the session record, no LLM call. */
+  createOnly: (pid: string, chief_complaint: string) =>
+    request<DiagnosisSession>(`/profiles/${pid}/diagnosis/create`, {
       method: 'POST',
       body: JSON.stringify({ chief_complaint }),
     }),
@@ -130,6 +137,71 @@ async function multipartRequest<T>(
   return response.json() as Promise<T>;
 }
 
+// ── SSE Streaming helper ────────────────────────────────────────────────────
+
+type DoneEvent = Extract<StreamEvent, { type: 'done' }>;
+
+async function streamMultipartRequest(
+  path: string,
+  fields: Record<string, string>,
+  files: Attachment[] = [],
+  onEvent: (event: StreamEvent) => void,
+): Promise<DoneEvent> {
+  const headers = await getAuthHeaders();
+  const formData = new FormData();
+  for (const [key, value] of Object.entries(fields)) {
+    formData.append(key, value);
+  }
+  for (const f of files) {
+    formData.append('files', { uri: f.uri, name: f.name, type: f.type } as unknown as Blob);
+  }
+
+  return new Promise<DoneEvent>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `${Config.apiUrl}${path}`);
+    xhr.setRequestHeader('Authorization', headers.Authorization ?? '');
+    xhr.responseType = 'text';
+
+    let cursor = 0;
+    let resolved = false;
+
+    xhr.onreadystatechange = () => {
+      if (xhr.readyState >= 3 && xhr.status === 200) {
+        const newText = xhr.responseText.substring(cursor);
+        cursor = xhr.responseText.length;
+
+        for (const line of newText.split('\n')) {
+          const trimmed = line.trim();
+          if (!trimmed.startsWith('data: ')) continue;
+          try {
+            const event = JSON.parse(trimmed.substring(6)) as StreamEvent;
+            onEvent(event);
+            // Resolve immediately when done arrives — don't wait for connection close.
+            // The backend may continue with post-processing (topic generation, logging)
+            // but the client doesn't need to wait for that.
+            if (event.type === 'done' && !resolved) {
+              resolved = true;
+              resolve(event);
+            }
+          } catch {
+            // Incomplete JSON in this chunk — will arrive in next onreadystatechange
+          }
+        }
+      }
+    };
+
+    xhr.onload = () => {
+      if (!resolved) {
+        reject(new Error(`Stream ended without done event: HTTP ${xhr.status}`));
+      }
+    };
+    xhr.onerror = () => {
+      if (!resolved) reject(new Error('Stream connection failed'));
+    };
+    xhr.send(formData);
+  });
+}
+
 // ── Chat ─────────────────────────────────────────────────────────────────────
 
 export const chatApi = {
@@ -142,5 +214,41 @@ export const chatApi = {
     if (conversation_id) fields.conversation_id = conversation_id;
     if (topic) fields.topic = topic;
     return multipartRequest<ChatTurnResponse>(`/profiles/${pid}/chat`, fields, files);
+  },
+  sendStream: (
+    pid: string,
+    content: string,
+    onEvent: (event: StreamEvent) => void,
+    conversationId?: string,
+    topic?: string,
+    files?: Attachment[],
+  ) => {
+    const fields: Record<string, string> = { content };
+    if (conversationId) fields.conversation_id = conversationId;
+    if (topic) fields.topic = topic;
+    return streamMultipartRequest(`/profiles/${pid}/chat/stream`, fields, files, onEvent);
+  },
+};
+
+// ── Diagnosis streaming ──────────────────────────────────────────────────────
+
+export const diagnosisStreamApi = {
+  sendMessage: (
+    pid: string,
+    content: string,
+    onEvent: (event: StreamEvent) => void,
+    sessionId?: string,
+    chiefComplaint?: string,
+    files?: Attachment[],
+  ) => {
+    const fields: Record<string, string> = { content };
+    if (sessionId) fields.session_id = sessionId;
+    if (chiefComplaint) fields.chief_complaint = chiefComplaint;
+    return streamMultipartRequest(
+      `/profiles/${pid}/diagnosis/stream`,
+      fields,
+      files,
+      onEvent,
+    );
   },
 };

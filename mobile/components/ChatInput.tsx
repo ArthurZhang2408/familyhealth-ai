@@ -1,3 +1,4 @@
+import { useRef } from 'react';
 import { View, Text, TextInput, Pressable, ActivityIndicator } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { Icon } from '@/components/Icon';
@@ -25,6 +26,7 @@ export function ChatInput({
   hasAttachment,
 }: Props) {
   const Colors = useColors();
+  const inputRef = useRef<TextInput>(null);
   const canSend = (value.trim().length > 0 || hasAttachment) && !isBusy;
 
   return (
@@ -65,6 +67,7 @@ export function ChatInput({
 
         {/* Text input area */}
         <TextInput
+          ref={inputRef}
           value={value}
           onChangeText={onChangeText}
           placeholder={hasAttachment ? 'Add a message (optional)…' : placeholder}
@@ -121,6 +124,11 @@ export function ChatInput({
               if (canSend) {
                 if (process.env.EXPO_OS === 'ios') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
                 onSend();
+                // Clear native state AFTER send reads the value.
+                // clear() resets the native TextInput, preventing a pending
+                // autocorrect suggestion from re-populating via onChangeText.
+                inputRef.current?.clear();
+                inputRef.current?.blur();
               }
             }}
             disabled={!canSend}
