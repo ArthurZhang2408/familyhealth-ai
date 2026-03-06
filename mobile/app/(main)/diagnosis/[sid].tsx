@@ -172,7 +172,7 @@ function DiagnosisScreenInner() {
         onChangeText={conv.setInput}
         onAttach={conv.handleAttach}
         hasAttachment={!!conv.pendingAttachment}
-        isLoading={!isNew && !activeSid && isLoading}
+        isLoading={!!activeSid && isLoading}
         error={isNew ? null : error}
         refetch={refetch}
         errorIcon="stethoscope"

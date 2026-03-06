@@ -142,7 +142,7 @@ function ChatScreenInner() {
         onChangeText={conv.setInput}
         onAttach={conv.handleAttach}
         hasAttachment={!!conv.pendingAttachment}
-        isLoading={!isNew && !activeCid && isLoading}
+        isLoading={!!activeCid && isLoading}
         error={isNew ? null : error}
         refetch={refetch}
         placeholder="Ask a health question…"
