@@ -10,27 +10,60 @@ export interface Attachment {
   type: string;
 }
 
-/** Convert HEIC/HEIF (or any unsupported format) to JPEG for backend + Gemini compatibility. */
-async function ensureJpeg(uri: string, mimeType: string | null | undefined, fallbackName: string): Promise<Attachment> {
+const ALLOWED_IMAGE_TYPES = new Set([
+  'image/jpeg',
+  'image/jpg',
+  'image/png',
+  'image/webp',
+]);
+
+const MAX_DIMENSION = 1536;
+const COMPRESS_QUALITY = 0.7;
+
+/** Validate MIME type. Returns error message or null if valid. */
+function validateType(mimeType: string | null | undefined, fileName: string): string | null {
   const mime = mimeType?.toLowerCase() ?? '';
-  const needsConversion = mime.includes('heic') || mime.includes('heif') || uri.toLowerCase().endsWith('.heic') || uri.toLowerCase().endsWith('.heif');
+  // HEIC/HEIF will be converted to JPEG — always allowed
+  if (mime.includes('heic') || mime.includes('heif')) return null;
+  // PDFs allowed for file picker
+  if (mime === 'application/pdf') return null;
+  if (ALLOWED_IMAGE_TYPES.has(mime)) return null;
+  // Check extension as fallback
+  const ext = fileName.toLowerCase().split('.').pop();
+  if (ext && ['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif'].includes(ext)) return null;
+  return `Unsupported file type: ${mime || ext || 'unknown'}. Use JPEG, PNG, or WebP images.`;
+}
 
-  if (needsConversion) {
-    const result = await manipulateAsync(uri, [], { format: SaveFormat.JPEG, compress: 0.8 });
-    return {
-      uri: result.uri,
-      name: fallbackName.replace(/\.heic$|\.heif$/i, '.jpg'),
-      type: 'image/jpeg',
-    };
-  }
+/** Convert HEIC/HEIF to JPEG and compress/resize large images. */
+async function processImage(
+  uri: string,
+  mimeType: string | null | undefined,
+  fallbackName: string,
+): Promise<Attachment> {
+  const mime = mimeType?.toLowerCase() ?? '';
+  const isHeic =
+    mime.includes('heic') || mime.includes('heif') ||
+    uri.toLowerCase().endsWith('.heic') || uri.toLowerCase().endsWith('.heif');
 
-  return { uri, name: fallbackName, type: mime || 'image/jpeg' };
+  // Always compress and resize to keep uploads fast
+  const result = await manipulateAsync(
+    uri,
+    [{ resize: { width: MAX_DIMENSION } }],
+    { format: SaveFormat.JPEG, compress: COMPRESS_QUALITY },
+  );
+
+  const name = isHeic
+    ? fallbackName.replace(/\.heic$|\.heif$/i, '.jpg')
+    : fallbackName;
+
+  return { uri: result.uri, name, type: 'image/jpeg' };
 }
 
 /**
  * Returns a function that shows a Camera / Photos / Files action sheet.
  * The picked attachment is passed to the `onPicked` callback.
- * HEIC images are auto-converted to JPEG on the client.
+ * Unsupported file types are rejected immediately with an Alert.
+ * Images are compressed and resized to max 1536px before upload.
  */
 export function useAttachMenu(onPicked: (attachment: Attachment) => void) {
   const pickCamera = async () => {
@@ -45,12 +78,16 @@ export function useAttachMenu(onPicked: (attachment: Attachment) => void) {
     });
     if (result.canceled || !result.assets?.[0]) return;
     const asset = result.assets[0];
-    const attachment = await ensureJpeg(
-      asset.uri,
-      asset.mimeType,
-      asset.fileName ?? `photo_${Date.now()}.jpg`,
-    );
-    onPicked(attachment);
+    try {
+      const attachment = await processImage(
+        asset.uri,
+        asset.mimeType,
+        asset.fileName ?? `photo_${Date.now()}.jpg`,
+      );
+      onPicked(attachment);
+    } catch {
+      Alert.alert('Error', 'Could not process the photo. Please try again.');
+    }
   };
 
   const pickPhotos = async () => {
@@ -65,12 +102,23 @@ export function useAttachMenu(onPicked: (attachment: Attachment) => void) {
     });
     if (result.canceled || !result.assets?.[0]) return;
     const asset = result.assets[0];
-    const attachment = await ensureJpeg(
-      asset.uri,
-      asset.mimeType,
-      asset.fileName ?? `image_${Date.now()}.jpg`,
-    );
-    onPicked(attachment);
+
+    const error = validateType(asset.mimeType, asset.fileName ?? '');
+    if (error) {
+      Alert.alert('Unsupported format', error);
+      return;
+    }
+
+    try {
+      const attachment = await processImage(
+        asset.uri,
+        asset.mimeType,
+        asset.fileName ?? `image_${Date.now()}.jpg`,
+      );
+      onPicked(attachment);
+    } catch {
+      Alert.alert('Error', 'Could not process the image. Please try again.');
+    }
   };
 
   const pickFile = async () => {

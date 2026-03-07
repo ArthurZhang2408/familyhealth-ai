@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { View, Pressable, Modal, Dimensions, Image } from 'react-native';
+import { View, Pressable, Modal, Dimensions } from 'react-native';
+import { Image } from 'expo-image';
 import { useColors } from '@/hooks/useColors';
 import { Spacing, BorderRadius } from '@/constants/theme';
 import { Icon } from '@/components/Icon';
@@ -26,7 +27,9 @@ export function ImagePartView({ part }: { part: ImagePart }) {
             borderRadius: BorderRadius.lg,
             backgroundColor: Colors.surfaceSecondary,
           }}
-          resizeMode="cover"
+          contentFit="cover"
+          cachePolicy="disk"
+          transition={200}
         />
       </Pressable>
       <Modal visible={fullscreen} transparent animationType="fade">
@@ -40,7 +43,8 @@ export function ImagePartView({ part }: { part: ImagePart }) {
           <Image
             source={{ uri: part.url }}
             style={{ width: screenWidth, height: screenHeight * 0.7 }}
-            resizeMode="contain"
+            contentFit="contain"
+            cachePolicy="disk"
           />
         </View>
       </Modal>

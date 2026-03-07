@@ -27,14 +27,14 @@ export default function NewConversationScreen() {
   const isBusy = false;
 
   const handleSend = async () => {
-    const text = input.trim() || (pendingAttachment ? 'Please look at this image.' : '');
-    if (!text || isBusy || !pid) return;
+    const text = input.trim();
+    if ((!text && !pendingAttachment) || isBusy || !pid) return;
     setInput('');
     const files = pendingAttachment ? [pendingAttachment] : undefined;
     setPendingAttachment(null);
 
     // Navigate immediately — the target screen handles the streaming send
-    setPendingSend(text, files);
+    setPendingSend(text || ' ', files);
     if (mode === 'chat') {
       router.navigate('/(main)/chat/new' as never);
     } else {
@@ -110,7 +110,8 @@ export default function NewConversationScreen() {
           onSend={handleSend}
           isBusy={isBusy}
           onAttach={handleAttach}
-          hasAttachment={!!pendingAttachment}
+          attachment={pendingAttachment}
+          onRemoveAttachment={() => setPendingAttachment(null)}
           placeholder={
             mode === 'chat'
               ? 'Ask a health question…'

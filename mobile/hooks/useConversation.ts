@@ -255,6 +255,7 @@ export function useConversation({ serverMessages, streamSendFn, dedupMode, onSen
     disclaimer,
     pendingAttachment,
     handleAttach,
+    clearAttachment: useCallback(() => setPendingAttachment(null), []),
     isBusy: isSending,
     flatListRef,
     streamingContent,

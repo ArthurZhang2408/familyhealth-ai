@@ -175,7 +175,8 @@ function DiagnosisScreenInner() {
         {...conv}
         onChangeText={conv.setInput}
         onAttach={conv.handleAttach}
-        hasAttachment={!!conv.pendingAttachment}
+        pendingAttachment={conv.pendingAttachment}
+        onRemoveAttachment={() => conv.clearAttachment()}
         isLoading={!!activeSid && isLoading && !conv.isBusy}
         error={isNew ? null : error}
         refetch={refetch}

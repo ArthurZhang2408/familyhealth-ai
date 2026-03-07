@@ -1,9 +1,10 @@
 import { useRef } from 'react';
-import { View, Text, TextInput, Pressable, ActivityIndicator } from 'react-native';
+import { View, Text, TextInput, Pressable, ActivityIndicator, Image } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { Icon } from '@/components/Icon';
 import { useColors } from '@/hooks/useColors';
 import { Spacing, FontSize, FontWeight, BorderRadius } from '@/constants/theme';
+import type { Attachment } from '@/hooks/useAttachMenu';
 
 interface Props {
   value: string;
@@ -12,9 +13,11 @@ interface Props {
   isBusy: boolean;
   placeholder?: string;
   onAttach?: () => void;
-  /** Show an attachment indicator badge on the + button */
-  hasAttachment?: boolean;
+  attachment?: Attachment | null;
+  onRemoveAttachment?: () => void;
 }
+
+const THUMB = 64;
 
 export function ChatInput({
   value,
@@ -23,10 +26,12 @@ export function ChatInput({
   isBusy,
   placeholder = 'Type a message…',
   onAttach,
-  hasAttachment,
+  attachment,
+  onRemoveAttachment,
 }: Props) {
   const Colors = useColors();
   const inputRef = useRef<TextInput>(null);
+  const hasAttachment = !!attachment;
   const canSend = (value.trim().length > 0 || hasAttachment) && !isBusy;
 
   return (
@@ -47,8 +52,47 @@ export function ChatInput({
           borderColor: Colors.border,
         }}
       >
-        {/* Attachment indicator */}
-        {hasAttachment && (
+        {/* Attachment thumbnail preview */}
+        {attachment && attachment.type.startsWith('image/') && (
+          <View style={{ paddingHorizontal: Spacing.md, paddingTop: Spacing.sm }}>
+            <View style={{ alignSelf: 'flex-start', position: 'relative' }}>
+              <Image
+                source={{ uri: attachment.uri }}
+                style={{
+                  width: THUMB,
+                  height: THUMB,
+                  borderRadius: BorderRadius.md,
+                  backgroundColor: Colors.surfaceSecondary,
+                }}
+                resizeMode="cover"
+              />
+              {onRemoveAttachment && (
+                <Pressable
+                  onPress={() => {
+                    if (process.env.EXPO_OS === 'ios') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    onRemoveAttachment();
+                  }}
+                  style={{
+                    position: 'absolute',
+                    top: -6,
+                    right: -6,
+                    width: 20,
+                    height: 20,
+                    borderRadius: 10,
+                    backgroundColor: Colors.textSecondary,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <Icon name="close" size={12} color={Colors.background} />
+                </Pressable>
+              )}
+            </View>
+          </View>
+        )}
+
+        {/* PDF attachment indicator */}
+        {attachment && !attachment.type.startsWith('image/') && (
           <View
             style={{
               flexDirection: 'row',
@@ -58,10 +102,18 @@ export function ChatInput({
               paddingTop: Spacing.sm,
             }}
           >
-            <Icon name="image" size={14} color={Colors.primary} />
-            <Text style={{ fontSize: FontSize.xs, color: Colors.primary, fontWeight: FontWeight.medium }}>
-              Image attached
+            <Icon name="document" size={14} color={Colors.primary} />
+            <Text
+              style={{ fontSize: FontSize.xs, color: Colors.primary, fontWeight: FontWeight.medium, flex: 1 }}
+              numberOfLines={1}
+            >
+              {attachment.name}
             </Text>
+            {onRemoveAttachment && (
+              <Pressable onPress={onRemoveAttachment}>
+                <Icon name="close" size={14} color={Colors.textMuted} />
+              </Pressable>
+            )}
           </View>
         )}
 
@@ -124,9 +176,6 @@ export function ChatInput({
               if (canSend) {
                 if (process.env.EXPO_OS === 'ios') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
                 onSend();
-                // Clear native state AFTER send reads the value.
-                // clear() resets the native TextInput, preventing a pending
-                // autocorrect suggestion from re-populating via onChangeText.
                 inputRef.current?.clear();
                 inputRef.current?.blur();
               }
