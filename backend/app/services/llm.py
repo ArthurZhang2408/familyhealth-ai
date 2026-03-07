@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import logging
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any, ClassVar, Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel
+
+logger = logging.getLogger(__name__)
 
 
 class LLMTask(StrEnum):
@@ -82,7 +85,8 @@ class LLMProvider(ABC):
 
 
 class LLMRouter:
-    DEFAULT_ROUTING: ClassVar[dict[LLMTask, str]] = {
+    # Fallback defaults when no env override and no Cerebras
+    _BASE_DEFAULTS: dict[LLMTask, str] = {
         LLMTask.DIAGNOSIS: "gemini",
         LLMTask.REPORT_ANALYSIS: "gemini",
         LLMTask.MEMORY_EXTRACTION: "qwen",
@@ -91,12 +95,49 @@ class LLMRouter:
         LLMTask.FACT_EXTRACTION: "qwen",
     }
 
-    def __init__(self, providers: dict[str, LLMProvider]) -> None:
+    # Tasks that Cerebras should take over when available (no env override)
+    _CEREBRAS_ELIGIBLE: set[LLMTask] = {
+        LLMTask.CHAT,
+        LLMTask.DIAGNOSIS,
+        LLMTask.MEMORY_EXTRACTION,
+        LLMTask.SUMMARIZATION,
+        LLMTask.FACT_EXTRACTION,
+    }
+
+    def __init__(
+        self,
+        providers: dict[str, LLMProvider],
+        route_overrides: dict[LLMTask, str] | None = None,
+    ) -> None:
         self._providers = providers
-        # Build effective routing table — prefer cerebras for chat when available
-        self._routing = dict(self.DEFAULT_ROUTING)
+        self._routing = self._build_routing(providers, route_overrides or {})
+        logger.info("LLM routing: %s", {k.value: v for k, v in self._routing.items()})
+
+    def _build_routing(
+        self,
+        providers: dict[str, LLMProvider],
+        overrides: dict[LLMTask, str],
+    ) -> dict[LLMTask, str]:
+        """Build the routing table from defaults, Cerebras auto-upgrade, and env overrides."""
+        routing = dict(self._BASE_DEFAULTS)
+
+        # Auto-upgrade eligible tasks to Cerebras when available
         if "cerebras" in providers:
-            self._routing[LLMTask.CHAT] = "cerebras"
+            for task in self._CEREBRAS_ELIGIBLE:
+                routing[task] = "cerebras"
+
+        # Env overrides take priority over everything
+        for task, provider_name in overrides.items():
+            if provider_name and provider_name in providers:
+                routing[task] = provider_name
+            elif provider_name:
+                logger.warning(
+                    "LLM route override '%s=%s' ignored — provider not registered",
+                    task.value,
+                    provider_name,
+                )
+
+        return routing
 
     def _resolve(self, request: LLMRequest) -> LLMProvider:
         # Auto-upgrade to Gemini when images are present (Qwen doesn't support multimodal)
@@ -107,11 +148,45 @@ class LLMRouter:
             raise ValueError(f"No provider registered for '{provider_name}'")
         return provider
 
+    def _get_fallback(self, request: LLMRequest) -> LLMProvider | None:
+        """Get a fallback provider different from the primary one."""
+        primary = self._routing[request.task]
+        # Try qwen first, then gemini
+        for fallback_name in ("qwen", "gemini"):
+            if fallback_name != primary and fallback_name in self._providers:
+                return self._providers[fallback_name]
+        return None
+
     async def route(self, request: LLMRequest) -> LLMResponse:
         provider = self._resolve(request)
-        return await provider.generate(request)
+        try:
+            return await provider.generate(request)
+        except Exception as exc:
+            fallback = self._get_fallback(request)
+            if fallback is None:
+                raise
+            logger.warning(
+                "Primary provider failed for task=%s (%s), falling back: %s",
+                request.task.value,
+                type(exc).__name__,
+                exc,
+            )
+            return await fallback.generate(request)
 
     async def route_stream(self, request: LLMRequest) -> AsyncIterator[StreamChunk]:
         provider = self._resolve(request)
-        async for chunk in provider.generate_stream(request):
-            yield chunk
+        try:
+            async for chunk in provider.generate_stream(request):
+                yield chunk
+        except Exception as exc:
+            fallback = self._get_fallback(request)
+            if fallback is None:
+                raise
+            logger.warning(
+                "Primary provider failed for task=%s (%s), falling back: %s",
+                request.task.value,
+                type(exc).__name__,
+                exc,
+            )
+            async for chunk in fallback.generate_stream(request):
+                yield chunk

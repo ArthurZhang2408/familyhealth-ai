@@ -190,6 +190,10 @@ function streamMultipartRequest(
               if (event.type === 'done' && !resolved) {
                 resolved = true;
                 resolve(event);
+              } else if (event.type === 'error' && !resolved) {
+                resolved = true;
+                const msg = (event as { message?: string }).message || 'Processing failed';
+                reject(new Error(msg));
               }
             } catch {
               // Incomplete JSON in this chunk — will arrive in next onreadystatechange
@@ -200,13 +204,15 @@ function streamMultipartRequest(
 
       xhr.onload = () => {
         if (!resolved) {
-          // Parse error detail from non-200 responses (e.g. 400 Bad Request)
-          let detail = `HTTP ${xhr!.status}`;
+          let detail: string;
           if (xhr!.status !== 200) {
+            detail = `HTTP ${xhr!.status}`;
             try {
               const body = JSON.parse(xhr!.responseText);
               detail = body.detail || detail;
             } catch { /* ignore parse failure */ }
+          } else {
+            detail = 'Connection closed unexpectedly. Please try again.';
           }
           reject(new Error(detail));
         }
@@ -268,10 +274,12 @@ export const diagnosisStreamApi = {
     sessionId?: string,
     chiefComplaint?: string,
     files?: Attachment[],
+    structuredResponse?: Record<string, unknown>,
   ) => {
     const fields: Record<string, string> = { content };
     if (sessionId) fields.session_id = sessionId;
     if (chiefComplaint) fields.chief_complaint = chiefComplaint;
+    if (structuredResponse) fields.structured_response = JSON.stringify(structuredResponse);
     return streamMultipartRequest(
       `/profiles/${pid}/diagnosis/stream`,
       fields,

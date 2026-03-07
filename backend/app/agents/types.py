@@ -17,6 +17,7 @@ class ToolDefinition:
     description: str
     parameters: dict[str, Any]  # JSON Schema
     handler: Callable  # async (kwargs) -> dict
+    terminal: bool = False  # If True, stops the agent loop after execution
 
     def to_declaration(self) -> dict[str, Any]:
         """Convert to the function declaration format expected by LLM APIs."""
@@ -59,6 +60,7 @@ class AgentEventType(StrEnum):
     ERROR = "error"
     COMPLETE = "complete"
     DONE = "done"
+    STRUCTURED_QUESTION = "structured_question"
 
 
 @dataclass

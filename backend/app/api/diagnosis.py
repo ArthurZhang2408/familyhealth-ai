@@ -201,6 +201,7 @@ async def stream_diagnosis(
     content: str = Form(...),
     session_id: UUID | None = Form(None),
     chief_complaint: str | None = Form(None),
+    structured_response: str | None = Form(None),
     files: list[UploadFile] = File(default=[]),
     profile: Profile = Depends(get_verified_profile),
     agent_core: AgentCore = Depends(get_agent_core),
@@ -215,6 +216,12 @@ async def stream_diagnosis(
     """
     image_parts = await read_image_parts(files)
     profile_id = profile.id
+    parsed_structured_response: dict | None = None
+    if structured_response:
+        try:
+            parsed_structured_response = json.loads(structured_response)
+        except (json.JSONDecodeError, TypeError):
+            pass
 
     queue: asyncio.Queue = asyncio.Queue()
 
@@ -234,6 +241,7 @@ async def stream_diagnosis(
                     session_id=session_id,
                     chief_complaint=chief_complaint,
                     image_parts=image_parts or None,
+                    structured_response=parsed_structured_response,
                 ):
                     queue.put_nowait(event)
                     if event.type == AgentEventType.DONE:
