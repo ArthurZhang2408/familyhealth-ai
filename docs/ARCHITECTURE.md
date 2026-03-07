@@ -23,7 +23,7 @@ graph TB
 
     subgraph Supabase["Supabase"]
         SA[Auth<br/>JWT · Google · Apple]
-        SS[Storage<br/>Medical Reports]
+        SS[Storage<br/>Reports + Chat Images]
     end
 
     subgraph Backend["FastAPI Backend — Railway"]
@@ -49,7 +49,8 @@ graph TB
         subgraph LLM["LLM Layer"]
             ROUTER[LLMRouter]
             GEMINI[GeminiProvider<br/>diagnosis · reports]
-            QWEN[QwenProvider<br/>chat · extraction]
+            CEREBRAS[CerebrasProvider<br/>chat · gpt-oss-120b]
+            QWEN[QwenProvider<br/>extraction · summarization]
         end
     end
 
@@ -259,11 +260,13 @@ CREATE INDEX idx_diag_sessions_status  ON diagnosis_sessions(profile_id, status)
 -- diagnosis_messages
 -- ============================================================
 CREATE TABLE diagnosis_messages (
-    id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    session_id UUID NOT NULL REFERENCES diagnosis_sessions(id) ON DELETE CASCADE,
-    role       TEXT NOT NULL CHECK (role IN ('user','assistant','system')),
-    content    TEXT NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    session_id    UUID NOT NULL REFERENCES diagnosis_sessions(id) ON DELETE CASCADE,
+    role          TEXT NOT NULL CHECK (role IN ('user','assistant','system')),
+    content       TEXT NOT NULL,
+    content_parts JSONB,          -- rich content: text, image, tool_call, tool_result, agent_steps, memory_context
+    metadata      JSONB,          -- model used, token counts, etc.
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE INDEX idx_diag_msgs_session ON diagnosis_messages(session_id, created_at);
@@ -311,6 +314,8 @@ CREATE TABLE chat_messages (
     conversation_id UUID NOT NULL REFERENCES chat_conversations(id) ON DELETE CASCADE,
     role            TEXT NOT NULL CHECK (role IN ('user','assistant','system')),
     content         TEXT NOT NULL,
+    content_parts   JSONB,          -- rich content: text, image, tool_call, tool_result, agent_steps, memory_context
+    metadata        JSONB,          -- model used, token counts, etc.
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -687,7 +692,8 @@ class GeminiProvider(LLMProvider):
 
 
 class QwenProvider(LLMProvider):
-    """Qwen via Ollama Cloud (qwen3.5:397b) — used for chat, extraction, and summarization.
+    """Qwen via Ollama Cloud (qwen3.5:397b) — used for extraction and summarization.
+    Also used as base class for CerebrasProvider (same OpenAI-compatible API).
 
     Lower cost, fast inference for high-volume tasks. OpenRouter provides an OpenAI-compatible API.
     """
@@ -702,11 +708,12 @@ class QwenProvider(LLMProvider):
 class LLMRouter:
     """Routes LLM tasks to the appropriate provider based on a configurable routing table."""
 
-    ROUTING_TABLE: dict[LLMTask, type[LLMProvider]] = {
+    # Dynamic routing — cerebras used for CHAT when available, else qwen
+    DEFAULT_ROUTING: dict[LLMTask, type[LLMProvider]] = {
         LLMTask.DIAGNOSIS: GeminiProvider,
         LLMTask.REPORT_ANALYSIS: GeminiProvider,
         LLMTask.MEMORY_EXTRACTION: QwenProvider,
-        LLMTask.CHAT: QwenProvider,
+        LLMTask.CHAT: QwenProvider,  # overridden to Cerebras when CEREBRAS_API_KEY set
         LLMTask.SUMMARIZATION: QwenProvider,
         LLMTask.FACT_EXTRACTION: QwenProvider,
     }
@@ -827,7 +834,7 @@ Diagnosis, report analysis, and chat share a reusable agent infrastructure in `a
 |-|-|-|-|-|
 | DIAGNOSIS_AGENT | DIAGNOSIS | search_patient_memory | gemini-2.5-flash | 3 |
 | REPORT_AGENT | REPORT_ANALYSIS | (none — JSON mode) | gemini-2.5-flash | 0 |
-| CHAT_AGENT | CHAT | search_patient_memory | qwen3.5:397b | 2 |
+| CHAT_AGENT | CHAT | search_patient_memory | cerebras/gpt-oss-120b (or qwen fallback) | 2 |
 
 ### Usage Pattern
 
@@ -1009,10 +1016,15 @@ GEMINI_FLASH_MODEL=gemini-2.5-flash-lite
 EMBEDDING_MODEL=models/gemini-embedding-001
 EMBEDDING_DIMS=768
 
-# LLM — Qwen via Ollama Cloud (chat, extraction, mem0 internal LLM)
+# LLM — Qwen via Ollama Cloud (extraction, summarization, mem0 internal LLM)
 QWEN_API_KEY=your-ollama-api-key
 QWEN_BASE_URL=https://ollama.com/v1
 QWEN_MODEL=qwen3.5:397b
+
+# LLM — Cerebras (chat, optional — falls back to Qwen if unset)
+CEREBRAS_API_KEY=your-cerebras-key
+CEREBRAS_BASE_URL=https://api.cerebras.ai/v1
+CEREBRAS_MODEL=gpt-oss-120b
 
 # App
 APP_ENV=development

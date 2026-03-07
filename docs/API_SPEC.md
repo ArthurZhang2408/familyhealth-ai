@@ -782,11 +782,13 @@ interface ChatConversation {
 }
 
 interface ChatMessage {
-  id: string;              // UUID
-  conversation_id: string; // UUID
+  id: string;                       // UUID
+  conversation_id: string;          // UUID
   role: MessageRole;
-  content: string;
-  created_at: string;      // ISO 8601
+  content: string;                  // plain text (denormalized fallback)
+  content_parts?: MessagePart[];    // rich content array (text, image, tool_call, etc.)
+  metadata?: Record<string, any>;   // model used, token counts
+  created_at: string;               // ISO 8601
 }
 ```
 
