@@ -136,12 +136,14 @@ def build_assistant_parts(
         pq_calls = [tc for tc in accumulator.tool_calls if tc.name == "present_question"]
         if pq_calls:
             args = pq_calls[-1].arguments
+            raw_options = args.get("options")
+            raw_range = args.get("range")
             parts.append(
                 StructuredInputPart(
                     input_type=args.get("input_type", "multiple_choice"),
                     prompt=args.get("prompt", ""),
-                    options=args.get("options"),
-                    range=args.get("range"),
+                    options=raw_options if isinstance(raw_options, list) else None,
+                    range=raw_range if isinstance(raw_range, dict) else None,
                 )
             )
 
