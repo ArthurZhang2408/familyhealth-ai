@@ -194,4 +194,7 @@ class QwenProvider(LLMProvider):
                 )
             yield StreamChunk(type="tool_call", tool_calls=tool_calls)
 
-        yield StreamChunk(type="finish", finish_reason="stop")
+        yield StreamChunk(
+            type="finish",
+            finish_reason="tool_calls" if tc_accum else "stop",
+        )

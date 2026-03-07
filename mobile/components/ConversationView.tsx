@@ -62,6 +62,8 @@ export function ConversationView({
 }: ConversationViewProps) {
   const Colors = useColors();
 
+  const lastAssistantIndex = allMessages.findLastIndex((m) => m.role === 'assistant');
+
   // Auto-scroll when streaming content updates
   useEffect(() => {
     if (isStreaming || (isBusy && agentSteps.length > 0)) {
@@ -150,7 +152,7 @@ export function ConversationView({
           }}
           contentInsetAdjustmentBehavior="automatic"
           renderItem={({ item, index }) => {
-            const isLatestAssistant = item.role === 'assistant' && index === allMessages.length - 1;
+            const isLatestAssistant = item.role === 'assistant' && index === lastAssistantIndex;
             return (
               <ChatBubble
                 content={item.content}

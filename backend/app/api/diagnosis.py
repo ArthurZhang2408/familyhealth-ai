@@ -221,7 +221,9 @@ async def stream_diagnosis(
         try:
             parsed_structured_response = json.loads(structured_response)
         except (json.JSONDecodeError, TypeError):
-            pass
+            _diag_stream_logger.warning(
+                "Invalid structured_response JSON: %s", structured_response
+            )
 
     queue: asyncio.Queue = asyncio.Queue()
 
