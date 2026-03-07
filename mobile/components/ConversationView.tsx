@@ -11,6 +11,7 @@ import { useColors } from '@/hooks/useColors';
 import { Spacing, FontSize, FontWeight, BorderRadius } from '@/constants/theme';
 import type { LocalMessage } from '@/hooks/useConversation';
 import type { AgentStep } from '@/types/api';
+import type { Attachment } from '@/hooks/useAttachMenu';
 
 interface ConversationViewProps {
   allMessages: LocalMessage[];
@@ -23,7 +24,8 @@ interface ConversationViewProps {
   flatListRef: RefObject<FlatList | null>;
   placeholder?: string;
   onAttach?: () => void;
-  hasAttachment?: boolean;
+  pendingAttachment?: Attachment | null;
+  onRemoveAttachment?: () => void;
   isLoading?: boolean;
   error?: Error | null;
   refetch?: () => void;
@@ -45,7 +47,8 @@ export function ConversationView({
   flatListRef,
   placeholder,
   onAttach,
-  hasAttachment,
+  pendingAttachment,
+  onRemoveAttachment,
   isLoading,
   error,
   refetch,
@@ -209,7 +212,8 @@ export function ConversationView({
           onSend={onSend}
           isBusy={isBusy}
           onAttach={onAttach}
-          hasAttachment={hasAttachment}
+          attachment={pendingAttachment}
+          onRemoveAttachment={onRemoveAttachment}
           placeholder={placeholder}
         />
       </KeyboardAvoidingView>

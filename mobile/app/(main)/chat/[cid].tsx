@@ -146,7 +146,8 @@ function ChatScreenInner() {
         {...conv}
         onChangeText={conv.setInput}
         onAttach={conv.handleAttach}
-        hasAttachment={!!conv.pendingAttachment}
+        pendingAttachment={conv.pendingAttachment}
+        onRemoveAttachment={() => conv.clearAttachment()}
         isLoading={!!activeCid && isLoading && !conv.isBusy}
         error={isNew ? null : error}
         refetch={refetch}
