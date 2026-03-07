@@ -147,6 +147,7 @@ export function ConversationView({
           renderItem={({ item }) => (
             <ChatBubble
               content={item.content}
+              contentParts={item.contentParts}
               isUser={item.role === 'user'}
               animate={pendingIds.has(item.id)}
             />

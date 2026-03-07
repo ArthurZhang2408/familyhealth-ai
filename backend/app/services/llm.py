@@ -82,7 +82,7 @@ class LLMProvider(ABC):
 
 
 class LLMRouter:
-    ROUTING_TABLE: ClassVar[dict[LLMTask, str]] = {
+    DEFAULT_ROUTING: ClassVar[dict[LLMTask, str]] = {
         LLMTask.DIAGNOSIS: "gemini",
         LLMTask.REPORT_ANALYSIS: "gemini",
         LLMTask.MEMORY_EXTRACTION: "qwen",
@@ -93,11 +93,15 @@ class LLMRouter:
 
     def __init__(self, providers: dict[str, LLMProvider]) -> None:
         self._providers = providers
+        # Build effective routing table — prefer cerebras for chat when available
+        self._routing = dict(self.DEFAULT_ROUTING)
+        if "cerebras" in providers:
+            self._routing[LLMTask.CHAT] = "cerebras"
 
     def _resolve(self, request: LLMRequest) -> LLMProvider:
         # Auto-upgrade to Gemini when images are present (Qwen doesn't support multimodal)
         has_images = any(m.image_parts for m in request.messages if m.image_parts)
-        provider_name = "gemini" if has_images else self.ROUTING_TABLE[request.task]
+        provider_name = "gemini" if has_images else self._routing[request.task]
         provider = self._providers.get(provider_name)
         if provider is None:
             raise ValueError(f"No provider registered for '{provider_name}'")

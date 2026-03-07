@@ -6,6 +6,7 @@ from app.services.llm import ImagePart
 
 ALLOWED_IMAGE_TYPES = {
     "image/jpeg",
+    "image/jpg",
     "image/png",
     "image/webp",
     "application/pdf",

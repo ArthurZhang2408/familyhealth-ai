@@ -62,6 +62,7 @@ function ChatScreenInner() {
     id: m.id,
     role: m.role,
     content: m.content,
+    contentParts: m.content_parts,
   }));
 
   const streamSendFn = useCallback(
@@ -105,17 +106,21 @@ function ChatScreenInner() {
     onSendComplete,
   });
 
-  // Abort stream when screen loses focus (navigating away / app backgrounded).
   // Refetch when screen regains focus (picks up server-completed responses).
   useFocusEffect(
     useCallback(() => {
       if (activeCid) refetch();
-      return () => {
-        conv.abort();
-      };
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activeCid, refetch]),
   );
+
+  // Abort stream only on true unmount (navigating away), NOT on activeCid changes.
+  // activeCid changes mid-stream when a new conversation ID arrives — aborting
+  // there kills the stream before agent steps and response can flow.
+  useEffect(() => {
+    return () => conv.abort();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Auto-send the initial message for new conversations
   useEffect(() => {
@@ -142,7 +147,7 @@ function ChatScreenInner() {
         onChangeText={conv.setInput}
         onAttach={conv.handleAttach}
         hasAttachment={!!conv.pendingAttachment}
-        isLoading={!!activeCid && isLoading}
+        isLoading={!!activeCid && isLoading && !conv.isBusy}
         error={isNew ? null : error}
         refetch={refetch}
         placeholder="Ask a health question…"

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import AsyncIterator
+from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 from sqlalchemy import func, select
@@ -31,6 +32,13 @@ from app.services.context_builder import ContextBuilder
 from app.services.llm import ImagePart, LLMMessage, LLMRequest, LLMTask
 from app.services.memory import build_conversation_window
 from app.services.memory_extractor import MemoryExtractor
+from app.services.message_parts_builder import (
+    PartsAccumulator,
+    build_assistant_parts,
+    build_assistant_parts_from_result,
+    build_user_parts,
+    upload_images_for_parts,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -98,10 +106,21 @@ class ChatService:
         # 2. Mental health crisis pre-check
         if detect_mental_health_crisis(content):
             crisis_text = get_crisis_response()
-            user_msg = ChatMessage(conversation_id=conversation.id, role="user", content=content)
-            assistant_msg = ChatMessage(
-                conversation_id=conversation.id, role="assistant", content=crisis_text
+            user_msg = ChatMessage(
+                conversation_id=conversation.id,
+                role="user",
+                content=content,
+                content_parts=build_user_parts(content),
             )
+            assistant_msg = ChatMessage(
+                conversation_id=conversation.id,
+                role="assistant",
+                content=crisis_text,
+                content_parts=build_assistant_parts_from_result(crisis_text),
+            )
+            now = datetime.now(timezone.utc)
+            user_msg.created_at = now
+            assistant_msg.created_at = now + timedelta(milliseconds=1)
             self._db.add_all([user_msg, assistant_msg])
             conversation.updated_at = func.now()
             await self._db.flush()
@@ -151,24 +170,47 @@ class ChatService:
         violations = validate_response(response_text)
         response_text = sanitize_response(response_text, violations)
 
-        # 7. Store messages and commit — commit early so the client can
+        # 7. Build rich content parts
+        image_urls = (
+            await upload_images_for_parts(image_parts, profile.id) if image_parts else None
+        )
+        user_parts = build_user_parts(content, image_urls)
+        assistant_parts = build_assistant_parts_from_result(
+            response_text,
+            tool_calls=agent_result.tool_calls_made or None,
+            tool_results=agent_result.tool_results or None,
+            ctx=ctx,
+        )
+
+        # 8. Store messages and commit — commit early so the client can
         # immediately GET the conversation after receiving this response.
         # (get_db auto-commit runs after the response is sent, which creates
         # a race condition with the client navigating to the new resource.)
-        user_msg = ChatMessage(conversation_id=conversation.id, role="user", content=content)
-        assistant_msg = ChatMessage(
-            conversation_id=conversation.id, role="assistant", content=response_text
+        user_msg = ChatMessage(
+            conversation_id=conversation.id,
+            role="user",
+            content=content,
+            content_parts=user_parts,
         )
+        assistant_msg = ChatMessage(
+            conversation_id=conversation.id,
+            role="assistant",
+            content=response_text,
+            content_parts=assistant_parts,
+        )
+        now = datetime.now(timezone.utc)
+        user_msg.created_at = now
+        assistant_msg.created_at = now + timedelta(milliseconds=1)
         self._db.add_all([user_msg, assistant_msg])
         conversation.updated_at = func.now()
         await self._db.commit()
         await self._db.refresh(assistant_msg)
 
-        # 8. Auto-generate topic for new conversations (best-effort, after commit)
+        # 9. Auto-generate topic for new conversations (best-effort, after commit)
         if is_new_conversation and not topic:
             await self._auto_generate_topic(conversation, content)
 
-        # 9. Log action
+        # 10. Log action
         await self._log_action(
             profile,
             ActionType.CHAT_MESSAGE,
@@ -221,10 +263,21 @@ class ChatService:
         # 2. Mental health crisis pre-check
         if detect_mental_health_crisis(content):
             crisis_text = get_crisis_response()
-            user_msg = ChatMessage(conversation_id=conversation.id, role="user", content=content)
-            assistant_msg = ChatMessage(
-                conversation_id=conversation.id, role="assistant", content=crisis_text
+            user_msg = ChatMessage(
+                conversation_id=conversation.id,
+                role="user",
+                content=content,
+                content_parts=build_user_parts(content),
             )
+            assistant_msg = ChatMessage(
+                conversation_id=conversation.id,
+                role="assistant",
+                content=crisis_text,
+                content_parts=build_assistant_parts_from_result(crisis_text),
+            )
+            now = datetime.now(timezone.utc)
+            user_msg.created_at = now
+            assistant_msg.created_at = now + timedelta(milliseconds=1)
             self._db.add_all([user_msg, assistant_msg])
             conversation.updated_at = func.now()
             await self._db.commit()
@@ -246,10 +299,15 @@ class ChatService:
             return
 
         # 3. Build context
-        yield AgentEvent(
+        accumulator = PartsAccumulator()
+
+        ctx_event = AgentEvent(
             type=AgentEventType.STATUS,
             data={"step": "context", "message": "Loading patient context..."},
         )
+        accumulator.record_event(ctx_event)
+        yield ctx_event
+
         ctx = await self._ctx.build(
             db=self._db,
             profile_id=profile.id,
@@ -261,10 +319,12 @@ class ChatService:
 
         # Emit detailed context results
         profile_name = ctx.profile_context.get("name", "patient")
-        yield AgentEvent(
+        profile_event = AgentEvent(
             type=AgentEventType.STATUS,
             data={"step": "profile", "message": f"Loaded profile for {profile_name}"},
         )
+        accumulator.record_event(profile_event)
+        yield profile_event
 
         if ctx.raw_memories:
             summaries = []
@@ -282,7 +342,7 @@ class ChatService:
                         pass
                 prefix = f"[{date_str}] " if date_str else ""
                 summaries.append(f"{prefix}{text}")
-            yield AgentEvent(
+            mem_event = AgentEvent(
                 type=AgentEventType.STATUS,
                 data={
                     "step": "memory",
@@ -290,11 +350,15 @@ class ChatService:
                     "details": summaries,
                 },
             )
+            accumulator.record_event(mem_event)
+            yield mem_event
         else:
-            yield AgentEvent(
+            mem_event = AgentEvent(
                 type=AgentEventType.STATUS,
                 data={"step": "memory", "message": "No relevant memories found"},
             )
+            accumulator.record_event(mem_event)
+            yield mem_event
 
         # 4. Build conversation messages
         messages = await self._build_conversation_messages(
@@ -317,17 +381,35 @@ class ChatService:
                 # Swallow AgentCore's DONE — we emit our own with full metadata
                 full_content = event.data.get("content", full_content)
             else:
+                accumulator.record_event(event)
                 yield event
 
         # 6. Safety validation
         violations = validate_response(full_content)
         full_content = sanitize_response(full_content, violations)
 
-        # 7. Persist messages — commit so client can GET immediately
-        user_msg = ChatMessage(conversation_id=conversation.id, role="user", content=content)
-        assistant_msg = ChatMessage(
-            conversation_id=conversation.id, role="assistant", content=full_content
+        # 7. Build rich content parts and persist
+        image_urls = (
+            await upload_images_for_parts(image_parts, profile.id) if image_parts else None
         )
+        user_parts = build_user_parts(content, image_urls)
+        assistant_parts = build_assistant_parts(full_content, accumulator, ctx)
+
+        user_msg = ChatMessage(
+            conversation_id=conversation.id,
+            role="user",
+            content=content,
+            content_parts=user_parts,
+        )
+        assistant_msg = ChatMessage(
+            conversation_id=conversation.id,
+            role="assistant",
+            content=full_content,
+            content_parts=assistant_parts,
+        )
+        now = datetime.now(timezone.utc)
+        user_msg.created_at = now
+        assistant_msg.created_at = now + timedelta(milliseconds=1)
         self._db.add_all([user_msg, assistant_msg])
         conversation.updated_at = func.now()
         await self._db.commit()

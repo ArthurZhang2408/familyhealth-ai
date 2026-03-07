@@ -41,9 +41,7 @@ class GeminiProvider(LLMProvider):
             return self._diagnosis_model
         if task == LLMTask.REPORT_ANALYSIS:
             return self._report_model
-        # Auto-upgraded tasks with images need the full model, not lite
-        if has_images:
-            return self._diagnosis_model
+        # Flash Lite supports multimodal — no need to upgrade for chat images
         return self._default_model
 
     @staticmethod

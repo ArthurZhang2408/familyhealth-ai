@@ -1,13 +1,14 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
-import { FlatList } from 'react-native';
+import { Alert, FlatList } from 'react-native';
 import { useAttachMenu, type Attachment } from '@/hooks/useAttachMenu';
-import type { StreamEvent, AgentStep } from '@/types/api';
+import type { StreamEvent, AgentStep, MessagePart } from '@/types/api';
 import type { StreamHandle } from '@/services/api';
 
 export interface LocalMessage {
   id: string;
   role: 'user' | 'assistant';
   content: string;
+  contentParts?: MessagePart[];
 }
 
 type DoneEvent = Extract<StreamEvent, { type: 'done' }>;
@@ -38,6 +39,7 @@ export function useConversation({ serverMessages, streamSendFn, dedupMode, onSen
   const flatListRef = useRef<FlatList>(null);
   const isSendingRef = useRef(false);
   const streamingContentRef = useRef('');
+  const agentStepsRef = useRef<AgentStep[]>([]);
   const activeAbortRef = useRef<(() => void) | null>(null);
 
   const handleAttach = useAttachMenu((attachment) => setPendingAttachment(attachment));
@@ -84,10 +86,12 @@ export function useConversation({ serverMessages, streamSendFn, dedupMode, onSen
           const updated = prev.map((s) =>
             s.status === 'active' ? { ...s, status: 'done' as const } : s,
           );
-          return [
+          const next = [
             ...updated,
             { id: event.step, message: event.message, tool: event.tool, details: event.details, status: 'active' as const },
           ];
+          agentStepsRef.current = next;
+          return next;
         });
         break;
       case 'tool_call':
@@ -95,20 +99,24 @@ export function useConversation({ serverMessages, streamSendFn, dedupMode, onSen
           const updated = prev.map((s) =>
             s.status === 'active' ? { ...s, status: 'done' as const } : s,
           );
-          return [
+          const next = [
             ...updated,
             { id: `tc_${event.tool}`, message: `Using ${event.tool}...`, tool: event.tool, status: 'active' as const },
           ];
+          agentStepsRef.current = next;
+          return next;
         });
         break;
       case 'tool_result':
-        setAgentSteps((prev) =>
-          prev.map((s) =>
+        setAgentSteps((prev) => {
+          const next = prev.map((s) =>
             s.tool === event.tool && s.status === 'active'
               ? { ...s, message: event.summary, status: 'done' as const }
               : s,
-          ),
-        );
+          );
+          agentStepsRef.current = next;
+          return next;
+        });
         break;
       case 'text_delta':
         streamingContentRef.current += event.content;
@@ -129,12 +137,27 @@ export function useConversation({ serverMessages, streamSendFn, dedupMode, onSen
       if (isSendingRef.current) return;
       isSendingRef.current = true;
 
-      const userMsg: LocalMessage = { id: Date.now().toString(), role: 'user', content: text };
+      const userParts: MessagePart[] = [];
+      if (files?.length) {
+        for (const f of files) {
+          userParts.push({ type: 'image' as const, url: f.uri, mime_type: f.type, filename: f.name });
+        }
+      }
+      if (text.trim()) {
+        userParts.push({ type: 'text' as const, text });
+      }
+      const userMsg: LocalMessage = {
+        id: Date.now().toString(),
+        role: 'user',
+        content: text,
+        contentParts: userParts.length > 0 ? userParts : undefined,
+      };
       setPendingMessages((prev) => [...prev, userMsg]);
 
       setIsSending(true);
       setStreamingContent('');
       streamingContentRef.current = '';
+      agentStepsRef.current = [];
       setAgentSteps([]);
 
       let doneEvent: DoneEvent | undefined;
@@ -149,10 +172,23 @@ export function useConversation({ serverMessages, streamSendFn, dedupMode, onSen
         setDisclaimer(done.disclaimer ?? null);
 
         const serverUserId = done.user_message_id;
+        // Build contentParts from accumulated agent steps so they render
+        // inline immediately — prevents a flash when footer steps clear
+        // before server data arrives with persisted content_parts.
+        const steps = agentStepsRef.current;
+        const parts: MessagePart[] = [];
+        if (steps.length > 0) {
+          parts.push({
+            type: 'agent_steps' as const,
+            steps: steps.map((s) => ({ id: s.id, message: s.message, tool: s.tool, details: s.details })),
+          });
+        }
+        parts.push({ type: 'text' as const, text: done.content });
         const aiMsg: LocalMessage = {
           id: done.id ?? (Date.now() + 1).toString(),
           role: 'assistant',
           content: done.content,
+          contentParts: parts,
         };
         setPendingMessages((prev) => {
           const updated = serverUserId
@@ -160,21 +196,27 @@ export function useConversation({ serverMessages, streamSendFn, dedupMode, onSen
             : prev;
           return [...updated, aiMsg];
         });
-      } catch {
-        // Stream interrupted (app backgrounded, navigated away, network lost, etc.).
-        // Preserve any partial content that was streamed before the interruption.
-        // onSendComplete will refetch — if the backend finished, server data replaces this.
+      } catch (err) {
         const partial = streamingContentRef.current;
         if (partial) {
+          // Stream interrupted after some content — preserve what we got
           setPendingMessages((prev) => [
             ...prev,
             { id: (Date.now() + 1).toString(), role: 'assistant', content: partial },
           ]);
+        } else {
+          // No content received — show user-friendly error
+          const message = err instanceof Error ? err.message : 'Something went wrong';
+          Alert.alert('Could not send', message);
+          // Remove the pending user message since nothing happened
+          setPendingMessages((prev) => prev.filter((m) => m.id !== userMsg.id));
         }
       } finally {
         setIsSending(false);
         setStreamingContent('');
+        streamingContentRef.current = '';
         setAgentSteps([]);
+        agentStepsRef.current = [];
         isSendingRef.current = false;
         activeAbortRef.current = null;
         onSendComplete?.(doneEvent);
@@ -187,12 +229,13 @@ export function useConversation({ serverMessages, streamSendFn, dedupMode, onSen
 
   /** Send from the input field (reads current input + attachment state). */
   const onSend = useCallback(async () => {
-    const text = input.trim() || (pendingAttachment ? 'Please look at this image.' : '');
-    if (!text) return;
+    const text = input.trim();
+    if (!text && !pendingAttachment) return;
     setInput('');
     const files = pendingAttachment ? [pendingAttachment] : undefined;
     setPendingAttachment(null);
-    await doSend(text, files);
+    // Backend requires non-empty content; use space for image-only sends
+    await doSend(text || ' ', files);
   }, [input, pendingAttachment, doSend]);
 
   /** Programmatic send — for auto-sending the initial message on new conversations. */

@@ -47,6 +47,9 @@ class DiagnosisMessage(UUIDPrimaryKey, Base):
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 
+    content_parts: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    metadata_: Mapped[dict | None] = mapped_column("metadata", JSONB, nullable=True)
+
     # Relationships
     session = relationship("DiagnosisSession", back_populates="messages")
 

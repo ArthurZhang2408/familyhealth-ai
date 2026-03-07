@@ -13,7 +13,7 @@ from app.core.exceptions import AppError
 from app.core.security import CurrentAccount, get_current_account
 from app.models.profile import Profile
 from app.services.context_builder import ContextBuilder
-from app.services.llm import LLMRouter
+from app.services.llm import LLMProvider, LLMRouter
 from app.services.memory import MemoryService
 from app.services.memory_extractor import MemoryExtractor
 
@@ -79,8 +79,18 @@ def get_llm_router() -> LLMRouter:
             base_url=settings.qwen_base_url,
             model=settings.qwen_model,
         )
-        _llm_router = LLMRouter({"gemini": gemini, "qwen": qwen})
-        logger.info("LLM router initialised (gemini + qwen)")
+        providers: dict[str, LLMProvider] = {"gemini": gemini, "qwen": qwen}
+
+        if settings.cerebras_api_key:
+            cerebras = QwenProvider(
+                api_key=settings.cerebras_api_key,
+                base_url=settings.cerebras_base_url,
+                model=settings.cerebras_model,
+            )
+            providers["cerebras"] = cerebras
+
+        _llm_router = LLMRouter(providers)
+        logger.info("LLM router initialised (%s)", ", ".join(providers))
     return _llm_router
 
 
