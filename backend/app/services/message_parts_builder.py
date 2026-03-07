@@ -15,6 +15,7 @@ from app.schemas.message_parts import (
     AgentStepsPart,
     MemoryContextPart,
     MessagePart,
+    StructuredInputPart,
     TextPart,
     ToolCallPart,
     ToolResultPart,
@@ -72,6 +73,7 @@ class PartsAccumulator:
 def build_user_parts(
     content: str,
     image_urls: list[dict[str, str]] | None = None,
+    structured_response: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Build content_parts for a user message."""
     parts: list[MessagePart] = [TextPart(text=content)]
@@ -84,6 +86,14 @@ def build_user_parts(
                     filename=img.get("filename"),
                 )
             )
+    if structured_response:
+        parts.append(
+            StructuredInputPart(
+                input_type=structured_response.get("input_type", ""),
+                prompt=structured_response.get("prompt", ""),
+                selected=structured_response.get("selected"),
+            )
+        )
     return serialize_parts(parts)
 
 
@@ -120,6 +130,22 @@ def build_assistant_parts(
 
     # Final text response
     parts.append(TextPart(text=response_text))
+
+    # Structured question from the last present_question tool call (if any)
+    if accumulator:
+        pq_calls = [tc for tc in accumulator.tool_calls if tc.name == "present_question"]
+        if pq_calls:
+            args = pq_calls[-1].arguments
+            raw_options = args.get("options")
+            raw_range = args.get("range")
+            parts.append(
+                StructuredInputPart(
+                    input_type=args.get("input_type", "multiple_choice"),
+                    prompt=args.get("prompt", ""),
+                    options=raw_options if isinstance(raw_options, list) else None,
+                    range=raw_range if isinstance(raw_range, dict) else None,
+                )
+            )
 
     return serialize_parts(parts)
 

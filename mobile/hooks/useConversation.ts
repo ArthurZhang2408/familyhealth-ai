@@ -17,6 +17,7 @@ export type StreamSendFn = (
   text: string,
   onEvent: (event: StreamEvent) => void,
   files?: Attachment[],
+  structuredResponse?: Record<string, unknown>,
 ) => StreamHandle;
 
 interface UseConversationConfig {
@@ -41,6 +42,7 @@ export function useConversation({ serverMessages, streamSendFn, dedupMode, onSen
   const streamingContentRef = useRef('');
   const agentStepsRef = useRef<AgentStep[]>([]);
   const activeAbortRef = useRef<(() => void) | null>(null);
+  const structuredQuestionsRef = useRef<MessagePart[]>([]);
 
   const handleAttach = useAttachMenu((attachment) => setPendingAttachment(attachment));
 
@@ -122,6 +124,15 @@ export function useConversation({ serverMessages, streamSendFn, dedupMode, onSen
         streamingContentRef.current += event.content;
         setStreamingContent(streamingContentRef.current);
         break;
+      case 'structured_question':
+        structuredQuestionsRef.current.push({
+          type: 'structured_input' as const,
+          input_type: event.input_type,
+          prompt: event.prompt,
+          options: event.options as Array<Record<string, unknown>> | undefined,
+          range: event.range as Record<string, unknown> | undefined,
+        });
+        break;
     }
   }, []);
 
@@ -133,7 +144,7 @@ export function useConversation({ serverMessages, streamSendFn, dedupMode, onSen
 
   /** Core send logic — used by both onSend (from input) and sendMessage (programmatic). */
   const doSend = useCallback(
-    async (text: string, files?: Attachment[]) => {
+    async (text: string, files?: Attachment[], structuredResponse?: Record<string, unknown>) => {
       if (isSendingRef.current) return;
       isSendingRef.current = true;
 
@@ -145,6 +156,14 @@ export function useConversation({ serverMessages, streamSendFn, dedupMode, onSen
       }
       if (text.trim()) {
         userParts.push({ type: 'text' as const, text });
+      }
+      if (structuredResponse) {
+        userParts.push({
+          type: 'structured_input' as const,
+          input_type: structuredResponse.input_type as string,
+          prompt: structuredResponse.prompt as string,
+          selected: structuredResponse.selected,
+        });
       }
       const userMsg: LocalMessage = {
         id: Date.now().toString(),
@@ -158,12 +177,13 @@ export function useConversation({ serverMessages, streamSendFn, dedupMode, onSen
       setStreamingContent('');
       streamingContentRef.current = '';
       agentStepsRef.current = [];
+      structuredQuestionsRef.current = [];
       setAgentSteps([]);
 
       let doneEvent: DoneEvent | undefined;
 
       try {
-        const handle = streamSendFn(text, handleStreamEvent, files);
+        const handle = streamSendFn(text, handleStreamEvent, files, structuredResponse);
         activeAbortRef.current = handle.abort;
         const done = await handle.promise;
         activeAbortRef.current = null;
@@ -184,6 +204,10 @@ export function useConversation({ serverMessages, streamSendFn, dedupMode, onSen
           });
         }
         parts.push({ type: 'text' as const, text: done.content });
+        // Include structured questions accumulated during streaming
+        for (const sq of structuredQuestionsRef.current) {
+          parts.push(sq);
+        }
         const aiMsg: LocalMessage = {
           id: done.id ?? (Date.now() + 1).toString(),
           role: 'assistant',
@@ -217,6 +241,7 @@ export function useConversation({ serverMessages, streamSendFn, dedupMode, onSen
         streamingContentRef.current = '';
         setAgentSteps([]);
         agentStepsRef.current = [];
+        structuredQuestionsRef.current = [];
         isSendingRef.current = false;
         activeAbortRef.current = null;
         onSendComplete?.(doneEvent);
@@ -244,6 +269,14 @@ export function useConversation({ serverMessages, streamSendFn, dedupMode, onSen
     [doSend],
   );
 
+  /** Send a structured response (from StructuredInputView selection). */
+  const onStructuredResponse = useCallback(
+    (content: string, structuredResponse: Record<string, unknown>) => {
+      doSend(content, undefined, structuredResponse);
+    },
+    [doSend],
+  );
+
   return {
     allMessages,
     pendingIds,
@@ -251,6 +284,7 @@ export function useConversation({ serverMessages, streamSendFn, dedupMode, onSen
     setInput,
     onSend,
     sendMessage,
+    onStructuredResponse,
     abort,
     disclaimer,
     pendingAttachment,

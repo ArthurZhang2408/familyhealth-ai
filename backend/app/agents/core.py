@@ -100,6 +100,7 @@ class AgentCore:
 
             # Execute each tool call
             injected = {"profile_id": str(session.profile_id)}
+            hit_terminal = False
             for tc_response in response.tool_calls:
                 tc = ToolCall(
                     id=tc_response.id,
@@ -117,10 +118,26 @@ class AgentCore:
                     "error" if result.is_error else "ok",
                 )
 
+                # Terminal tools stop the loop (e.g., present_question)
+                tool_def = self._tools.get(tc.name)
+                if tool_def and tool_def.terminal:
+                    hit_terminal = True
+                    break
+
                 # Inject tool result as message for next LLM round
                 result_text = json.dumps(result.output, default=str)
                 session.messages.append(
                     {"role": "user", "content": f"[Tool {tc.name}] {result_text}"}
+                )
+
+            if hit_terminal:
+                return AgentResult(
+                    content=response.content,
+                    model=response.model,
+                    usage=response.usage,
+                    tool_calls_made=list(session.tool_calls_made),
+                    tool_results=list(session.tool_results),
+                    rounds=round_num + 1,
                 )
 
         # Max rounds exceeded
@@ -199,6 +216,7 @@ class AgentCore:
             session.messages.append({"role": "assistant", "content": text_buffer})
 
             injected = {"profile_id": str(session.profile_id)}
+            hit_terminal = False
             for tc in tool_calls:
                 session.tool_calls_made.append(tc)
 
@@ -220,10 +238,23 @@ class AgentCore:
                     data={"tool": tc.name, "summary": result_summary},
                 )
 
+                # Check if this tool is terminal (stops the agent loop)
+                tool_def = self._tools.get(tc.name)
+                if tool_def and tool_def.terminal:
+                    hit_terminal = True
+                    break
+
                 result_text = json.dumps(result.output, default=str)
                 session.messages.append(
                     {"role": "user", "content": f"[Tool {tc.name}] {result_text}"}
                 )
+
+            if hit_terminal:
+                yield AgentEvent(
+                    type=AgentEventType.DONE,
+                    data={"content": text_buffer},
+                )
+                return
 
         # Max rounds exceeded — last streamed text is the final response
         logger.warning(

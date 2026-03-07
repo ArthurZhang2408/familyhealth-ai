@@ -226,4 +226,6 @@ export type StreamEvent =
   | { type: 'text_delta'; content: string }
   | { type: 'tool_call'; tool: string; arguments?: Record<string, unknown> }
   | { type: 'tool_result'; tool: string; summary: string }
+  | { type: 'structured_question'; input_type: string; prompt: string; options?: Array<{ label: string; value: string }>; range?: { min: number; max: number; step?: number; labels?: { min: string; max: string } } }
+  | { type: 'error'; message?: string }
   | { type: 'done'; content: string; id?: string; user_message_id?: string; conversation_id?: string; session_id?: string; disclaimer?: string; diagnosis_state?: DiagnosisState };

@@ -284,6 +284,7 @@ class DiagnosisService:
         session_id: UUID | None = None,
         chief_complaint: str | None = None,
         image_parts: list[ImagePart] | None = None,
+        structured_response: dict | None = None,
     ) -> AsyncIterator[AgentEvent]:
         """Streaming send_message. Creates session if session_id not provided.
 
@@ -424,6 +425,27 @@ class DiagnosisService:
                     yield event
                 elif event.type == AgentEventType.DONE:
                     conversation_text = event.data.get("content", conversation_text)
+                elif event.type == AgentEventType.TOOL_RESULT:
+                    accumulator.record_event(event)
+                    yield event
+                    # Emit structured question for present_question tool results
+                    if event.data.get("tool") == "present_question":
+                        # Use the last present_question tool call's args
+                        pq_calls = [
+                            tc for tc in accumulator.tool_calls
+                            if tc.name == "present_question"
+                        ]
+                        if pq_calls:
+                            tc = pq_calls[-1]
+                            yield AgentEvent(
+                                type=AgentEventType.STRUCTURED_QUESTION,
+                                data={
+                                    "input_type": tc.arguments.get("input_type"),
+                                    "prompt": tc.arguments.get("prompt"),
+                                    "options": tc.arguments.get("options"),
+                                    "range": tc.arguments.get("range"),
+                                },
+                            )
                 else:
                     accumulator.record_event(event)
                     yield event
@@ -432,20 +454,11 @@ class DiagnosisService:
             violations = validate_response(conversation_text)
             conversation_text = sanitize_response(conversation_text, violations)
 
-            # Pass 2 — Extract structured state (silent, not streamed)
-            analyzing_event = AgentEvent(
-                type=AgentEventType.STATUS,
-                data={"step": "analyzing", "message": "Updating diagnosis..."},
-            )
-            accumulator.record_event(analyzing_event)
-            yield analyzing_event
-            diagnosis_state = await self._extract_state(system_prompt, messages, conversation_text)
-
-        # Build rich content parts and persist
+        # Build rich content parts and persist messages immediately
         image_urls = (
             await upload_images_for_parts(image_parts, profile.id) if image_parts else None
         )
-        user_parts = build_user_parts(content, image_urls)
+        user_parts = build_user_parts(content, image_urls, structured_response)
         assistant_parts = build_assistant_parts(conversation_text, accumulator, ctx)
 
         user_msg = DiagnosisMessage(
@@ -465,10 +478,11 @@ class DiagnosisService:
         assistant_msg.created_at = now + timedelta(milliseconds=1)
         self._db.add_all([user_msg, assistant_msg])
 
-        if diagnosis_state.differential_diagnoses:
-            session.differential_diagnoses = [
-                d.model_dump() for d in diagnosis_state.differential_diagnoses
-            ]
+        # Red flags → triage state; normal → fallback (real extraction after DONE)
+        done_state = (
+            diagnosis_state if red_flags
+            else DiagnosisState.model_validate(copy.deepcopy(FALLBACK_DIAGNOSIS_STATE))
+        )
 
         await self._db.commit()
         await self._db.refresh(user_msg)
@@ -482,12 +496,25 @@ class DiagnosisService:
                 "session_id": str(session.id),
                 "id": str(assistant_msg.id),
                 "user_message_id": str(user_msg.id),
-                "diagnosis_state": diagnosis_state.model_dump(),
+                "diagnosis_state": done_state.model_dump(),
                 "disclaimer": MEDICAL_DISCLAIMER,
             },
         )
 
-        # Best-effort post-processing (runs after client already has the response)
+        # Best-effort post-processing: state extraction + logging (after client has the response)
+        if not red_flags:
+            try:
+                diagnosis_state = await self._extract_state(
+                    system_prompt, messages, conversation_text
+                )
+                if diagnosis_state.differential_diagnoses:
+                    session.differential_diagnoses = [
+                        d.model_dump() for d in diagnosis_state.differential_diagnoses
+                    ]
+                await self._db.commit()
+            except Exception:
+                logger.warning("Post-DONE state extraction failed", exc_info=True)
+
         await self._log_action(
             profile,
             ActionType.DIAGNOSIS_MESSAGE,
@@ -670,7 +697,10 @@ class DiagnosisService:
         result = await self._db.execute(stmt)
         history = result.scalars().all()
 
-        messages = [{"role": m.role, "content": m.content} for m in history]
+        messages = [
+            {"role": m.role, "content": self._enrich_content(m)}
+            for m in history
+        ]
 
         # Apply sliding window: keep first message (chief complaint) + fill from recent
         if messages:
@@ -685,6 +715,43 @@ class DiagnosisService:
         windowed.append(new_msg)
 
         return windowed
+
+    @staticmethod
+    def _enrich_content(msg: DiagnosisMessage) -> str:
+        """Enrich message content with structured question/answer data.
+
+        The LLM only sees plain text in conversation history. Without this,
+        the agent has no idea what questions it asked (they're in content_parts)
+        and repeats itself.
+        """
+        content = msg.content or ""
+        if not msg.content_parts:
+            return content
+
+        parts_list = msg.content_parts
+        if not isinstance(parts_list, list):
+            return content
+
+        for part in parts_list:
+            if not isinstance(part, dict) or part.get("type") != "structured_input":
+                continue
+
+            prompt = part.get("prompt", "")
+            options = part.get("options") or []
+            range_info = part.get("range")
+
+            if msg.role == "assistant":
+                # Show the question the agent asked
+                opt_labels = [o.get("label", "") for o in options if isinstance(o, dict)]
+                q_text = f"\n[Question asked: {prompt}"
+                if opt_labels:
+                    q_text += f" Options: {', '.join(opt_labels)}"
+                if range_info and isinstance(range_info, dict):
+                    q_text += f" Scale: {range_info.get('min')}-{range_info.get('max')}"
+                q_text += "]"
+                content += q_text
+
+        return content
 
     async def _extract_state(
         self,

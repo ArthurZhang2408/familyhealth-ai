@@ -69,7 +69,7 @@ function DiagnosisScreenInner() {
   }));
 
   const streamSendFn = useCallback(
-    (text: string, onEvent: (event: StreamEvent) => void, files?: Attachment[]) => {
+    (text: string, onEvent: (event: StreamEvent) => void, files?: Attachment[], structuredResponse?: Record<string, unknown>) => {
       const wrappedOnEvent = (event: StreamEvent) => {
         if (
           event.type === 'status' &&
@@ -87,6 +87,7 @@ function DiagnosisScreenInner() {
         activeSid ?? undefined,
         isNew && !activeSid ? text : undefined,
         files,
+        structuredResponse,
       );
     },
     [pid, activeSid, isNew],
@@ -183,6 +184,7 @@ function DiagnosisScreenInner() {
         errorIcon="stethoscope"
         errorTitle="Couldn't load session"
         placeholder="Describe your symptoms…"
+        onStructuredResponse={conv.onStructuredResponse}
       />
     </>
   );

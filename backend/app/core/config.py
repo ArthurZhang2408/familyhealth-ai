@@ -32,6 +32,15 @@ class Settings(BaseSettings):
     cerebras_base_url: str = "https://api.cerebras.ai/v1"
     cerebras_model: str = "gpt-oss-120b"
 
+    # LLM routing overrides — set provider name per task (e.g., "cerebras", "gemini", "qwen")
+    # Empty = use default logic (Cerebras if available, else Qwen; Gemini for reports)
+    llm_route_chat: str = ""
+    llm_route_diagnosis: str = ""
+    llm_route_report_analysis: str = ""
+    llm_route_memory_extraction: str = ""
+    llm_route_summarization: str = ""
+    llm_route_fact_extraction: str = ""
+
     # Mem0 internal LLM (fact extraction / dedup — lightweight, non-thinking)
     mem0_model: str = "nemotron-3-nano:30b"
 

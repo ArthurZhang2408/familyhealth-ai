@@ -34,6 +34,7 @@ interface ConversationViewProps {
   streamingContent?: string;
   agentSteps?: AgentStep[];
   isStreaming?: boolean;
+  onStructuredResponse?: (content: string, structuredResponse: Record<string, unknown>) => void;
 }
 
 export function ConversationView({
@@ -57,8 +58,11 @@ export function ConversationView({
   streamingContent = '',
   agentSteps = [],
   isStreaming = false,
+  onStructuredResponse,
 }: ConversationViewProps) {
   const Colors = useColors();
+
+  const lastAssistantIndex = allMessages.findLastIndex((m) => m.role === 'assistant');
 
   // Auto-scroll when streaming content updates
   useEffect(() => {
@@ -147,14 +151,19 @@ export function ConversationView({
             justifyContent: allMessages.length === 0 ? 'center' : 'flex-start',
           }}
           contentInsetAdjustmentBehavior="automatic"
-          renderItem={({ item }) => (
-            <ChatBubble
-              content={item.content}
-              contentParts={item.contentParts}
-              isUser={item.role === 'user'}
-              animate={pendingIds.has(item.id)}
-            />
-          )}
+          renderItem={({ item, index }) => {
+            const isLatestAssistant = item.role === 'assistant' && index === lastAssistantIndex;
+            return (
+              <ChatBubble
+                content={item.content}
+                contentParts={item.contentParts}
+                isUser={item.role === 'user'}
+                animate={pendingIds.has(item.id)}
+                onStructuredResponse={onStructuredResponse}
+                isLatestAssistant={isLatestAssistant}
+              />
+            );
+          }}
           ListEmptyComponent={
             !isBusy ? (
               <View style={{ alignItems: 'center', padding: Spacing.xl }}>

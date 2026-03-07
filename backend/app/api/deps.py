@@ -89,7 +89,23 @@ def get_llm_router() -> LLMRouter:
             )
             providers["cerebras"] = cerebras
 
-        _llm_router = LLMRouter(providers)
+        # Build env-driven route overrides
+        from app.services.llm import LLMTask
+
+        route_overrides: dict[LLMTask, str] = {}
+        for task, attr in (
+            (LLMTask.CHAT, "llm_route_chat"),
+            (LLMTask.DIAGNOSIS, "llm_route_diagnosis"),
+            (LLMTask.REPORT_ANALYSIS, "llm_route_report_analysis"),
+            (LLMTask.MEMORY_EXTRACTION, "llm_route_memory_extraction"),
+            (LLMTask.SUMMARIZATION, "llm_route_summarization"),
+            (LLMTask.FACT_EXTRACTION, "llm_route_fact_extraction"),
+        ):
+            val = getattr(settings, attr, "")
+            if val:
+                route_overrides[task] = val
+
+        _llm_router = LLMRouter(providers, route_overrides=route_overrides)
         logger.info("LLM router initialised (%s)", ", ".join(providers))
     return _llm_router
 
@@ -119,11 +135,13 @@ def get_agent_core():
         from app.agents.core import AgentCore
         from app.agents.registry import ToolRegistry
         from app.agents.tools.memory_search import build_memory_search_tool
+        from app.agents.tools.present_question import build_present_question_tool
         from app.agents.tools.profile_lookup import build_profile_lookup_tool
         from app.core.database import async_session_factory
 
         registry = ToolRegistry()
         registry.register(build_memory_search_tool(get_memory_service()))
+        registry.register(build_present_question_tool())
         registry.register(build_profile_lookup_tool(async_session_factory))
 
         _agent_core = AgentCore(

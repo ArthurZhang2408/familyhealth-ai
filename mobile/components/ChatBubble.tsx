@@ -4,10 +4,11 @@ import Animated, { FadeInUp } from 'react-native-reanimated';
 import Markdown from '@ronradtke/react-native-markdown-display';
 import { useColors } from '@/hooks/useColors';
 import { useMarkdownStyles } from '@/hooks/useMarkdownStyles';
-import { Spacing, FontSize, BorderRadius } from '@/constants/theme';
+import { Spacing, FontSize, FontWeight, BorderRadius } from '@/constants/theme';
 import {
   AgentStepsPartView,
   MemoryContextPartView,
+  StructuredInputView,
   ToolCallPartView,
   ImagePartView,
 } from '@/components/message-parts';
@@ -24,15 +25,17 @@ interface Props {
   contentParts?: MessagePart[];
   isUser: boolean;
   animate?: boolean;
+  onStructuredResponse?: (content: string, structuredResponse: Record<string, unknown>) => void;
+  isLatestAssistant?: boolean;
 }
 
-export function ChatBubble({ content, contentParts, isUser, animate }: Props) {
+export function ChatBubble({ content, contentParts, isUser, animate, onStructuredResponse, isLatestAssistant }: Props) {
   const Colors = useColors();
   const markdownStyles = useMarkdownStyles();
 
   const inner = isUser
     ? <UserBubble content={content} contentParts={contentParts} Colors={Colors} />
-    : <AssistantBubble content={content} contentParts={contentParts} Colors={Colors} markdownStyles={markdownStyles} />;
+    : <AssistantBubble content={content} contentParts={contentParts} Colors={Colors} markdownStyles={markdownStyles} onStructuredResponse={onStructuredResponse} isLatestAssistant={isLatestAssistant} />;
 
   if (animate) {
     return (
@@ -54,6 +57,7 @@ export function ChatBubble({ content, contentParts, isUser, animate }: Props) {
 
 function UserBubble({ content, contentParts, Colors }: { content: string; contentParts?: MessagePart[]; Colors: any }) {
   const images = contentParts?.filter((p): p is Extract<MessagePart, { type: 'image' }> => p.type === 'image');
+  const structuredInput = contentParts?.find((p): p is Extract<MessagePart, { type: 'structured_input' }> => p.type === 'structured_input');
   const hasText = content.trim().length > 0;
 
   return (
@@ -63,7 +67,23 @@ function UserBubble({ content, contentParts, Colors }: { content: string; conten
           {images.map((img, i) => <ImagePartView key={i} part={img} />)}
         </View>
       )}
-      {hasText && (
+      {structuredInput ? (
+        <View
+          style={{
+            backgroundColor: Colors.primary + '15',
+            borderRadius: BorderRadius.lg,
+            borderBottomRightRadius: BorderRadius.sm,
+            borderCurve: 'continuous',
+            padding: Spacing.md,
+            borderWidth: 1,
+            borderColor: Colors.primary + '30',
+          }}
+        >
+          <Text style={{ fontSize: FontSize.sm, color: Colors.primary, fontWeight: FontWeight.semibold }}>
+            {String(structuredInput.selected ?? content)}
+          </Text>
+        </View>
+      ) : hasText ? (
         <View
           style={{
             backgroundColor: Colors.surfaceSecondary,
@@ -80,12 +100,12 @@ function UserBubble({ content, contentParts, Colors }: { content: string; conten
             {content}
           </Text>
         </View>
-      )}
+      ) : null}
     </View>
   );
 }
 
-function AssistantBubble({ content, contentParts, Colors, markdownStyles }: { content: string; contentParts?: MessagePart[]; Colors: any; markdownStyles: any }) {
+function AssistantBubble({ content, contentParts, Colors, markdownStyles, onStructuredResponse, isLatestAssistant }: { content: string; contentParts?: MessagePart[]; Colors: any; markdownStyles: any; onStructuredResponse?: Props['onStructuredResponse']; isLatestAssistant?: boolean }) {
   if (!contentParts || contentParts.length === 0) {
     return (
       <View style={{ width: '100%', paddingVertical: Spacing.xs }}>
@@ -120,6 +140,8 @@ function AssistantBubble({ content, contentParts, Colors, markdownStyles }: { co
               return null;
             case 'image':
               return <ImagePartView key={i} part={part} />;
+            case 'structured_input':
+              return <StructuredInputView key={i} part={part} onResponse={onStructuredResponse} isLatest={!!isLatestAssistant} />;
             case 'text':
               return <Markdown key={i} style={markdownStyles}>{part.text}</Markdown>;
             default:

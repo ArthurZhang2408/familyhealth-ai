@@ -9,10 +9,10 @@ AI-powered diagnosis, medical report analysis, and health chat.
 - **Backend**: Python 3.12 + FastAPI
 - **Database**: PostgreSQL 16 + pgvector extension
 - **Memory Layer**: Mem0 (self-hosted, open source)
-- **LLM - Chat**: Cerebras (`gpt-oss-120b`) when `CEREBRAS_API_KEY` set, else Qwen fallback
-- **LLM - Diagnosis/Reports**: Google Gemini API (`gemini-2.5-flash`)
-- **LLM - Extraction/Summarization**: Qwen via Ollama Cloud (`qwen3.5:397b`)
-- **LLM - Multimodal (images)**: Google Gemini (`gemini-2.5-flash-lite`) — auto-routed
+- **LLM Routing**: Env-configurable via `LLM_ROUTE_*` vars. Defaults: Cerebras for all text tasks when available, Gemini for report analysis, Qwen as fallback. Auto-fallback on provider failure.
+- **LLM - Cerebras**: `gpt-oss-120b` — default for chat, diagnosis, extraction, summarization
+- **LLM - Gemini**: `gemini-2.5-flash` — report analysis, multimodal (auto-routed when images present)
+- **LLM - Qwen**: `qwen3.5:397b` via Ollama Cloud — fallback provider
 - **Embeddings**: Google Gemini (`models/gemini-embedding-001`, 768 dims) — reuses Gemini API key
 - **Frontend**: React Native (Expo SDK 54, Expo Router 6) — mobile-first
 - **Auth**: Supabase Auth (handles accounts, supports Google/Apple sign-in)
@@ -37,7 +37,8 @@ AI-powered diagnosis, medical report analysis, and health chat.
 - **State**: Zustand (auth, active profile with AsyncStorage persistence) + React Query (server data)
 - **Icons**: `@expo/vector-icons` via centralized `components/Icon.tsx` with exported `IconName` type
 - **Attachments**: `useAttachMenu()` hook for Camera/Photos/Files action sheet. Validates file type on select (rejects GIF etc.). HEIC auto-converted to JPEG. Images compressed/resized (max 1536px) before upload. `pendingAttachment` state pattern on screens
-- **Message parts**: Messages persist `content_parts` JSONB (text, image, tool_call, tool_result, agent_steps, memory_context). `ChatBubble` renders rich parts via `components/message-parts/` sub-components. Falls back to plain `content` text when no parts
+- **Message parts**: Messages persist `content_parts` JSONB (text, image, tool_call, tool_result, agent_steps, memory_context, structured_input). `ChatBubble` renders rich parts via `components/message-parts/` sub-components. Falls back to plain `content` text when no parts
+- **Structured inputs**: `StructuredInputView` renders interactive questions (multiple_choice, scale, yes_no, multi_select). Interactive when unanswered on latest assistant message; completed state when answered. `onStructuredResponse` callback flows through `ConversationView` → `useConversation.doSend`
 - **Image caching**: `ImagePartView` uses `expo-image` with `cachePolicy="disk"` for persistent local caching
 - **Design system**: See `.interface-design/system.md` for full design system documentation
 - **Key constraint**: Use `ScrollView` not `FlatList` inside formSheet modals (Expo bug)
@@ -55,26 +56,20 @@ AI-powered diagnosis, medical report analysis, and health chat.
 - `cd backend && black . && ruff check .` — lint backend
 - `cd mobile && npx tsc --noEmit` — type check mobile
 
-## Diagnosis Workflow (Planned — Phase 3)
-The diagnosis agent should NOT allow free-text input for most interactions.
-Instead, the agent presents structured questions and the user selects from options:
-- **Multiple choice**: Agent asks a question with 2-4 options, user taps one
-- **Scale/slider**: Agent asks for severity (1-10), user drags a slider
-- **Yes/No**: Agent asks a binary question, user taps yes or no
-- **Multi-select**: Agent lists symptoms, user checks all that apply
+## Diagnosis Workflow
+The diagnosis agent uses hypothesis-driven reasoning with structured Q&A:
+- Agent forms 3-5 hypotheses from the chief complaint, asks targeted questions to confirm/eliminate
+- Uses `present_question` terminal tool for structured input (multiple_choice, scale, yes_no, multi_select)
+- OLDCARTS framework as coverage audit (not a rigid script), red flags as hard interrupt
+- Conversation history enriched with question context (`_enrich_content`) so agent sees its own prior questions
+- User responses include rejected options ("Does NOT have: fever, vomiting") to prevent re-asking
+- Assessment delivered as formatted markdown (no tables) with ranked differential, OTC meds, tests, warning signs
+- State extraction runs post-DONE (non-blocking) via `_extract_state`
+- `StructuredInputPart` persisted in `content_parts` for both assistant (question) and user (answer)
 
-The agent uses a `present_question` tool to emit structured questions. The frontend
-renders interactive UI (cards, sliders, buttons). User selections persist as
-`StructuredInputPart` in `content_parts` — both the question (on assistant message)
-and the answer (on user message). On reload, answered questions render in their
-"completed" state (selection highlighted, inputs disabled).
-
-The `StructuredInputPart` schema is already defined in `schemas/message_parts.py`
-but NOT yet wired up. Implementation requires:
-1. Backend: `present_question` tool in diagnosis agent registry
-2. Backend: Service persists structured input/output in `content_parts`
-3. Frontend: `StructuredInputView` component (interactive when unanswered, static when answered)
-4. Frontend: `ConversationView` gets `onStructuredResponse` callback
+### Planned — next phases
+- **Agent web search**: Search academic papers / reliable medical sources for citations on difficult cases
+- **Structured assessment rendering**: `present_assessment` tool with custom `DiagnosisReportView` component (card-based native UI instead of markdown)
 
 ## Critical Rules
 - NEVER store raw medical data in LLM context without profile scoping
