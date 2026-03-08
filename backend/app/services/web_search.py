@@ -238,7 +238,7 @@ class PubMedSearchProvider:
             # PubMed treats words as AND — long queries often return 0.
             # Retry with only medical keywords (drop filler words).
             keywords = _extract_medical_keywords(query)
-            if keywords != query:
+            if keywords != query.lower().strip():
                 logger.info("PubMed retry with keywords: %s", keywords)
                 results = await self._esearch(keywords, max_results=max_results)
         return results

@@ -36,6 +36,7 @@ def build_web_search_tool(
         max_results: int = 5,
         **_kwargs: Any,
     ) -> dict:
+        max_results = min(max_results, 10)
         if search_type == "academic":
             results = await pubmed.search(query, max_results=max_results)
         elif search_type in ("general", "drug"):
