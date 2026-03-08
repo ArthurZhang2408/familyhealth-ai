@@ -9,6 +9,7 @@ import pytest
 
 from app.agents.tools.web_search import build_web_search_tool
 from app.services.web_search import (
+    DuckDuckGoSearchProvider,
     PubMedSearchProvider,
     TavilySearchProvider,
 )
@@ -122,6 +123,170 @@ async def test_tavily_passes_domain_filter():
         payload = call_args.kwargs.get("json") or call_args[1].get("json")
         assert payload["include_domains"] == ["mayoclinic.org", "cdc.gov"]
         assert payload["search_depth"] == "advanced"
+
+
+# ===================================================================
+# DuckDuckGo provider tests
+# ===================================================================
+
+DDG_HTML_TWO_RESULTS = """
+<div class="result">
+  <h2 class="result__title">
+    <a class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.mayoclinic.org%2Fulcer">
+      Peptic ulcer - Mayo Clinic</a>
+  </h2>
+  <a class="result__snippet" href="https://www.mayoclinic.org/ulcer">
+    A <b>peptic</b> ulcer is a sore on the lining of your stomach.</a>
+</div>
+<div class="result">
+  <h2 class="result__title">
+    <a class="result__a" href="https://www.drugs.com/ibuprofen.html">
+      Ibuprofen Uses &amp; Side Effects</a>
+  </h2>
+  <a class="result__snippet" href="https://www.drugs.com/ibuprofen.html">
+    Ibuprofen is used to reduce fever and treat pain.</a>
+</div>
+<div class="result">
+  <h2 class="result__title">
+    <a class="result__a" href="https://www.reddit.com/r/health/ulcer">
+      My ulcer experience - Reddit</a>
+  </h2>
+  <a class="result__snippet" href="https://www.reddit.com/r/health/ulcer">
+    Just wanted to share my story about stomach ulcers.</a>
+</div>
+"""
+
+DDG_HTML_EMPTY = "<html><body><div class='no-results'>No results</div></body></html>"
+
+
+@pytest.mark.asyncio
+async def test_ddg_search_success():
+    provider = DuckDuckGoSearchProvider()
+
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status = MagicMock()
+    mock_resp.text = DDG_HTML_TWO_RESULTS
+
+    with patch("app.services.web_search.httpx.AsyncClient") as mock_cls:
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_resp
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_cls.return_value = mock_client
+
+        results = await provider.search("peptic ulcer", max_results=5)
+
+    assert len(results) == 3
+    assert results[0].title == "Peptic ulcer - Mayo Clinic"
+    assert results[0].url == "https://www.mayoclinic.org/ulcer"
+    assert results[0].source == "mayoclinic.org"
+    assert "peptic" in results[0].snippet.lower()
+    assert results[1].title == "Ibuprofen Uses & Side Effects"
+
+
+@pytest.mark.asyncio
+async def test_ddg_search_domain_filtering():
+    provider = DuckDuckGoSearchProvider()
+
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status = MagicMock()
+    mock_resp.text = DDG_HTML_TWO_RESULTS
+
+    with patch("app.services.web_search.httpx.AsyncClient") as mock_cls:
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_resp
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_cls.return_value = mock_client
+
+        results = await provider.search(
+            "ulcer",
+            allowed_domains=["mayoclinic.org", "cdc.gov"],
+        )
+
+    # Only mayoclinic.org should pass; drugs.com and reddit filtered out
+    assert len(results) == 1
+    assert results[0].source == "mayoclinic.org"
+
+
+@pytest.mark.asyncio
+async def test_ddg_search_empty_results():
+    provider = DuckDuckGoSearchProvider()
+
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status = MagicMock()
+    mock_resp.text = DDG_HTML_EMPTY
+
+    with patch("app.services.web_search.httpx.AsyncClient") as mock_cls:
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_resp
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_cls.return_value = mock_client
+
+        results = await provider.search("xyznonexistent")
+
+    assert results == []
+
+
+@pytest.mark.asyncio
+async def test_ddg_search_timeout():
+    provider = DuckDuckGoSearchProvider()
+
+    with patch("app.services.web_search.httpx.AsyncClient") as mock_cls:
+        mock_client = AsyncMock()
+        mock_client.post.side_effect = httpx.TimeoutException("Timed out")
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_cls.return_value = mock_client
+
+        results = await provider.search("test")
+
+    assert results == []
+
+
+@pytest.mark.asyncio
+async def test_ddg_search_max_results_cap():
+    provider = DuckDuckGoSearchProvider()
+
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status = MagicMock()
+    mock_resp.text = DDG_HTML_TWO_RESULTS
+
+    with patch("app.services.web_search.httpx.AsyncClient") as mock_cls:
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_resp
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_cls.return_value = mock_client
+
+        results = await provider.search("test", max_results=1)
+
+    assert len(results) == 1
+
+
+@pytest.mark.asyncio
+async def test_ddg_uddg_redirect_extraction():
+    """DDG wraps URLs in //duckduckgo.com/l/?uddg=ENCODED_URL redirects."""
+    provider = DuckDuckGoSearchProvider()
+
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status = MagicMock()
+    mock_resp.text = DDG_HTML_TWO_RESULTS
+
+    with patch("app.services.web_search.httpx.AsyncClient") as mock_cls:
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_resp
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_cls.return_value = mock_client
+
+        results = await provider.search("test", max_results=5)
+
+    # First result uses uddg redirect, should be extracted
+    assert results[0].url == "https://www.mayoclinic.org/ulcer"
+    # Second result is a direct URL
+    assert results[1].url == "https://www.drugs.com/ibuprofen.html"
 
 
 # ===================================================================
