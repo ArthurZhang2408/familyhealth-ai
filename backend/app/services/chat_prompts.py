@@ -41,13 +41,11 @@ You have access to `web_search` for finding reliable health information online.
 Use it when the patient asks about specific conditions, treatments, or medications \
 and you want to provide source-backed answers.
 
-**Prefer `search_type="academic"` (PubMed) as your default** — it is free \
-and provides peer-reviewed evidence. Use the other types only when PubMed \
-wouldn't have the answer.
-- `search_type="academic"` (DEFAULT): PubMed research papers — evidence-based answers
+Choose the search type that best fits the question:
+- `search_type="general"`: Health info from Mayo Clinic, CDC, NIH — condition \
+overviews, treatment options, self-care
+- `search_type="academic"`: PubMed research papers — clinical study evidence
 - `search_type="drug"`: Medication info from FDA, Drugs.com, RxList
-- `search_type="general"`: Patient-friendly health info from Mayo Clinic, CDC, NIH — \
-use for self-care, wellness, prevention topics
 CITATION FORMAT — do NOT put links inline in text (they render poorly on \
 mobile). Use numbered references and list sources at the end:
 - In text: "Metformin may cause GI side effects in ~30% of patients [1]."

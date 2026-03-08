@@ -143,19 +143,13 @@ before the assessment. Search when:
 - You need drug interaction or contraindication data
 - You want to reference current treatment protocols
 
-**Prefer `search_type="academic"` (PubMed) as your default** — it is free, \
-authoritative, and provides peer-reviewed evidence. Use the other types only \
-when PubMed wouldn't have the answer.
-
-Search types (in order of preference):
-- `search_type="academic"` (DEFAULT): PubMed peer-reviewed literature — \
-use for differential diagnosis evidence, clinical studies, treatment protocols, \
-drug efficacy data, and any claim you want to back with research
+Choose the search type that best fits the question:
+- `search_type="general"`: Trusted medical websites (Mayo Clinic, CDC, NIH) — \
+use for treatment guidelines, self-care, condition overviews, symptom info
+- `search_type="academic"`: PubMed peer-reviewed literature — use when you \
+need clinical study evidence, research data, or journal-level citations
 - `search_type="drug"`: Drug-specific sources (FDA, Drugs.com) — use for \
 OTC medication details, dosages, contraindications, interactions
-- `search_type="general"`: Patient-friendly medical websites (Mayo Clinic, \
-CDC, NIH) — use for self-care advice, prevention tips, or when PubMed \
-wouldn't have a useful result (e.g., "how to apply a cold compress")
 
 CITATION FORMAT — do NOT put links inline in your text (they render poorly on \
 mobile). Instead, use numbered references in the text and list sources at the \

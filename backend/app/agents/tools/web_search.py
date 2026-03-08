@@ -80,8 +80,8 @@ def build_web_search_tool(
             "from curated health sources. Use this to find evidence for your "
             "recommendations, verify drug information, or cite clinical guidelines.\n\n"
             "search_type options:\n"
-            '- "academic": Search PubMed for peer-reviewed medical literature (DEFAULT)\n'
             '- "general": Search trusted medical websites (Mayo Clinic, CDC, NIH, etc.)\n'
+            '- "academic": Search PubMed for peer-reviewed medical literature\n'
             '- "drug": Search drug-specific sources (FDA, Drugs.com, RxList)\n\n'
             "IMPORTANT: Use short keyword queries (3-5 words) for best results. "
             "Do NOT use long natural-language sentences. "
