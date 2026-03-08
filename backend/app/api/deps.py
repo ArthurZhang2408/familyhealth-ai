@@ -137,12 +137,14 @@ def get_agent_core():
         from app.agents.tools.memory_search import build_memory_search_tool
         from app.agents.tools.present_question import build_present_question_tool
         from app.agents.tools.profile_lookup import build_profile_lookup_tool
+        from app.agents.tools.web_search import build_web_search_tool
         from app.core.database import async_session_factory
 
         registry = ToolRegistry()
         registry.register(build_memory_search_tool(get_memory_service()))
         registry.register(build_present_question_tool())
         registry.register(build_profile_lookup_tool(async_session_factory))
+        registry.register(build_web_search_tool(tavily_api_key=settings.tavily_api_key))
 
         _agent_core = AgentCore(
             llm_router=get_llm_router(),

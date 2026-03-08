@@ -41,6 +41,9 @@ class Settings(BaseSettings):
     llm_route_summarization: str = ""
     llm_route_fact_extraction: str = ""
 
+    # Web search
+    tavily_api_key: str = ""
+
     # Mem0 internal LLM (fact extraction / dedup — lightweight, non-thinking)
     mem0_model: str = "nemotron-3-nano:30b"
 

@@ -179,6 +179,7 @@ export type MessagePart =
   | { type: 'tool_result'; call_id: string; name: string; output: Record<string, unknown>; is_error?: boolean; summary?: string }
   | { type: 'agent_steps'; steps: Array<{ id: string; message: string; tool?: string; details?: string[] }> }
   | { type: 'memory_context'; memories: Array<{ text: string; date?: string }>; count: number }
+  | { type: 'thinking'; text: string }
   | { type: 'structured_input'; input_type: string; prompt: string; options?: Array<Record<string, unknown>>; range?: Record<string, unknown>; selected?: unknown };
 
 // ── Chat ─────────────────────────────────────────────────────────────────────
@@ -224,6 +225,7 @@ export interface AgentStep {
 export type StreamEvent =
   | { type: 'status'; step: string; message: string; tool?: string; details?: string[]; conversation_id?: string; session_id?: string }
   | { type: 'text_delta'; content: string }
+  | { type: 'thinking_delta'; content: string }
   | { type: 'tool_call'; tool: string; arguments?: Record<string, unknown> }
   | { type: 'tool_result'; tool: string; summary: string }
   | { type: 'structured_question'; input_type: string; prompt: string; options?: Array<{ label: string; value: string }>; range?: { min: number; max: number; step?: number; labels?: { min: string; max: string } } }

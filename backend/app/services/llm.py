@@ -55,6 +55,7 @@ class LLMRequest(BaseModel):
     response_format: dict | None = None
     tools: list[dict[str, Any]] | None = None
     tool_choice: str | None = None  # "auto" | "any" | "none"
+    thinking_budget: int | None = None  # None=disabled, -1=automatic
 
 
 class LLMResponse(BaseModel):
@@ -70,7 +71,7 @@ class LLMResponse(BaseModel):
 class StreamChunk:
     """A chunk emitted during streaming LLM generation."""
 
-    type: Literal["text_delta", "tool_call", "finish"]
+    type: Literal["text_delta", "thinking_delta", "tool_call", "finish"]
     content: str = ""
     tool_calls: list[ToolCallResponse] = field(default_factory=list)
     finish_reason: str | None = None

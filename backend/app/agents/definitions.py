@@ -14,10 +14,11 @@ DIAGNOSIS_AGENT = AgentDefinition(
     name="diagnosis",
     description="Structured symptom assessment following OLDCARTS protocol",
     task=LLMTask.DIAGNOSIS,
-    tool_names=["search_patient_memory", "present_question"],
+    tool_names=["search_patient_memory", "present_question", "web_search"],
     temperature=0.3,
     max_tokens=2000,
-    max_tool_rounds=3,
+    max_tool_rounds=6,
+    thinking_budget=-1,  # automatic — activates when Gemini is the provider
 )
 
 REPORT_AGENT = AgentDefinition(
@@ -38,8 +39,8 @@ CHAT_AGENT = AgentDefinition(
     name="chat",
     description="General health chat assistant",
     task=LLMTask.CHAT,
-    tool_names=["search_patient_memory"],
+    tool_names=["search_patient_memory", "web_search"],
     temperature=0.7,
     max_tokens=2000,
-    max_tool_rounds=2,
+    max_tool_rounds=3,
 )

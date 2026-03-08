@@ -740,16 +740,14 @@ class DiagnosisService:
             options = part.get("options") or []
             range_info = part.get("range")
 
-            if msg.role == "assistant":
-                # Show the question the agent asked
+            if msg.role == "user" and part.get("selected") is not None:
+                # Prepend the question context to the user's answer
                 opt_labels = [o.get("label", "") for o in options if isinstance(o, dict)]
-                q_text = f"\n[Question asked: {prompt}"
+                ctx = f"(Answering: \"{prompt}\""
                 if opt_labels:
-                    q_text += f" Options: {', '.join(opt_labels)}"
-                if range_info and isinstance(range_info, dict):
-                    q_text += f" Scale: {range_info.get('min')}-{range_info.get('max')}"
-                q_text += "]"
-                content += q_text
+                    ctx += f" — options were: {', '.join(opt_labels)}"
+                ctx += ")\n"
+                content = ctx + content
 
         return content
 

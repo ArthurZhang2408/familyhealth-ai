@@ -13,6 +13,17 @@ export interface LocalMessage {
 
 type DoneEvent = Extract<StreamEvent, { type: 'done' }>;
 
+const TOOL_LABELS: Record<string, string> = {
+  web_search: 'Searching the web',
+  search_patient_memory: 'Searching memory',
+  present_question: 'Preparing question',
+  profile_lookup: 'Looking up profile',
+};
+
+function toolMessage(name: string): string {
+  return `${TOOL_LABELS[name] ?? `Using ${name.replace(/_/g, ' ')}`}...`;
+}
+
 export type StreamSendFn = (
   text: string,
   onEvent: (event: StreamEvent) => void,
@@ -36,10 +47,12 @@ export function useConversation({ serverMessages, streamSendFn, dedupMode, onSen
   const [pendingAttachment, setPendingAttachment] = useState<Attachment | null>(null);
   const [isSending, setIsSending] = useState(false);
   const [streamingContent, setStreamingContent] = useState('');
+  const [thinkingContent, setThinkingContent] = useState('');
   const [agentSteps, setAgentSteps] = useState<AgentStep[]>([]);
   const flatListRef = useRef<FlatList>(null);
   const isSendingRef = useRef(false);
   const streamingContentRef = useRef('');
+  const thinkingContentRef = useRef('');
   const agentStepsRef = useRef<AgentStep[]>([]);
   const activeAbortRef = useRef<(() => void) | null>(null);
   const structuredQuestionsRef = useRef<MessagePart[]>([]);
@@ -103,7 +116,7 @@ export function useConversation({ serverMessages, streamSendFn, dedupMode, onSen
           );
           const next = [
             ...updated,
-            { id: `tc_${event.tool}`, message: `Using ${event.tool}...`, tool: event.tool, status: 'active' as const },
+            { id: `tc_${event.tool}`, message: toolMessage(event.tool), tool: event.tool, status: 'active' as const },
           ];
           agentStepsRef.current = next;
           return next;
@@ -119,6 +132,10 @@ export function useConversation({ serverMessages, streamSendFn, dedupMode, onSen
           agentStepsRef.current = next;
           return next;
         });
+        break;
+      case 'thinking_delta':
+        thinkingContentRef.current += event.content;
+        setThinkingContent(thinkingContentRef.current);
         break;
       case 'text_delta':
         streamingContentRef.current += event.content;
@@ -197,6 +214,9 @@ export function useConversation({ serverMessages, streamSendFn, dedupMode, onSen
         // before server data arrives with persisted content_parts.
         const steps = agentStepsRef.current;
         const parts: MessagePart[] = [];
+        if (thinkingContentRef.current) {
+          parts.push({ type: 'thinking' as const, text: thinkingContentRef.current });
+        }
         if (steps.length > 0) {
           parts.push({
             type: 'agent_steps' as const,
@@ -239,6 +259,8 @@ export function useConversation({ serverMessages, streamSendFn, dedupMode, onSen
         setIsSending(false);
         setStreamingContent('');
         streamingContentRef.current = '';
+        setThinkingContent('');
+        thinkingContentRef.current = '';
         setAgentSteps([]);
         agentStepsRef.current = [];
         structuredQuestionsRef.current = [];
@@ -293,6 +315,7 @@ export function useConversation({ serverMessages, streamSendFn, dedupMode, onSen
     isBusy: isSending,
     flatListRef,
     streamingContent,
+    thinkingContent,
     agentSteps,
     isStreaming,
   };

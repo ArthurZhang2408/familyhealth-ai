@@ -17,6 +17,7 @@ from app.schemas.message_parts import (
     MessagePart,
     StructuredInputPart,
     TextPart,
+    ThinkingPart,
     ToolCallPart,
     ToolResultPart,
     serialize_parts,
@@ -38,6 +39,7 @@ class PartsAccumulator:
         self.agent_steps: list[AgentStepRecord] = []
         self.tool_calls: list[ToolCallPart] = []
         self.tool_results: list[ToolResultPart] = []
+        self.thinking_text: str = ""
 
     def record_event(self, event: AgentEvent) -> None:
         """Record an agent event for later persistence."""
@@ -58,6 +60,8 @@ class PartsAccumulator:
                     arguments=event.data.get("arguments", {}),
                 )
             )
+        elif event.type == AgentEventType.THINKING_DELTA:
+            self.thinking_text += event.data.get("content", "")
         elif event.type == AgentEventType.TOOL_RESULT:
             self.tool_results.append(
                 ToolResultPart(
@@ -127,6 +131,10 @@ def build_assistant_parts(
             parts.append(tc)
         for tr in accumulator.tool_results:
             parts.append(tr)
+
+    # Thinking (from Gemini thinking mode) — after tools, before text
+    if accumulator and accumulator.thinking_text:
+        parts.append(ThinkingPart(text=accumulator.thinking_text))
 
     # Final text response
     parts.append(TextPart(text=response_text))

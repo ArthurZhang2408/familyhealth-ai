@@ -61,6 +61,7 @@ class AgentEventType(StrEnum):
     COMPLETE = "complete"
     DONE = "done"
     STRUCTURED_QUESTION = "structured_question"
+    THINKING_DELTA = "thinking_delta"
 
 
 @dataclass
@@ -89,6 +90,7 @@ class AgentDefinition:
         max_tokens: int = 4000,
         max_tool_rounds: int = 5,
         response_format: dict | None = None,
+        thinking_budget: int | None = None,
     ) -> None:
         self.name = name
         self.description = description
@@ -98,6 +100,7 @@ class AgentDefinition:
         self.max_tokens = max_tokens
         self.max_tool_rounds = max_tool_rounds
         self.response_format = response_format
+        self.thinking_budget = thinking_budget
 
 
 @dataclass

@@ -67,8 +67,12 @@ The diagnosis agent uses hypothesis-driven reasoning with structured Q&A:
 - State extraction runs post-DONE (non-blocking) via `_extract_state`
 - `StructuredInputPart` persisted in `content_parts` for both assistant (question) and user (answer)
 
+### Agent Web Search
+- `web_search` tool with `search_type` parameter: `"general"` (Tavily → medical websites), `"academic"` (PubMed), `"drug"` (Tavily → drug sources)
+- System prompts instruct agents to cite sources inline as `[Source](URL)`
+- Graceful degradation when API keys not configured
+
 ### Planned — next phases
-- **Agent web search**: Search academic papers / reliable medical sources for citations on difficult cases
 - **Structured assessment rendering**: `present_assessment` tool with custom `DiagnosisReportView` component (card-based native UI instead of markdown)
 
 ## Critical Rules
