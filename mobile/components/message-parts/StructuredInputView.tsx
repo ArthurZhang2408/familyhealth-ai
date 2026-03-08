@@ -44,8 +44,13 @@ function MultipleChoice({
 
   const handleSelect = useCallback(
     (opt: { label: string; value: string }) => {
+      const isNone = opt.value.toLowerCase().includes('none') || opt.label.toLowerCase().includes('none of');
       const rejected = options.filter((o) => o.value !== opt.value).map((o) => o.label);
-      const content = `Selected: ${opt.label}. Not selected: ${rejected.join(', ')}.`;
+      // When "None" is selected, don't list rejected options — models
+      // misinterpret alarming symptom names even when marked "Not selected"
+      const content = isNone
+        ? `Selected: ${opt.label}.`
+        : `Selected: ${opt.label}. Not selected: ${rejected.join(', ')}.`;
       onResponse?.(content, {
         input_type: part.input_type,
         prompt: part.prompt,
