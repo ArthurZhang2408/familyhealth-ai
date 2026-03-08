@@ -37,7 +37,7 @@ AI-powered diagnosis, medical report analysis, and health chat.
 - **State**: Zustand (auth, active profile with AsyncStorage persistence) + React Query (server data)
 - **Icons**: `@expo/vector-icons` via centralized `components/Icon.tsx` with exported `IconName` type
 - **Attachments**: `useAttachMenu()` hook for Camera/Photos/Files action sheet. Validates file type on select (rejects GIF etc.). HEIC auto-converted to JPEG. Images compressed/resized (max 1536px) before upload. `pendingAttachment` state pattern on screens
-- **Message parts**: Messages persist `content_parts` JSONB (text, image, tool_call, tool_result, agent_steps, memory_context, structured_input). `ChatBubble` renders rich parts via `components/message-parts/` sub-components. Falls back to plain `content` text when no parts
+- **Message parts**: Messages persist `content_parts` JSONB (text, image, tool_call, tool_result, agent_steps, memory_context, thinking, structured_input). `ChatBubble` renders rich parts via `components/message-parts/` sub-components. Falls back to plain `content` text when no parts
 - **Structured inputs**: `StructuredInputView` renders interactive questions (multiple_choice, scale, yes_no, multi_select). Interactive when unanswered on latest assistant message; completed state when answered. `onStructuredResponse` callback flows through `ConversationView` → `useConversation.doSend`
 - **Image caching**: `ImagePartView` uses `expo-image` with `cachePolicy="disk"` for persistent local caching
 - **Design system**: See `.interface-design/system.md` for full design system documentation
@@ -61,16 +61,25 @@ The diagnosis agent uses hypothesis-driven reasoning with structured Q&A:
 - Agent forms 3-5 hypotheses from the chief complaint, asks targeted questions to confirm/eliminate
 - Uses `present_question` terminal tool for structured input (multiple_choice, scale, yes_no, multi_select)
 - OLDCARTS framework as coverage audit (not a rigid script), red flags as hard interrupt
-- Conversation history enriched with question context (`_enrich_content`) so agent sees its own prior questions
+- Conversation history enrichment: user messages prepend question context (`_enrich_content`); assistant messages NOT enriched (models mimic any text placed there)
 - User responses include rejected options ("Does NOT have: fever, vomiting") to prevent re-asking
 - Assessment delivered as formatted markdown (no tables) with ranked differential, OTC meds, tests, warning signs
 - State extraction runs post-DONE (non-blocking) via `_extract_state`
 - `StructuredInputPart` persisted in `content_parts` for both assistant (question) and user (answer)
 
 ### Agent Web Search
-- `web_search` tool with `search_type` parameter: `"general"` (Tavily → medical websites), `"academic"` (PubMed), `"drug"` (Tavily → drug sources)
-- System prompts instruct agents to cite sources inline as `[Source](URL)`
-- Graceful degradation when API keys not configured
+- `web_search` tool with `search_type` parameter: `"general"` (DuckDuckGo primary, Tavily fallback), `"academic"` (PubMed), `"drug"` (DuckDuckGo/Tavily with drug domain whitelist)
+- Domain whitelists: medical (Mayo Clinic, CDC, NIH, etc.), drug (FDA, Drugs.com, RxList)
+- System prompts instruct numbered citation format (no inline links — they break mobile markdown)
+- Agents can search freely throughout conversation, not just before assessment
+- PubMed auto-retries with keyword extraction for long queries
+
+### Gemini Thinking Support
+- Full-stack thinking: LLM layer → AgentCore → persistence → SSE → frontend
+- Dormant by default; activates when Gemini handles diagnosis (`LLM_ROUTE_DIAGNOSIS=gemini`)
+- `ThinkingConfig` with automatic budget, `GeminiProvider` auto-boosts `max_output_tokens` when thinking active
+- Live "Reasoning..." card during streaming, persisted collapsible `ThinkingPart` in message history
+- Thinking tokens excluded from conversation history and text buffer
 
 ### Planned — next phases
 - **Structured assessment rendering**: `present_assessment` tool with custom `DiagnosisReportView` component (card-based native UI instead of markdown)

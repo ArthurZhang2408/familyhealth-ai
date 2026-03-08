@@ -10,14 +10,16 @@ reusable loop and agents are configurations.
 
 ```
 app/agents/
-├── types.py           # ToolDefinition, ToolCall, ToolResult, AgentEvent, AgentResult
+├── types.py           # ToolDefinition, ToolCall, ToolResult, AgentEvent, AgentResult, AgentDefinition
 ├── registry.py        # ToolRegistry — register + execute tools
 ├── session.py         # AgentSession — per-interaction state
-├── core.py            # AgentCore — the reusable agentic loop
+├── core.py            # AgentCore — the reusable agentic loop (supports thinking_delta events)
 ├── definitions.py     # DIAGNOSIS_AGENT, REPORT_AGENT, CHAT_AGENT
 └── tools/
-    ├── memory_search.py   # search_patient_memory (wraps MemoryService)
-    └── profile_lookup.py  # get_profile_context (loads from DB)
+    ├── memory_search.py     # search_patient_memory (wraps MemoryService)
+    ├── present_question.py  # present_question (terminal, structured Q&A)
+    ├── profile_lookup.py    # get_profile_context (loads from DB)
+    └── web_search.py        # web_search (DuckDuckGo + Tavily + PubMed)
 ```
 
 ## How It Works
@@ -31,11 +33,11 @@ app/agents/
 
 ## Agent Definitions
 
-| Agent | Task | Tools | Model | Max Rounds |
-|-|-|-|-|-|
-| DIAGNOSIS_AGENT | DIAGNOSIS | search_patient_memory | gemini-2.5-flash | 3 |
-| REPORT_AGENT | REPORT_ANALYSIS | search_patient_memory | gemini-2.5-flash | 3 |
-| CHAT_AGENT | CHAT | search_patient_memory | qwen3.5:397b | 2 |
+| Agent | Task | Tools | Default Provider | Max Rounds | Thinking |
+|-|-|-|-|-|-|
+| DIAGNOSIS_AGENT | DIAGNOSIS | search_patient_memory, present_question, web_search | Cerebras (Gemini via env) | 6 | budget=-1 (auto) |
+| REPORT_AGENT | REPORT_ANALYSIS | (none — JSON mode) | Gemini | 0 | disabled |
+| CHAT_AGENT | CHAT | search_patient_memory, web_search | Cerebras | 3 | disabled |
 
 ## Tool Interface
 
@@ -58,9 +60,20 @@ AgentCore auto-injects `profile_id` from the session into every tool call.
 maps these to Gemini's native function calling API. `LLMResponse` includes
 `tool_calls` when the model requests tool execution.
 
+## Thinking Support
+
+When `AgentDefinition.thinking_budget` is set (e.g., `-1` for automatic) and the
+provider is Gemini, the agent loop emits `THINKING_DELTA` events. These are:
+- Streamed to the frontend as `thinking_delta` SSE events
+- Accumulated in `PartsAccumulator.thinking_text`
+- Persisted as `ThinkingPart` in `content_parts`
+- NOT added to `text_buffer` or conversation history
+
+`GeminiProvider` auto-boosts `max_output_tokens` to 8000 when thinking is active
+(thinking tokens count against the output limit). Non-Gemini providers silently
+ignore the `thinking_budget` field.
+
 ## Future Extensions
 
-- Google Search grounding tool (guidelines lookup)
-- Drug-interaction knowledge base tool
-- Streaming support (yield AgentEvents for SSE)
+- Structured assessment rendering (`present_assessment` tool)
 - Security hooks (PreToolUse validation)
