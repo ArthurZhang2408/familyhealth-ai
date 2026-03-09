@@ -249,7 +249,11 @@ function MultiSelect({
     useCallback(() => {
       const values = Array.from(selected);
       const selectedLabels = options.filter((o) => selected.has(o.value)).map((o) => o.label);
-      const rejectedLabels = options.filter((o) => !selected.has(o.value)).map((o) => o.label);
+      const rejectedLabels = options
+        .filter((o) => !selected.has(o.value))
+        .map((o) => o.label)
+        // Filter out "None of the above" from rejected list when user selected actual symptoms
+        .filter((l) => !l.toLowerCase().includes('none of'));
       const parts: string[] = [];
       if (selectedLabels.length > 0) parts.push(`Has: ${selectedLabels.join(', ')}`);
       if (rejectedLabels.length > 0) parts.push(`Does NOT have: ${rejectedLabels.join(', ')}`);
