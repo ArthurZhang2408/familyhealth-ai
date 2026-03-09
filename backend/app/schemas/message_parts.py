@@ -21,6 +21,7 @@ class MessagePartType(StrEnum):
     AGENT_STEPS = "agent_steps"
     MEMORY_CONTEXT = "memory_context"
     STRUCTURED_INPUT = "structured_input"
+    THINKING = "thinking"
 
 
 # ── Individual part models ───────────────────────────────────────────────
@@ -72,6 +73,11 @@ class MemoryContextPart(BaseModel):
     count: int = 0
 
 
+class ThinkingPart(BaseModel):
+    type: Literal["thinking"] = "thinking"
+    text: str
+
+
 class StructuredInputPart(BaseModel):
     """Phase 3 — structured question/answer for diagnosis."""
 
@@ -92,6 +98,7 @@ MessagePart = (
     | ToolResultPart
     | AgentStepsPart
     | MemoryContextPart
+    | ThinkingPart
     | StructuredInputPart
 )
 

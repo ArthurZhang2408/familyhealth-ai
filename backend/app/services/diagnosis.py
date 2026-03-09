@@ -723,6 +723,9 @@ class DiagnosisService:
         The LLM only sees plain text in conversation history. Without this,
         the agent has no idea what questions it asked (they're in content_parts)
         and repeats itself.
+
+        Also surfaces web search results and thinking content so context
+        persists across turns.
         """
         content = msg.content or ""
         if not msg.content_parts:
@@ -732,24 +735,54 @@ class DiagnosisService:
         if not isinstance(parts_list, list):
             return content
 
+        extras: list[str] = []
+
         for part in parts_list:
-            if not isinstance(part, dict) or part.get("type") != "structured_input":
+            if not isinstance(part, dict):
                 continue
+            ptype = part.get("type")
 
-            prompt = part.get("prompt", "")
-            options = part.get("options") or []
-            range_info = part.get("range")
-
-            if msg.role == "assistant":
-                # Show the question the agent asked
+            # --- Structured input enrichment (user messages only) ---
+            if ptype == "structured_input" and msg.role == "user" and part.get("selected") is not None:
+                prompt = part.get("prompt", "")
+                options = part.get("options") or []
+                input_type = part.get("input_type", "")
                 opt_labels = [o.get("label", "") for o in options if isinstance(o, dict)]
-                q_text = f"\n[Question asked: {prompt}"
-                if opt_labels:
-                    q_text += f" Options: {', '.join(opt_labels)}"
-                if range_info and isinstance(range_info, dict):
-                    q_text += f" Scale: {range_info.get('min')}-{range_info.get('max')}"
-                q_text += "]"
-                content += q_text
+
+                if input_type == "multi_select":
+                    # Prepend question, keep the Has/Does NOT have from content
+                    ctx = f'(Q: "{prompt}")\n'
+                    content = ctx + content
+                else:
+                    # multiple_choice, yes_no, scale — keep options listing
+                    ctx = f'(Q: "{prompt}"'
+                    if opt_labels:
+                        ctx += f" — options: {', '.join(opt_labels)}"
+                    ctx += ")\n"
+                    content = ctx + content
+
+            # --- Web search results (assistant messages) ---
+            elif ptype == "tool_result" and msg.role == "assistant":
+                tool_name = part.get("name", "")
+                output = part.get("output")
+                if tool_name == "web_search" and isinstance(output, dict):
+                    results = output.get("results") or []
+                    if results:
+                        snippets = "; ".join(
+                            f"{r.get('title', '')}: {r.get('snippet', '')}"
+                            for r in results[:5]
+                            if isinstance(r, dict)
+                        )
+                        extras.append(f"[Prior web search results: {snippets}]")
+
+            # --- Thinking content (assistant messages) ---
+            elif ptype == "thinking" and msg.role == "assistant":
+                thinking_text = part.get("text", "")
+                if thinking_text:
+                    extras.append(f"[Thinking: {thinking_text}]")
+
+        if extras:
+            content = "\n".join(extras) + "\n" + content
 
         return content
 

@@ -178,7 +178,12 @@ class AgentCore:
 
             try:
                 async for chunk in self._llm.route_stream(request):
-                    if chunk.type == "text_delta":
+                    if chunk.type == "thinking_delta":
+                        yield AgentEvent(
+                            type=AgentEventType.THINKING_DELTA,
+                            data={"content": chunk.content},
+                        )
+                    elif chunk.type == "text_delta":
                         text_buffer += chunk.content
                         yield AgentEvent(
                             type=AgentEventType.TEXT_DELTA,
@@ -222,7 +227,7 @@ class AgentCore:
 
                 yield AgentEvent(
                     type=AgentEventType.TOOL_CALL,
-                    data={"tool": tc.name, "arguments": tc.arguments},
+                    data={"id": tc.id, "tool": tc.name, "arguments": tc.arguments},
                 )
 
                 result = await self._tools.execute(tc, injected_args=injected)
@@ -235,7 +240,13 @@ class AgentCore:
                 )
                 yield AgentEvent(
                     type=AgentEventType.TOOL_RESULT,
-                    data={"tool": tc.name, "summary": result_summary},
+                    data={
+                        "tool": tc.name,
+                        "call_id": result.call_id,
+                        "output": result.output,
+                        "is_error": result.is_error,
+                        "summary": result_summary,
+                    },
                 )
 
                 # Check if this tool is terminal (stops the agent loop)
@@ -289,4 +300,5 @@ class AgentCore:
             max_tokens=agent_def.max_tokens,
             response_format=agent_def.response_format,
             tools=tool_declarations,
+            thinking_budget=agent_def.thinking_budget,
         )

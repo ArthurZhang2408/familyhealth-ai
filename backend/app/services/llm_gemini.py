@@ -65,7 +65,12 @@ class GeminiProvider(LLMProvider):
             temperature=request.temperature,
         )
         if request.max_tokens is not None:
-            config.max_output_tokens = request.max_tokens
+            max_tokens = request.max_tokens
+            # Thinking tokens count against max_output_tokens in Gemini.
+            # Boost the limit so thinking doesn't eat the response budget.
+            if request.thinking_budget is not None and request.thinking_budget != 0:
+                max_tokens = max(max_tokens, 8000)
+            config.max_output_tokens = max_tokens
         if request.response_format is not None:
             if request.tools:
                 # JSON mode and tool calling are mutually exclusive in Gemini
@@ -78,6 +83,11 @@ class GeminiProvider(LLMProvider):
                 config.response_mime_type = "application/json"
         if request.tools:
             config.tools = [types.Tool(function_declarations=request.tools)]
+        if request.thinking_budget is not None and request.thinking_budget != 0:
+            config.thinking_config = types.ThinkingConfig(
+                include_thoughts=True,
+                thinking_budget=request.thinking_budget,
+            )
         return config
 
     @staticmethod
@@ -128,10 +138,19 @@ class GeminiProvider(LLMProvider):
         # Check for tool calls
         tool_calls = self._extract_tool_calls(response)
 
-        # response.text raises if there are function_call parts
+        # Extract text content, skipping thought parts
         content = ""
         if not tool_calls:
-            content = response.text or ""
+            try:
+                parts = response.candidates[0].content.parts
+                text_parts = [
+                    p.text
+                    for p in parts
+                    if hasattr(p, "text") and p.text and not getattr(p, "thought", False)
+                ]
+                content = "".join(text_parts) if text_parts else (response.text or "")
+            except (IndexError, AttributeError):
+                content = response.text or ""
 
         return LLMResponse(
             content=content,
@@ -175,6 +194,8 @@ class GeminiProvider(LLMProvider):
                             )
                         ],
                     )
+                elif getattr(part, "thought", False) and part.text:
+                    yield StreamChunk(type="thinking_delta", content=part.text)
                 elif hasattr(part, "text") and part.text:
                     yield StreamChunk(type="text_delta", content=part.text)
 

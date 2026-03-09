@@ -1,6 +1,6 @@
 import { RefObject, useEffect } from 'react';
 import { View, Text, Pressable, FlatList, KeyboardAvoidingView } from 'react-native';
-import Animated, { FadeIn } from 'react-native-reanimated';
+import Animated, { FadeIn, FadeInUp } from 'react-native-reanimated';
 import { ChatBubble, TypingIndicator } from '@/components/ChatBubble';
 import { ChatInput } from '@/components/ChatInput';
 import { AgentSteps } from '@/components/AgentSteps';
@@ -32,6 +32,7 @@ interface ConversationViewProps {
   errorIcon?: IconName;
   errorTitle?: string;
   streamingContent?: string;
+  thinkingContent?: string;
   agentSteps?: AgentStep[];
   isStreaming?: boolean;
   onStructuredResponse?: (content: string, structuredResponse: Record<string, unknown>) => void;
@@ -56,6 +57,7 @@ export function ConversationView({
   errorIcon = 'chat-bubbles',
   errorTitle = "Couldn't load conversation",
   streamingContent = '',
+  thinkingContent = '',
   agentSteps = [],
   isStreaming = false,
   onStructuredResponse,
@@ -66,10 +68,10 @@ export function ConversationView({
 
   // Auto-scroll when streaming content updates
   useEffect(() => {
-    if (isStreaming || (isBusy && agentSteps.length > 0)) {
+    if (isStreaming || (isBusy && (agentSteps.length > 0 || thinkingContent.length > 0))) {
       flatListRef.current?.scrollToEnd({ animated: true });
     }
-  }, [streamingContent, agentSteps.length, isStreaming, isBusy, flatListRef]);
+  }, [streamingContent, thinkingContent, agentSteps.length, isStreaming, isBusy, flatListRef]);
 
   if (isLoading) return <LoadingSpinner />;
 
@@ -185,13 +187,18 @@ export function ConversationView({
                 {/* Agent action steps */}
                 {agentSteps.length > 0 && <AgentSteps steps={agentSteps} />}
 
+                {/* Live thinking — reuses Reasoning card style */}
+                {isBusy && thinkingContent.length > 0 && streamingContent.length === 0 && (
+                  <LiveThinkingCard content={thinkingContent} Colors={Colors} />
+                )}
+
                 {/* Streaming AI response */}
                 {isStreaming && streamingContent.length > 0 && (
                   <ChatBubble content={streamingContent} isUser={false} />
                 )}
 
                 {/* Typing indicator when busy but not yet streaming */}
-                {isBusy && !isStreaming && agentSteps.length === 0 && <TypingIndicator />}
+                {isBusy && !isStreaming && agentSteps.length === 0 && thinkingContent.length === 0 && <TypingIndicator />}
 
                 {/* Disclaimer after response */}
                 {disclaimer && !isBusy && (
@@ -227,5 +234,57 @@ export function ConversationView({
         />
       </KeyboardAvoidingView>
     </NoProfileGuard>
+  );
+}
+
+/** Live thinking card — grows as thoughts stream in, matches persisted ThinkingPartView. */
+function LiveThinkingCard({ content, Colors }: { content: string; Colors: ReturnType<typeof useColors> }) {
+  return (
+    <Animated.View
+      entering={FadeInUp.duration(200)}
+      style={{
+        borderWidth: 1,
+        borderColor: Colors.border,
+        borderRadius: BorderRadius.sm,
+        borderCurve: 'continuous',
+        marginBottom: Spacing.xs,
+        overflow: 'hidden',
+      }}
+    >
+      <View
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: Spacing.xs,
+          padding: Spacing.sm,
+          backgroundColor: Colors.surface,
+        }}
+      >
+        <Text style={{ fontSize: 12, width: 16, textAlign: 'center' }}>🧠</Text>
+        <Text
+          style={{
+            fontSize: FontSize.xs,
+            color: Colors.primary,
+            fontWeight: FontWeight.medium,
+            flex: 1,
+          }}
+          numberOfLines={1}
+        >
+          Reasoning…
+        </Text>
+      </View>
+      <View style={{ padding: Spacing.sm, backgroundColor: Colors.surfaceSecondary }}>
+        <Text
+          style={{
+            fontSize: FontSize.xs,
+            color: Colors.textMuted,
+            fontStyle: 'italic',
+            lineHeight: 18,
+          }}
+        >
+          {content}
+        </Text>
+      </View>
+    </Animated.View>
   );
 }

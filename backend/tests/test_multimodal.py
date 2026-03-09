@@ -323,7 +323,8 @@ class TestGeminiModelSelection:
 
         assert provider._select_model(LLMTask.CHAT, has_images=False) == "gemini-2.5-flash-lite"
 
-    def test_chat_with_images_uses_full_model(self) -> None:
+    def test_chat_with_images_uses_default_model(self) -> None:
+        """Flash Lite supports multimodal — no upgrade needed for chat images."""
         from app.services.llm_gemini import GeminiProvider
 
         provider = GeminiProvider.__new__(GeminiProvider)
@@ -331,7 +332,7 @@ class TestGeminiModelSelection:
         provider._report_model = "gemini-2.5-flash"
         provider._default_model = "gemini-2.5-flash-lite"
 
-        assert provider._select_model(LLMTask.CHAT, has_images=True) == "gemini-2.5-flash"
+        assert provider._select_model(LLMTask.CHAT, has_images=True) == "gemini-2.5-flash-lite"
 
     def test_diagnosis_always_uses_diagnosis_model(self) -> None:
         from app.services.llm_gemini import GeminiProvider

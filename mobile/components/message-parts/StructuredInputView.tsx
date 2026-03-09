@@ -44,8 +44,13 @@ function MultipleChoice({
 
   const handleSelect = useCallback(
     (opt: { label: string; value: string }) => {
+      const isNone = opt.value.toLowerCase().includes('none') || opt.label.toLowerCase().includes('none of');
       const rejected = options.filter((o) => o.value !== opt.value).map((o) => o.label);
-      const content = `Selected: ${opt.label}. Not selected: ${rejected.join(', ')}.`;
+      // When "None" is selected, don't list rejected options — models
+      // misinterpret alarming symptom names even when marked "Not selected"
+      const content = isNone
+        ? `Selected: ${opt.label}.`
+        : `Selected: ${opt.label}. Not selected: ${rejected.join(', ')}.`;
       onResponse?.(content, {
         input_type: part.input_type,
         prompt: part.prompt,
@@ -244,7 +249,11 @@ function MultiSelect({
     useCallback(() => {
       const values = Array.from(selected);
       const selectedLabels = options.filter((o) => selected.has(o.value)).map((o) => o.label);
-      const rejectedLabels = options.filter((o) => !selected.has(o.value)).map((o) => o.label);
+      const rejectedLabels = options
+        .filter((o) => !selected.has(o.value))
+        .map((o) => o.label)
+        // Filter out "None of the above" from rejected list when user selected actual symptoms
+        .filter((l) => !l.toLowerCase().includes('none of'));
       const parts: string[] = [];
       if (selectedLabels.length > 0) parts.push(`Has: ${selectedLabels.join(', ')}`);
       if (rejectedLabels.length > 0) parts.push(`Does NOT have: ${rejectedLabels.join(', ')}`);

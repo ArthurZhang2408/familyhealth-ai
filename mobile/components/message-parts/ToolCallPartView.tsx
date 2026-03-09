@@ -8,6 +8,17 @@ import type { MessagePart } from '@/types/api';
 type ToolCallPart = Extract<MessagePart, { type: 'tool_call' }>;
 type ToolResultPart = Extract<MessagePart, { type: 'tool_result' }>;
 
+const TOOL_LABELS: Record<string, string> = {
+  web_search: 'Web Search',
+  search_patient_memory: 'Memory Search',
+  present_question: 'Question',
+  profile_lookup: 'Profile Lookup',
+};
+
+function toolLabel(name: string): string {
+  return TOOL_LABELS[name] ?? name.replace(/_/g, ' ');
+}
+
 export function ToolCallPartView({ call, result }: { call: ToolCallPart; result?: ToolResultPart }) {
   const Colors = useColors();
   const [expanded, setExpanded] = useState(false);
@@ -41,7 +52,7 @@ export function ToolCallPartView({ call, result }: { call: ToolCallPart; result?
           style={{ fontSize: FontSize.xs, color: Colors.textSecondary, fontWeight: FontWeight.medium, flex: 1 }}
           numberOfLines={1}
         >
-          {call.name}
+          {toolLabel(call.name)}
         </Text>
         {result?.summary && (
           <Text style={{ fontSize: FontSize.xs - 1, color: Colors.textMuted }} numberOfLines={1}>
