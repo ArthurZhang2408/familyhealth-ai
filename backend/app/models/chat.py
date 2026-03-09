@@ -23,6 +23,8 @@ class ChatConversation(UUIDPrimaryKey, TimestampMixin, Base):
         back_populates="conversation",
         lazy="selectin",
         order_by="ChatMessage.created_at",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
     )
 
     __table_args__ = (Index("idx_chat_convos_profile", "profile_id", "updated_at"),)

@@ -40,3 +40,20 @@ export function useSendChatMessage(pid: string) {
     },
   });
 }
+
+export function useRenameChatConversation(pid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ cid, topic }: { cid: string; topic: string }) =>
+      chatApi.rename(pid, cid, topic),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['chat', pid] }),
+  });
+}
+
+export function useDeleteChatConversation(pid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (cid: string) => chatApi.delete(pid, cid),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['chat', pid] }),
+  });
+}

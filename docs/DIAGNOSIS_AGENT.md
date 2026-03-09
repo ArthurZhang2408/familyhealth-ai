@@ -548,56 +548,19 @@ interface DifferentialDiagnosis {
 
 The backend extracts both the conversational text and the structured state:
 
-### Two-Pass Strategy
+### Agentic + Post-Session Extraction Strategy
 
-Rather than relying on the LLM to emit valid JSON inline (fragile — trailing commas, missing braces, explanatory text inside tags all cause silent failures), diagnosis uses a **two-pass approach**:
+Rather than relying on the LLM to emit valid JSON inline, diagnosis uses a separation of concerns:
 
-1. **Pass 1 (streamed to user):** Gemini generates the conversational response only. The system prompt does NOT ask for structured output. This streams cleanly to the client via SSE.
+1. **Agentic loop (streamed to user):** Cerebras (or Gemini, via `LLM_ROUTE_DIAGNOSIS=gemini`) runs the hypothesis-driven conversation using `AgentCore.run_stream()`. The agent uses `present_question` (terminal tool) for structured Q&A and `web_search` for evidence. The system prompt does NOT ask for structured output. Max 6 tool rounds.
 
-2. **Pass 2 (background, after stream completes):** A second Gemini Flash call receives the full conversation history (including the response just generated) and is asked to produce **only** the structured `DiagnosisState` JSON. This call uses `response_mime_type: "application/json"` with a `response_schema`, guaranteeing valid JSON.
+2. **State extraction (post-DONE, non-blocking):** `_extract_state()` uses `FACT_EXTRACTION` task to extract structured `DiagnosisState` from the conversation. This runs after the agentic loop completes and does not block the response.
 
-```python
-import json
+3. **Agent resilience:** Empty response retry (nudge if thinking but no text), incomplete response nudge (if text but no tool call and not an assessment), assessment marker detection (stops extra tool calls when `## Assessment` present).
 
-from app.llm.types import LLMRequest, LLMTask
+**Fallback:** If extraction fails, the system logs the failure and uses a minimal state. The conversational response is still delivered to the user — only the structured metadata is degraded.
 
-
-async def extract_diagnosis_state(
-    llm_router: LLMRouter,
-    system_prompt: str,
-    messages: list[dict],
-    assistant_response: str,
-) -> dict:
-    """Pass 2: Extract structured diagnosis state from the conversation.
-
-    Uses Gemini Flash with JSON mode — guaranteed valid JSON output.
-    Called as a background task after the streamed response completes.
-    """
-    extraction_prompt = (
-        "Based on the conversation above, produce ONLY a JSON object with the "
-        "DiagnosisState schema. Do not include any other text."
-    )
-
-    all_messages = messages + [
-        {"role": "assistant", "content": assistant_response},
-        {"role": "user", "content": extraction_prompt},
-    ]
-
-    request = LLMRequest(
-        task=LLMTask.FACT_EXTRACTION,  # routes to Gemini Flash
-        system_prompt=system_prompt,
-        messages=[LLMMessage(role=m["role"], content=m["content"]) for m in all_messages],
-        temperature=0.0,
-        response_format=DIAGNOSIS_STATE_SCHEMA,  # JSON mode with schema
-    )
-
-    response = await llm_router.route(request)
-    return json.loads(response.content)
-```
-
-**Fallback:** If Pass 2 fails (LLM error, invalid JSON despite JSON mode), the system logs the failure and uses a minimal state: `{"phase": "unknown", "severity": "moderate", "differential_diagnoses": []}`. The conversational response is still delivered to the user — only the structured metadata is degraded. A monitoring alert fires on any Pass 2 failure.
-
-**Cost:** Pass 2 uses Gemini Flash (cheap) and the input is the same conversation already in context. The incremental cost is ~10-15% per turn. The reliability gain (zero JSON parse failures) is worth it for a health app.
+**Debug metadata:** Assistant messages store enriched history snapshot, agent loop rounds (tools called, text produced), and memories used in the `metadata` JSONB column for offline evaluation.
 
 ### Emergency Response Shape
 
@@ -670,13 +633,13 @@ async def handle_diagnosis_message(
 
     # 1. Build context
     profile_context = format_profile_context(profile)
-    # Diagnosis uses the broadest retrieval — no category filter,
-    # highest limit, lowest threshold. Handled by ContextBuilder.
+    # Diagnosis retrieval: broad context but filters weak matches.
+    # Uses chief complaint (not raw user answer) as query for all turns.
     episodic_memories = await memory_service.search(
         profile.id,
         query=user_content,
-        limit=20,
-        threshold=0.05,
+        limit=10,
+        threshold=0.15,
     )
 
     # 2. Build messages
@@ -1288,10 +1251,13 @@ class DiagnosisService:
 
 | File | Content |
 |-|-|
-| `backend/app/services/diagnosis.py` | `DiagnosisService` class (orchestration, two-pass LLM, session CRUD) |
+| `backend/app/services/diagnosis.py` | `DiagnosisService` class (orchestration, agentic loop, state extraction, memory traces) |
 | `backend/app/services/diagnosis_prompts.py` | System prompt, state extraction prompt, red flags, emergency templates, disclaimer |
 | `backend/app/services/diagnosis_safety.py` | `pre_check_red_flags`, `validate_response`, `sanitize_response` |
 | `backend/app/api/diagnosis.py` | FastAPI route handlers (5 endpoints) |
 | `backend/app/schemas/diagnosis.py` | Pydantic request/response models (`DiagnosisState`, `DiagnosisTurnResponse`, etc.) |
 | `backend/app/models/diagnosis.py` | SQLAlchemy ORM models (`DiagnosisSession`, `DiagnosisMessage`) |
+| `backend/app/models/memory_trace.py` | `MemoryTrace` model (append-only eval logging) |
+| `backend/app/services/memory_trace.py` | `record_retrieval()`, `record_extraction()` for memory eval |
+| `backend/scripts/eval_memory.py` | Memory eval CLI: `latest`, `session`, `debug`, `memories`, `quality` |
 | `backend/tests/test_diagnosis_service.py` | 41 tests (safety, service, routes, lifecycle) |

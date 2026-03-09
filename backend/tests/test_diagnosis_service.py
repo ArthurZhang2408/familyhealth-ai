@@ -923,3 +923,56 @@ class TestFullSessionLifecycle:
         )
         assert resp.status_code == 200
         assert resp.json()["status"] == "resolved"
+
+
+class TestDeleteSession:
+    @pytest.mark.asyncio
+    @pytest.mark.usefixtures("_override_diagnosis_deps")
+    async def test_delete_session(self, client: AsyncClient) -> None:
+        from app.api.deps import get_memory_service
+        from app.main import app
+
+        mock_mem_svc = MagicMock()
+        mock_mem_svc.delete_by_source = AsyncMock(return_value=1)
+        app.dependency_overrides[get_memory_service] = lambda: mock_mem_svc
+
+        pid = await _create_profile(client)
+
+        # Create a session
+        resp = await client.post(
+            f"/api/v1/profiles/{pid}/diagnosis",
+            json={"chief_complaint": "test headache"},
+        )
+        assert resp.status_code == 201
+        session_id = resp.json()["message"]["session_id"]
+
+        # Delete it
+        resp2 = await client.delete(f"/api/v1/profiles/{pid}/diagnosis/{session_id}")
+        assert resp2.status_code == 204
+
+        # Verify it's gone
+        resp3 = await client.get(f"/api/v1/profiles/{pid}/diagnosis/{session_id}")
+        assert resp3.status_code == 404
+
+        # Verify memory service was called
+        mock_mem_svc.delete_by_source.assert_called_once_with(
+            uuid.UUID(str(pid)), f"diagnosis:{session_id}"
+        )
+
+        app.dependency_overrides.pop(get_memory_service, None)
+
+    @pytest.mark.asyncio
+    @pytest.mark.usefixtures("_override_diagnosis_deps")
+    async def test_delete_session_not_found(self, client: AsyncClient) -> None:
+        from app.api.deps import get_memory_service
+        from app.main import app
+
+        mock_mem_svc = MagicMock()
+        mock_mem_svc.delete_by_source = AsyncMock(return_value=0)
+        app.dependency_overrides[get_memory_service] = lambda: mock_mem_svc
+
+        pid = await _create_profile(client)
+        resp = await client.delete(f"/api/v1/profiles/{pid}/diagnosis/{uuid.uuid4()}")
+        assert resp.status_code == 404
+
+        app.dependency_overrides.pop(get_memory_service, None)

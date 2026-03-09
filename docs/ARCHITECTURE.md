@@ -48,9 +48,9 @@ graph TB
 
         subgraph LLM["LLM Layer"]
             ROUTER[LLMRouter]
-            GEMINI[GeminiProvider<br/>diagnosis · reports]
-            CEREBRAS[CerebrasProvider<br/>chat · gpt-oss-120b]
-            QWEN[QwenProvider<br/>extraction · summarization]
+            CEREBRAS[CerebrasProvider<br/>chat · diagnosis · gpt-oss-120b]
+            GEMINI[GeminiProvider<br/>reports · multimodal]
+            QWEN[QwenProvider<br/>fallback · qwen3.5:397b]
         end
     end
 
@@ -73,6 +73,7 @@ graph TB
     MEM0 --> PG
 
     Services --> ROUTER
+    ROUTER --> CEREBRAS
     ROUTER --> GEMINI
     ROUTER --> QWEN
 
@@ -92,8 +93,9 @@ graph TB
 | Backend | Python 3.12 + FastAPI | REST API, business logic, orchestration |
 | Database | PostgreSQL 16 + pgvector | Persistent storage, vector similarity |
 | Memory | Mem0 (self-hosted) | Episodic memory — vector store |
-| LLM Primary | Google Gemini API | Diagnosis, report analysis, embeddings |
-| LLM Secondary | Qwen via Ollama Cloud (`qwen3.5:397b`) | Chat, extraction, summarization |
+| LLM Primary | Cerebras (`gpt-oss-120b`) | Chat, diagnosis, extraction, summarization (default for all text tasks) |
+| LLM Multimodal | Google Gemini API (`gemini-2.5-flash`) | Report analysis, multimodal, embeddings |
+| LLM Fallback | Qwen via Ollama Cloud (`qwen3.5:397b`) | Fallback provider |
 | Deployment | Railway (backend), Expo EAS (mobile) | Hosting |
 
 ---
@@ -118,6 +120,7 @@ erDiagram
     CHAT_CONVERSATIONS ||--o{ CHAT_MESSAGES : "has many"
     PROFILES ||--o{ ACTION_LOG : "has many"
     DIAGNOSIS_SESSIONS ||--o{ DIAGNOSIS_MESSAGES : "has many"
+    DIAGNOSIS_SESSIONS ||--o{ MEMORY_TRACES : "has many"
 
     AUTH_USERS {
         uuid id PK
@@ -199,6 +202,17 @@ erDiagram
         uuid profile_id FK
         uuid account_id
         text action_type
+        jsonb payload
+        timestamptz created_at
+    }
+
+    MEMORY_TRACES {
+        bigint id PK
+        uuid profile_id FK
+        text session_type
+        uuid session_id FK
+        text event_type
+        int turn_number
         jsonb payload
         timestamptz created_at
     }
@@ -338,6 +352,23 @@ CREATE INDEX idx_action_log_type    ON action_log(action_type, created_at);
 
 -- Enforce append-only: revoke modification privileges
 -- REVOKE UPDATE, DELETE ON action_log FROM app_user;
+
+-- ============================================================
+-- memory_traces (append-only, for memory eval)
+-- ============================================================
+CREATE TABLE memory_traces (
+    id          BIGSERIAL PRIMARY KEY,
+    profile_id  UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+    session_type TEXT NOT NULL,        -- 'diagnosis', 'chat'
+    session_id  UUID,                  -- FK to diagnosis_sessions or chat_conversations
+    event_type  TEXT NOT NULL,         -- 'retrieval', 'extraction'
+    turn_number INTEGER,
+    payload     JSONB NOT NULL,        -- query, results, scores (retrieval) or facts, decisions (extraction)
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_memory_traces_session ON memory_traces(session_id, created_at);
+CREATE INDEX idx_memory_traces_profile ON memory_traces(profile_id, created_at);
 ```
 
 ### JSONB Field Schemas
@@ -425,10 +456,13 @@ All data endpoints are nested under `/profiles/{pid}` to enforce profile scoping
 | Method | Path | Description |
 |-|-|-|
 | POST | `/profiles/{pid}/diagnosis` | Start a new diagnosis session (provide initial symptoms) |
+| POST | `/profiles/{pid}/diagnosis/create` | Create session record only (no LLM call, for streaming flow) |
 | GET | `/profiles/{pid}/diagnosis` | List sessions, filterable by `?status=active\|resolved\|abandoned` |
 | GET | `/profiles/{pid}/diagnosis/{sid}` | Get session details with full message history |
-| POST | `/profiles/{pid}/diagnosis/{sid}/messages` | Send a message; returns AI response (streaming optional) |
+| POST | `/profiles/{pid}/diagnosis/{sid}/messages` | Send a message; returns AI response |
+| POST | `/profiles/{pid}/diagnosis/stream` | Send a message with SSE streaming response |
 | PATCH | `/profiles/{pid}/diagnosis/{sid}` | Update session: close/resolve, add resolution notes |
+| DELETE | `/profiles/{pid}/diagnosis/{sid}` | Delete session + cascade messages + associated Mem0 memories |
 
 ### Reports
 
@@ -445,8 +479,11 @@ All data endpoints are nested under `/profiles/{pid}` to enforce profile scoping
 | Method | Path | Description |
 |-|-|-|
 | POST | `/profiles/{pid}/chat` | Send a chat message (creates or continues a conversation); returns AI response |
+| POST | `/profiles/{pid}/chat/stream` | Send a chat message with SSE streaming response |
 | GET | `/profiles/{pid}/chat` | List chat conversations, filterable by `?topic=` |
 | GET | `/profiles/{pid}/chat/{cid}` | Get messages for a specific conversation |
+| PATCH | `/profiles/{pid}/chat/{cid}` | Rename conversation (update topic) |
+| DELETE | `/profiles/{pid}/chat/{cid}` | Delete conversation + cascade messages + associated Mem0 memories |
 
 ### Memory (Admin / Debug)
 
@@ -460,7 +497,7 @@ All data endpoints are nested under `/profiles/{pid}` to enforce profile scoping
 
 - **Pagination**: `?page=1&per_page=20` on all list endpoints. Response includes `{ items, total, page, per_page }`.
 - **Errors**: Standard HTTP status codes. Body: `{ "detail": "Human-readable message", "code": "MACHINE_CODE" }`.
-- **Streaming**: Not yet implemented. Planned for v2 via `Accept: text/event-stream` SSE.
+- **Streaming**: SSE via `POST /chat/stream` and `POST /diagnosis/stream` endpoints. Events: `status`, `thinking_delta`, `text_delta`, `tool_call`, `tool_result`, `structured_question`, `done`, `error`.
 - **Medical disclaimer**: Every diagnosis, report analysis, and chat response includes a `disclaimer` field:
   > "This is AI-generated health information, not a medical diagnosis. Always consult a qualified healthcare professional."
 
@@ -708,14 +745,20 @@ class QwenProvider(LLMProvider):
 class LLMRouter:
     """Routes LLM tasks to the appropriate provider based on a configurable routing table."""
 
-    # Dynamic routing — cerebras used for CHAT when available, else qwen
-    DEFAULT_ROUTING: dict[LLMTask, type[LLMProvider]] = {
-        LLMTask.DIAGNOSIS: GeminiProvider,
-        LLMTask.REPORT_ANALYSIS: GeminiProvider,
-        LLMTask.MEMORY_EXTRACTION: QwenProvider,
-        LLMTask.CHAT: QwenProvider,  # overridden to Cerebras when CEREBRAS_API_KEY set
-        LLMTask.SUMMARIZATION: QwenProvider,
-        LLMTask.FACT_EXTRACTION: QwenProvider,
+    # Base defaults (used when Cerebras unavailable and no env override)
+    _BASE_DEFAULTS: dict[LLMTask, str] = {
+        LLMTask.DIAGNOSIS: "gemini",
+        LLMTask.REPORT_ANALYSIS: "gemini",
+        LLMTask.MEMORY_EXTRACTION: "qwen",
+        LLMTask.CHAT: "qwen",
+        LLMTask.SUMMARIZATION: "qwen",
+        LLMTask.FACT_EXTRACTION: "qwen",
+    }
+
+    # Tasks auto-upgraded to Cerebras when CEREBRAS_API_KEY is set
+    _CEREBRAS_ELIGIBLE: set[LLMTask] = {
+        LLMTask.CHAT, LLMTask.DIAGNOSIS, LLMTask.MEMORY_EXTRACTION,
+        LLMTask.SUMMARIZATION, LLMTask.FACT_EXTRACTION,
     }
 
     def __init__(self) -> None:
@@ -738,14 +781,16 @@ class LLMRouter:
 
 ### Routing Summary
 
-| Task | Provider | Model | Rationale |
+| Task | Default Provider | Model | Rationale |
 |-|-|-|-|
-| Diagnosis | Gemini | gemini-2.5-flash | High accuracy needed for differential diagnosis |
+| Diagnosis | Cerebras | gpt-oss-120b | Fast inference, tool calling. Gemini via `LLM_ROUTE_DIAGNOSIS=gemini` |
 | Report Analysis | Gemini | gemini-2.5-flash | Multimodal (image/PDF input), structured extraction |
-| Memory Extraction | Qwen | qwen3.5:397b | Cost-effective for high-volume background extraction |
-| Chat | Qwen | qwen3.5:397b | Low latency, cost-effective for conversational turns |
-| Summarization | Qwen | qwen3.5:397b | Straightforward text task, cost-optimized |
-| Fact Extraction | Qwen | qwen3.5:397b | Structured output; also used for Pass 2 diagnosis state extraction |
+| Memory Extraction | Cerebras | gpt-oss-120b | Fast inference for high-volume background extraction |
+| Chat | Cerebras | gpt-oss-120b | Low latency conversational turns |
+| Summarization | Cerebras | gpt-oss-120b | Straightforward text task |
+| Fact Extraction | Cerebras | gpt-oss-120b | Structured output; used for post-session state extraction |
+
+Routing is env-configurable via `LLM_ROUTE_*` vars. Cerebras is auto-assigned for all eligible tasks when `CEREBRAS_API_KEY` is set. Gemini is the fallback for diagnosis/reports. Qwen (`qwen3.5:397b`) is the final fallback. Auto-fallback on provider failure.
 
 ### Diagnosis Session Flow
 
@@ -759,18 +804,20 @@ stateDiagram-v2
     Abandoned --> [*]
 ```
 
-**Diagnosis interaction steps (two-pass strategy):**
+**Diagnosis interaction steps (hypothesis-driven agentic):**
 
 1. User creates session with initial symptom description (chief complaint).
 2. **Red flag pre-check**: backend scans message for emergency keywords (chest pain, stroke signs, suicidal ideation, etc.). If detected, returns a templated emergency response immediately — no LLM call.
-3. **Context assembly**: `ContextBuilder` loads profile (Tier 1) + retrieves relevant episodic memories from Mem0 (Tier 2, limit=20, threshold=0.05). Injects into the diagnosis system prompt.
-4. **Pass 1 (agentic)**: `AgentCore.run()` with `DIAGNOSIS_AGENT` definition — Gemini generates a natural-language response following the OLDCARTS clinical interview protocol (temp=0.3, max_tokens=2000). Agent can invoke `search_patient_memory` tool during the loop.
-5. **Safety validation**: backend scans the LLM response against prohibited patterns (dosage prescriptions, cancer claims, "don't need a doctor"). Violations trigger a safety notice appended to the response.
-6. **Pass 2 (structured state extraction)**: `AgentCore.call()` — a non-agentic Qwen call (JSON mode, temp=0.0) extracts structured `DiagnosisState` — phase, severity, OLDCARTS data, differential diagnoses, suggested next questions. Falls back to a minimal state on failure.
-7. Both user and assistant messages stored in `diagnosis_messages`. Differential diagnoses (if any) stored on the session.
-8. **Background**: `MemoryExtractor` fires via `BackgroundTasks` to extract facts to Mem0 (category: `diagnoses`, source: `diagnosis:{session_id}`).
-9. Medical disclaimer injected by backend into every response (never relies on LLM).
-10. On resolution: resolution summary extracted to long-term memory, action logged.
+3. **Context assembly**: `ContextBuilder` loads profile (Tier 1) + retrieves relevant episodic memories from Mem0 (Tier 2, limit=10, threshold=0.15). Injects into the diagnosis system prompt. Memory retrieval is recorded to `memory_traces` for eval.
+4. **Conversation enrichment**: `_enrich_content()` prepends question context to user messages and recovers empty assistant messages from `present_question` tool calls. Rejected options included to prevent re-asking.
+5. **Agentic loop**: `AgentCore.run_stream()` with `DIAGNOSIS_AGENT` definition — Cerebras (or Gemini) follows hypothesis-driven reasoning: forms 3-5 hypotheses, asks targeted questions via `present_question` terminal tool, uses `web_search` for evidence. OLDCARTS as coverage audit, not rigid script. Max 6 tool rounds, turn 8 hard cap.
+6. **Agent resilience**: Empty response retry (nudge if thinking but no text), incomplete response nudge (if text but no tool call and not an assessment), assessment marker detection (stops extra tool calls when `## Assessment` present).
+7. **Safety validation**: backend scans the LLM response against prohibited patterns (dosage prescriptions, cancer claims, "don't need a doctor"). Violations trigger a safety notice appended to the response.
+8. **State extraction (post-DONE)**: Non-blocking `_extract_state()` uses `FACT_EXTRACTION` task to extract structured diagnosis state.
+9. Both user and assistant messages stored in `diagnosis_messages` with `content_parts` JSONB and debug `metadata` (enriched history, agent rounds, memories used). Differential diagnoses (if any) stored on the session.
+10. **Background**: `MemoryExtractor` fires via `BackgroundTasks` to extract facts to Mem0. Extraction events recorded to `memory_traces`.
+11. Medical disclaimer injected by backend into every response (never relies on LLM).
+12. On resolution: resolution summary extracted to long-term memory, action logged.
 
 ### Chat Flow
 
@@ -779,8 +826,8 @@ stateDiagram-v2
 1. User sends a message with optional `conversation_id` to continue an existing conversation. If omitted, a new `chat_conversations` record is created.
 2. **Mental health crisis pre-check**: backend scans message for crisis keywords (suicidal ideation, self-harm, etc.). If detected, returns a crisis response with 988 Lifeline/Crisis Text Line resources immediately — no LLM call.
 3. **Context assembly**: `ContextBuilder` loads profile (Tier 1) + retrieves relevant episodic memories from Mem0 (Tier 2, limit=10, threshold=0.1). Injects into the chat system prompt.
-4. **Conversation history**: loads existing messages for the conversation, applies sliding window (MAX_HISTORY_TOKENS=3000) to fit within context budget.
-5. **LLM call (agentic)**: `AgentCore.run()` with `CHAT_AGENT` definition — Qwen generates a conversational health advisor response (temp=0.7, max_tokens=2000). Agent can invoke `search_patient_memory` tool during the loop.
+4. **Conversation history**: loads existing messages for the conversation, applies sliding window to fit within context budget.
+5. **LLM call (agentic)**: `AgentCore.run_stream()` with `CHAT_AGENT` definition — Cerebras (or Qwen fallback) generates a conversational health advisor response (temp=0.7, max_tokens=2000). Agent can invoke `search_patient_memory` and `web_search` tools during the loop (max 3 rounds).
 6. **Safety validation**: backend scans response for prohibited patterns (specific dosages, "you don't need a doctor"). Violations trigger a safety notice appended to the response.
 7. User and assistant messages stored in `chat_messages`. Conversation `updated_at` refreshed.
 8. **Topic auto-generation**: on the first message of a new conversation (no explicit topic provided), `AgentCore.call()` with `SUMMARIZATION` task generates a short 3-6 word topic label. Best-effort — failure does not block the response.
@@ -830,11 +877,11 @@ Diagnosis, report analysis, and chat share a reusable agent infrastructure in `a
 
 ### Agent Definitions
 
-| Agent | LLM Task | Tools | Model | Max Rounds |
+| Agent | LLM Task | Tools | Default Provider | Max Rounds |
 |-|-|-|-|-|
-| DIAGNOSIS_AGENT | DIAGNOSIS | search_patient_memory | gemini-2.5-flash | 3 |
-| REPORT_AGENT | REPORT_ANALYSIS | (none — JSON mode) | gemini-2.5-flash | 0 |
-| CHAT_AGENT | CHAT | search_patient_memory | cerebras/gpt-oss-120b (or qwen fallback) | 2 |
+| DIAGNOSIS_AGENT | DIAGNOSIS | search_patient_memory, present_question, web_search | Cerebras (Gemini via env) | 6 |
+| REPORT_AGENT | REPORT_ANALYSIS | (none — JSON mode) | Gemini | 0 |
+| CHAT_AGENT | CHAT | search_patient_memory, web_search | Cerebras | 3 |
 
 ### Usage Pattern
 

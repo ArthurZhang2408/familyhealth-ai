@@ -83,6 +83,12 @@ The diagnosis agent uses hypothesis-driven reasoning with structured Q&A:
 
 ### Planned — next phases
 - **Structured assessment rendering**: `present_assessment` tool with custom `DiagnosisReportView` component (card-based native UI instead of markdown)
+- **Unified session abstraction**: Chat and diagnosis sessions share a common pattern (title, delete + memory cleanup, rename, sidebar display, auto-title generation). Refactor to a shared abstraction:
+  - Add `title` column to `diagnosis_sessions` (migration). Keep `chief_complaint` as a separate functional field (used for memory queries, hypothesis formation)
+  - Shared `PATCH /{id}` rename endpoint pattern (or generic session rename route)
+  - Shared `useDeleteSession` / `useRenameSession` hooks parameterized by session type
+  - Single `SidebarItem` long-press handler that works for both types via a `sessionType` discriminator
+  - Shared auto-title generation logic (currently only chat has this)
 
 ## Critical Rules
 - NEVER store raw medical data in LLM context without profile scoping

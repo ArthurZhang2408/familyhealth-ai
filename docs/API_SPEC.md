@@ -611,6 +611,16 @@ Transitioning to `resolved` automatically sets `resolved_at` to the current time
 
 ---
 
+### `DELETE /profiles/{pid}/diagnosis/{sid}`
+
+Delete a diagnosis session and its associated memories. Hard-deletes the session record (messages cascade via FK). Also deletes any Mem0 memories extracted from this session (matched by `source` metadata).
+
+**Response `204`:** No content.
+
+**Errors:** `404 NOT_FOUND`
+
+---
+
 ## 7. Endpoints — Reports
 
 ### Types
@@ -796,7 +806,7 @@ interface ChatMessage {
 
 ### `POST /profiles/{pid}/chat`
 
-Send a general health chat message. If `conversation_id` is provided, appends to that conversation. Otherwise, creates a new conversation. The backend loads profile context and episodic memories, then routes to Qwen for a response.
+Send a general health chat message. If `conversation_id` is provided, appends to that conversation. Otherwise, creates a new conversation. The backend loads profile context and episodic memories, then routes to the configured LLM provider (Cerebras by default) for a response.
 
 **Request body:**
 
@@ -867,6 +877,38 @@ PaginatedResponse<ChatMessage>
 ```
 
 Messages are returned in reverse chronological order (newest first).
+
+---
+
+### `PATCH /profiles/{pid}/chat/{cid}`
+
+Rename a chat conversation (update its topic).
+
+**Request body:**
+
+```typescript
+interface UpdateChatConversationRequest {
+  topic: string;   // required, 1-200 chars
+}
+```
+
+**Response `200`:**
+
+```typescript
+ChatConversation
+```
+
+**Errors:** `400 VALIDATION_ERROR`, `404 NOT_FOUND`
+
+---
+
+### `DELETE /profiles/{pid}/chat/{cid}`
+
+Delete a chat conversation and its associated memories. Hard-deletes the conversation record (messages cascade via FK). Also deletes any Mem0 memories extracted from this conversation (matched by `source` metadata).
+
+**Response `204`:** No content.
+
+**Errors:** `404 NOT_FOUND`
 
 ---
 
@@ -965,48 +1007,52 @@ Maximum 3 concurrent SSE connections per account. Additional connection attempts
 
 ### SSE Protocol
 
-Streaming is requested by setting `Accept: text/event-stream` on message-sending endpoints:
-- `POST /profiles/{pid}/diagnosis/{sid}/messages`
-- `POST /profiles/{pid}/chat`
+Streaming uses dedicated `/stream` endpoints (not `Accept` header negotiation):
+- `POST /profiles/{pid}/diagnosis/stream` — optional `session_id`, `chief_complaint`
+- `POST /profiles/{pid}/chat/stream` — optional `conversation_id`
+
+**Streaming endpoints** (unified, auto-create resource if no ID provided):
+- `POST /profiles/{pid}/chat/stream` — optional `conversation_id`
+- `POST /profiles/{pid}/diagnosis/stream` — optional `session_id` + `chief_complaint`
+
+Both use `asyncio.Queue` + `asyncio.create_task()` to decouple processing from SSE connection. Processing uses independent DB session — survives client disconnect.
 
 **Event stream format:**
 
 ```
-event: message_start
-data: {"message_id": "uuid-of-assistant-message", "role": "assistant"}
+event: status
+data: {"type": "status", "session_id": "uuid", "message": "Starting diagnosis..."}
 
-event: content_delta
-data: {"delta": "Based on your"}
+event: thinking_delta
+data: {"type": "thinking_delta", "content": "Let me consider..."}
 
-event: content_delta
-data: {"delta": " symptoms, I'd like"}
+event: text_delta
+data: {"type": "text_delta", "content": "Based on your"}
 
-event: content_delta
-data: {"delta": " to ask a few follow-up questions."}
+event: tool_call
+data: {"type": "tool_call", "name": "web_search", "arguments": {"query": "..."}}
 
-event: diagnoses_update
-data: {"differential_diagnoses": [{"condition": "...", "confidence": 0.6, "reasoning": "...", "action_plan": "...", "urgency": "see_doctor_this_week"}]}
+event: tool_result
+data: {"type": "tool_result", "name": "web_search", "result": "..."}
 
-event: message_end
-data: {"finish_reason": "stop", "usage": {"prompt_tokens": 1200, "completion_tokens": 85}}
-
-event: disclaimer
-data: {"disclaimer": "This is AI-generated health information, not a medical diagnosis. Always consult a qualified healthcare professional."}
+event: structured_question
+data: {"type": "structured_question", "input_type": "multiple_choice", "prompt": "...", "options": [...]}
 
 event: done
-data: [DONE]
+data: {"type": "done", "message_id": "uuid", "content": "full text"}
 ```
 
 **Event types:**
 
 | Event | Sent | Payload |
 |-|-|-|
-| `message_start` | Once, at stream start | `{ message_id: string, role: "assistant" }` |
-| `content_delta` | Multiple times | `{ delta: string }` — incremental text chunk |
-| `diagnoses_update` | Once (diagnosis only) | `{ differential_diagnoses: DifferentialDiagnosis[] }` |
-| `message_end` | Once, after all content | `{ finish_reason: "stop" \| "length" \| "error", usage: { prompt_tokens: number, completion_tokens: number } }` |
-| `disclaimer` | Once, after message_end | `{ disclaimer: string }` |
-| `done` | Once, final event | `[DONE]` — client should close the connection |
+| `status` | Once at start, may include resource ID | `{ session_id/conversation_id, message }` |
+| `thinking_delta` | Multiple (Gemini only, when thinking active) | `{ content: string }` — reasoning chunk |
+| `text_delta` | Multiple times | `{ content: string }` — incremental text chunk |
+| `tool_call` | Per tool invocation | `{ name: string, arguments: object }` |
+| `tool_result` | Per tool completion | `{ name: string, result: string }` |
+| `structured_question` | Once (diagnosis, after `present_question` tool) | `{ input_type, prompt, options?, ... }` |
+| `done` | Once, final event | `{ message_id, content }` — client should close |
 | `error` | If error occurs mid-stream | `{ code: string, detail: string }` |
 
 **Error during stream:**
@@ -1075,17 +1121,23 @@ If SSE is unavailable (network restrictions, proxy issues), the client sends the
 | `PATCH` | `/profiles/{pid}` | Write | Yes | No |
 | `DELETE` | `/profiles/{pid}` | Write | Yes | No |
 | `POST` | `/profiles/{pid}/diagnosis` | LLM | Yes | No |
+| `POST` | `/profiles/{pid}/diagnosis/create` | LLM | Yes | No |
 | `GET` | `/profiles/{pid}/diagnosis` | Standard | Yes | No |
 | `GET` | `/profiles/{pid}/diagnosis/{sid}` | Standard | Yes | No |
-| `POST` | `/profiles/{pid}/diagnosis/{sid}/messages` | LLM | Yes | SSE opt-in |
+| `POST` | `/profiles/{pid}/diagnosis/{sid}/messages` | LLM | Yes | No |
+| `POST` | `/profiles/{pid}/diagnosis/stream` | LLM | Yes | SSE |
 | `PATCH` | `/profiles/{pid}/diagnosis/{sid}` | Write | Yes | No |
+| `DELETE` | `/profiles/{pid}/diagnosis/{sid}` | Write | Yes | No |
 | `POST` | `/profiles/{pid}/reports` | Upload | Yes | No |
 | `GET` | `/profiles/{pid}/reports` | Standard | Yes | No |
 | `GET` | `/profiles/{pid}/reports/{rid}` | Standard | Yes | No |
 | `POST` | `/profiles/{pid}/reports/{rid}/reanalyze` | LLM | Yes | No |
-| `POST` | `/profiles/{pid}/chat` | LLM | Yes | SSE opt-in |
+| `POST` | `/profiles/{pid}/chat` | LLM | Yes | No |
+| `POST` | `/profiles/{pid}/chat/stream` | LLM | Yes | SSE |
 | `GET` | `/profiles/{pid}/chat` | Standard | Yes | No |
 | `GET` | `/profiles/{pid}/chat/{cid}` | Standard | Yes | No |
+| `PATCH` | `/profiles/{pid}/chat/{cid}` | Write | Yes | No |
+| `DELETE` | `/profiles/{pid}/chat/{cid}` | Write | Yes | No |
 | `GET` | `/profiles/{pid}/memory` | Standard | Yes | No |
 | `GET` | `/profiles/{pid}/memory/facts` | Standard | Yes | No |
 | `DELETE` | `/profiles/{pid}/memory/{mid}` | Write | Yes | No |
