@@ -322,6 +322,34 @@ class MemoryService:
         """Delete all memories for a profile."""
         await asyncio.to_thread(self._mem0.delete_all, user_id=str(profile_id))
 
+    async def delete_by_source(self, profile_id: UUID, source: str) -> int:
+        """Delete all memories for a profile that were extracted from a specific source.
+
+        Args:
+            profile_id: The profile whose memories to search.
+            source: The source tag, e.g. ``"diagnosis:uuid"`` or ``"chat:uuid"``.
+
+        Returns:
+            Number of memories deleted.
+        """
+        result = await asyncio.to_thread(
+            self._mem0.get_all,
+            user_id=str(profile_id),
+            filters={"source": source},
+            limit=1000,
+        )
+        memories = result.get("results", [])
+        # Guard: verify each memory actually has the expected source before
+        # deleting. If Mem0 silently ignores the filter, we'd otherwise
+        # delete ALL memories for the profile.
+        deleted = 0
+        for mem in memories:
+            if mem.get("metadata", {}).get("source") != source:
+                continue
+            await asyncio.to_thread(self._mem0.delete, mem["id"])
+            deleted += 1
+        return deleted
+
     async def extract_from_diagnosis(
         self, profile_id: UUID, messages: list[dict], session_id: str
     ) -> dict:

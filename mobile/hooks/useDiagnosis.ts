@@ -34,3 +34,11 @@ export function useSendDiagnosisMessage(pid: string, sid: string) {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['diagnosis', pid, sid] }),
   });
 }
+
+export function useDeleteDiagnosisSession(pid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (sid: string) => diagnosisApi.delete(pid, sid),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['diagnosis', pid] }),
+  });
+}

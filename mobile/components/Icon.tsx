@@ -29,7 +29,9 @@ export type IconName =
   | 'close'
   | 'checkmark-circle'
   | 'close-circle'
-  | 'brain';
+  | 'brain'
+  | 'pencil'
+  | 'trash';
 
 interface Props {
   name: IconName;
@@ -83,5 +85,9 @@ export function Icon({ name, size, color }: Props) {
       return <Ionicons name="close-circle" size={size} color={color} />;
     case 'brain':
       return <MaterialCommunityIcons name="brain" size={size} color={color} />;
+    case 'pencil':
+      return <Ionicons name="pencil" size={size} color={color} />;
+    case 'trash':
+      return <Ionicons name="trash-outline" size={size} color={color} />;
   }
 }

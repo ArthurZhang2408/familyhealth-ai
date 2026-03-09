@@ -27,6 +27,8 @@ class DiagnosisSession(UUIDPrimaryKey, TimestampMixin, Base):
         back_populates="session",
         lazy="selectin",
         order_by="DiagnosisMessage.created_at",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
     )
 
     __table_args__ = (

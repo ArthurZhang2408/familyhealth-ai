@@ -203,6 +203,56 @@ async def test_delete_all(memory_service: MemoryService, mock_mem0: MagicMock) -
     assert kwargs["user_id"] == str(PROFILE_ID)
 
 
+# ── Unit tests: MemoryService.delete_by_source ───────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_delete_by_source(memory_service: MemoryService, mock_mem0: MagicMock) -> None:
+    mock_mem0.get_all.return_value = {
+        "results": [
+            {"id": "mem-1", "memory": "fact 1", "metadata": {"source": "diagnosis:session-abc"}},
+            {"id": "mem-2", "memory": "fact 2", "metadata": {"source": "diagnosis:session-abc"}},
+        ]
+    }
+    deleted = await memory_service.delete_by_source(PROFILE_ID, "diagnosis:session-abc")
+    assert deleted == 2
+
+    # Verify get_all was called with the source filter
+    _, kwargs = mock_mem0.get_all.call_args
+    assert kwargs["user_id"] == str(PROFILE_ID)
+    assert kwargs["filters"] == {"source": "diagnosis:session-abc"}
+
+    # Verify each memory was deleted
+    assert mock_mem0.delete.call_count == 2
+    mock_mem0.delete.assert_any_call("mem-1")
+    mock_mem0.delete.assert_any_call("mem-2")
+
+
+@pytest.mark.asyncio
+async def test_delete_by_source_skips_wrong_source(
+    memory_service: MemoryService, mock_mem0: MagicMock
+) -> None:
+    """If Mem0 ignores the filter and returns all memories, only matching ones are deleted."""
+    mock_mem0.get_all.return_value = {
+        "results": [
+            {"id": "mem-1", "memory": "right", "metadata": {"source": "chat:abc"}},
+            {"id": "mem-2", "memory": "wrong", "metadata": {"source": "chat:other"}},
+            {"id": "mem-3", "memory": "no meta", "metadata": {}},
+        ]
+    }
+    deleted = await memory_service.delete_by_source(PROFILE_ID, "chat:abc")
+    assert deleted == 1
+    mock_mem0.delete.assert_called_once_with("mem-1")
+
+
+@pytest.mark.asyncio
+async def test_delete_by_source_empty(memory_service: MemoryService, mock_mem0: MagicMock) -> None:
+    mock_mem0.get_all.return_value = {"results": []}
+    deleted = await memory_service.delete_by_source(PROFILE_ID, "chat:no-such-id")
+    assert deleted == 0
+    mock_mem0.delete.assert_not_called()
+
+
 # ── Unit tests: extract helpers ──────────────────────────────────────────────
 
 
@@ -225,6 +275,7 @@ async def test_extract_from_chat_source(
     await memory_service.extract_from_chat(PROFILE_ID, messages)
     _, kwargs = mock_mem0.add.call_args
     assert kwargs["metadata"]["source"] == "chat"
+
 
 
 @pytest.mark.asyncio

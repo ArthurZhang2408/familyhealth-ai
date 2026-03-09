@@ -73,6 +73,23 @@ provider is Gemini, the agent loop emits `THINKING_DELTA` events. These are:
 (thinking tokens count against the output limit). Non-Gemini providers silently
 ignore the `thinking_budget` field.
 
+## Agent Resilience
+
+`AgentCore.run_stream()` includes three recovery mechanisms to handle common LLM misbehaviors:
+
+1. **Empty response retry** — if the model produces thinking tokens but no text output, the loop injects a system nudge ("Please provide your response") and retries once.
+2. **Incomplete response nudge** — if the model produces text but no tool call (and it's not an assessment), the loop nudges it to use `present_question`. Single retry via `_retried_incomplete` flag to prevent infinite loops.
+3. **Assessment marker detection** — if the model's text contains `## Assessment` alongside tool calls, the assessment text is treated as final (extra tool calls are skipped). This prevents the model from asking questions after already delivering its conclusion.
+
+## Memory Eval Framework
+
+`memory_traces` table (migration 003) provides append-only logging of memory retrieval and extraction events per session. Used for offline evaluation of memory quality.
+
+- **`record_retrieval()`** — records query, all results with similarity scores, injected count
+- **`record_extraction()`** — records facts extracted and Mem0 decisions (ADD/UPDATE/NONE)
+- **Debug metadata** — assistant message `metadata` JSONB stores: enriched history snapshot, agent loop rounds (tools called, text produced), memories used
+- **Eval script** (`scripts/eval_memory.py`): commands `latest`, `session <id>`, `debug [id]`, `memories <profile_id>`, `quality <profile_id>`
+
 ## Future Extensions
 
 - Structured assessment rendering (`present_assessment` tool)

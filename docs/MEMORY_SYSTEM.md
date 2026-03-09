@@ -180,6 +180,34 @@ class MemoryService:
 
     async def delete_all(self, profile_id: UUID) -> None:
         await asyncio.to_thread(self._mem0.delete_all, user_id=str(profile_id))
+
+    async def delete_by_source(self, profile_id: UUID, source: str) -> int:
+        """Delete all memories extracted from a specific source.
+
+        Used when deleting a chat conversation or diagnosis session.
+        Fetches memories with matching source filter, verifies each
+        memory's metadata.source before deleting (guards against Mem0
+        silently ignoring the filter).
+
+        Args:
+            source: e.g. "diagnosis:{session_id}" or "chat:{conversation_id}"
+
+        Returns:
+            Number of memories deleted.
+        """
+        result = await asyncio.to_thread(
+            self._mem0.get_all,
+            user_id=str(profile_id),
+            filters={"source": source},
+            limit=1000,
+        )
+        deleted = 0
+        for mem in result.get("results", []):
+            if mem.get("metadata", {}).get("source") != source:
+                continue
+            await asyncio.to_thread(self._mem0.delete, mem["id"])
+            deleted += 1
+        return deleted
 ```
 
 ### Memory Categories
@@ -445,13 +473,13 @@ async def retrieve_memories(
     """Retrieve relevant episodic memories for an interaction."""
 
     if interaction_type == "diagnosis":
-        # Diagnosis needs the broadest context — no category filter.
-        # Higher limit and lowest threshold to cast the widest net.
+        # Diagnosis needs broad context but not noise. Threshold 0.15
+        # filters out very weak matches (buttock pain for stomachache).
         memories = memory_service.search(
             profile_id,
             query,
-            limit=20,
-            threshold=0.05,
+            limit=10,
+            threshold=0.15,
         )
 
     elif interaction_type == "report_analysis":
@@ -479,7 +507,7 @@ async def retrieve_memories(
     return memories
 ```
 
-> **Note on thresholds:** The design originally specified higher thresholds (0.4–0.5), but Gemini's 768-dimensional embeddings produce lower cosine similarity scores than 1536d models. Thresholds were tuned down to 0.05–0.1 based on real retrieval testing.
+> **Note on thresholds:** The design originally specified higher thresholds (0.4–0.5), but Gemini's 768-dimensional embeddings produce lower cosine similarity scores than 1536d models. Diagnosis uses 0.15 (tuned to filter out weak matches like "buttock pain" for stomachache queries). Chat and report analysis use 0.1.
 
 ### Memory Object Shape
 
@@ -820,7 +848,7 @@ Memories naturally decay in relevance: as they age and as the profile accumulate
 
 ### Deletion
 
-Two deletion mechanisms:
+Three deletion mechanisms:
 
 **User-initiated** (via API):
 
@@ -840,6 +868,10 @@ async def delete_memory(
         "reason": "user_request",
     })
 ```
+
+**Session deletion** (source-scoped):
+
+When a chat conversation or diagnosis session is deleted, `delete_by_source()` removes only the memories extracted from that session, identified by their `source` metadata tag (e.g., `"diagnosis:{session_id}"` or `"chat:{conversation_id}"`). The DB records cascade-delete via FK. Best-effort — if Mem0 deletion fails, the session is still deleted.
 
 **Profile deletion** (cascade):
 

@@ -23,20 +23,25 @@ from app.api.deps import (
     get_agent_core,
     get_context_builder,
     get_memory_extractor,
+    get_memory_service,
     get_verified_profile,
 )
 from app.api.upload_helpers import read_image_parts
 from app.core.database import async_session_factory, get_db
 from app.models.chat import ChatConversation
 from app.models.profile import Profile
+from app.schemas.action_log import ActionType
 from app.schemas.chat import (
     ChatConversationDetailResponse,
     ChatConversationResponse,
+    ChatConversationUpdate,
     ChatTurnResponse,
 )
 from app.schemas.common import PaginatedResponse
+from app.services.action_log import ActionLogService
 from app.services.chat import ChatService
 from app.services.context_builder import ContextBuilder
+from app.services.memory import MemoryService
 from app.services.memory_extractor import MemoryExtractor
 
 router = APIRouter(prefix="/profiles/{pid}/chat", tags=["chat"])
@@ -238,3 +243,78 @@ async def get_conversation(
     if not conversation:
         raise HTTPException(status_code=404, detail="Conversation not found")
     return ChatConversationDetailResponse.model_validate(conversation)
+
+
+@router.patch("/{cid}", response_model=ChatConversationResponse)
+async def rename_conversation(
+    cid: UUID,
+    data: ChatConversationUpdate,
+    profile: Profile = Depends(get_verified_profile),
+    db: AsyncSession = Depends(get_db),
+) -> ChatConversationResponse:
+    """Rename a chat conversation (update its topic)."""
+    result = await db.execute(
+        select(ChatConversation).where(
+            ChatConversation.id == cid, ChatConversation.profile_id == profile.id
+        )
+    )
+    conversation = result.scalar_one_or_none()
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    conversation.topic = data.topic
+    await db.flush()
+    await db.refresh(conversation)
+    return ChatConversationResponse.model_validate(conversation)
+
+
+@router.delete("/{cid}", status_code=204)
+async def delete_conversation(
+    cid: UUID,
+    profile: Profile = Depends(get_verified_profile),
+    db: AsyncSession = Depends(get_db),
+    memory_service: MemoryService = Depends(get_memory_service),
+) -> None:
+    """Delete a chat conversation and its associated memories.
+
+    Hard-deletes the conversation record (messages cascade via FK).
+    Also deletes any Mem0 memories extracted from this conversation.
+    """
+    result = await db.execute(
+        select(ChatConversation).where(
+            ChatConversation.id == cid, ChatConversation.profile_id == profile.id
+        )
+    )
+    conversation = result.scalar_one_or_none()
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    topic = conversation.topic
+    await db.delete(conversation)
+
+    # Delete memories extracted from this conversation (best-effort)
+    memories_deleted = 0
+    try:
+        memories_deleted = await memory_service.delete_by_source(
+            profile.id, f"chat:{cid}"
+        )
+    except Exception:
+        _stream_logger.warning(
+            "Failed to delete memories for chat %s, conversation deleted anyway", cid
+        )
+
+    # Log the deletion
+    try:
+        log_svc = ActionLogService(db)
+        await log_svc.log(
+            profile_id=profile.id,
+            account_id=profile.account_id,
+            action_type=ActionType.CHAT_DELETED,
+            payload={
+                "conversation_id": str(cid),
+                "topic": topic,
+                "memories_deleted": memories_deleted,
+            },
+        )
+    except Exception:
+        _stream_logger.warning("Action logging failed for chat deletion %s", cid)

@@ -40,5 +40,9 @@ class ChatConversationResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class ChatConversationUpdate(BaseModel):
+    topic: str = Field(min_length=1, max_length=200)
+
+
 class ChatConversationDetailResponse(ChatConversationResponse):
     messages: list[ChatMessageResponse] = []

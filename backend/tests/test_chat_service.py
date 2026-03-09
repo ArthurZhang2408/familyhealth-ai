@@ -22,7 +22,7 @@ from httpx import AsyncClient
 
 from app.agents.core import AgentCore
 from app.agents.registry import ToolRegistry
-from app.api.deps import get_agent_core, get_context_builder, get_memory_extractor
+from app.api.deps import get_agent_core, get_context_builder, get_memory_extractor, get_memory_service
 from app.main import app
 from app.services.chat import ChatService
 from app.services.chat_prompts import CHAT_DISCLAIMER
@@ -790,3 +790,116 @@ class TestChatRoutes:
         convo_id = resp.json()["message"]["conversation_id"]
         resp2 = await client.get(f"/api/v1/profiles/{pid}/chat/{convo_id}")
         assert resp2.json()["topic"] == "Cholesterol"
+
+
+def _mock_memory_service() -> MagicMock:
+    """Return a mock MemoryService for delete tests."""
+    svc = MagicMock()
+    svc.delete_by_source = AsyncMock(return_value=2)
+    return svc
+
+
+def _override_delete_deps() -> None:
+    """Override deps for delete route tests (no LLM needed, just memory service)."""
+    _override_chat_deps()
+    app.dependency_overrides[get_memory_service] = _mock_memory_service
+
+
+class TestDeleteConversation:
+    @pytest.mark.asyncio
+    async def test_delete_conversation(self, client: AsyncClient) -> None:
+        _override_delete_deps()
+        profile = await _create_profile(client)
+        pid = profile["id"]
+
+        # Create a conversation
+        resp = await client.post(
+            f"/api/v1/profiles/{pid}/chat",
+            data={"content": "Hello there"},
+        )
+        assert resp.status_code == 201
+        convo_id = resp.json()["message"]["conversation_id"]
+
+        # Delete it
+        resp2 = await client.delete(f"/api/v1/profiles/{pid}/chat/{convo_id}")
+        assert resp2.status_code == 204
+
+        # Verify it's gone
+        resp3 = await client.get(f"/api/v1/profiles/{pid}/chat/{convo_id}")
+        assert resp3.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_delete_conversation_not_found(self, client: AsyncClient) -> None:
+        _override_delete_deps()
+        profile = await _create_profile(client)
+        pid = profile["id"]
+
+        resp = await client.delete(f"/api/v1/profiles/{pid}/chat/{uuid.uuid4()}")
+        assert resp.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_delete_conversation_wrong_profile(self, client: AsyncClient) -> None:
+        _override_delete_deps()
+        profile_a = await _create_profile(client)
+        pid_a = profile_a["id"]
+
+        # Create conversation on profile A
+        resp = await client.post(
+            f"/api/v1/profiles/{pid_a}/chat",
+            data={"content": "Hello"},
+        )
+        convo_id = resp.json()["message"]["conversation_id"]
+
+        # Create profile B
+        resp_b = await client.post(
+            "/api/v1/profiles",
+            json={"name": "Other", "relationship": "spouse"},
+        )
+        pid_b = resp_b.json()["id"]
+
+        # Try to delete A's conversation via B
+        resp2 = await client.delete(f"/api/v1/profiles/{pid_b}/chat/{convo_id}")
+        assert resp2.status_code == 404
+
+
+class TestRenameConversation:
+    @pytest.mark.asyncio
+    async def test_rename_conversation(self, client: AsyncClient) -> None:
+        _override_chat_deps()
+        profile = await _create_profile(client)
+        pid = profile["id"]
+
+        resp = await client.post(
+            f"/api/v1/profiles/{pid}/chat",
+            data={"content": "Hello"},
+        )
+        convo_id = resp.json()["message"]["conversation_id"]
+
+        resp2 = await client.patch(
+            f"/api/v1/profiles/{pid}/chat/{convo_id}",
+            json={"topic": "My new topic"},
+        )
+        assert resp2.status_code == 200
+        assert resp2.json()["topic"] == "My new topic"
+
+    @pytest.mark.asyncio
+    async def test_rename_conversation_not_found(self, client: AsyncClient) -> None:
+        profile = await _create_profile(client)
+        pid = profile["id"]
+
+        resp = await client.patch(
+            f"/api/v1/profiles/{pid}/chat/{uuid.uuid4()}",
+            json={"topic": "Nope"},
+        )
+        assert resp.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_rename_conversation_empty_topic(self, client: AsyncClient) -> None:
+        profile = await _create_profile(client)
+        pid = profile["id"]
+
+        resp = await client.patch(
+            f"/api/v1/profiles/{pid}/chat/{uuid.uuid4()}",
+            json={"topic": ""},
+        )
+        assert resp.status_code == 422

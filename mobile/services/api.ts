@@ -35,6 +35,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     const error = await response.json().catch(() => ({ detail: 'Request failed' }));
     throw new Error(error.detail ?? `HTTP ${response.status}`);
   }
+  if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
 }
 
@@ -82,6 +83,8 @@ export const diagnosisApi = {
       method: 'PATCH',
       body: JSON.stringify({ status }),
     }),
+  delete: (pid: string, sid: string) =>
+    request<void>(`/profiles/${pid}/diagnosis/${sid}`, { method: 'DELETE' }),
 };
 
 // ── Reports ───────────────────────────────────────────────────────────────────
@@ -243,6 +246,13 @@ export const chatApi = {
     request<PaginatedResponse<ChatConversation>>(`/profiles/${pid}/chat?page=${page}`),
   get: (pid: string, cid: string) =>
     request<ChatConversationDetail>(`/profiles/${pid}/chat/${cid}`),
+  rename: (pid: string, cid: string, topic: string) =>
+    request<ChatConversation>(`/profiles/${pid}/chat/${cid}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ topic }),
+    }),
+  delete: (pid: string, cid: string) =>
+    request<void>(`/profiles/${pid}/chat/${cid}`, { method: 'DELETE' }),
   send: (pid: string, content: string, conversation_id?: string, topic?: string, files?: Attachment[]) => {
     const fields: Record<string, string> = { content };
     if (conversation_id) fields.conversation_id = conversation_id;

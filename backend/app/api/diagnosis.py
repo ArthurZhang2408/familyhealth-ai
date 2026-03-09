@@ -23,12 +23,14 @@ from app.api.deps import (
     get_agent_core,
     get_context_builder,
     get_memory_extractor,
+    get_memory_service,
     get_verified_profile,
 )
 from app.api.upload_helpers import read_image_parts
 from app.core.database import async_session_factory, get_db
 from app.models.diagnosis import DiagnosisSession
 from app.models.profile import Profile
+from app.schemas.action_log import ActionType
 from app.schemas.common import PaginatedResponse
 from app.schemas.diagnosis import (
     DiagnosisSessionCreate,
@@ -37,8 +39,10 @@ from app.schemas.diagnosis import (
     DiagnosisSessionUpdate,
     DiagnosisTurnResponse,
 )
+from app.services.action_log import ActionLogService
 from app.services.context_builder import ContextBuilder
 from app.services.diagnosis import DiagnosisService
+from app.services.memory import MemoryService
 from app.services.memory_extractor import MemoryExtractor
 
 router = APIRouter(prefix="/profiles/{pid}/diagnosis", tags=["diagnosis"])
@@ -403,3 +407,56 @@ async def update_session(
 
     await db.refresh(session)
     return DiagnosisSessionResponse.model_validate(session)
+
+
+@router.delete("/{sid}", status_code=204)
+async def delete_session(
+    sid: UUID,
+    profile: Profile = Depends(get_verified_profile),
+    db: AsyncSession = Depends(get_db),
+    memory_service: MemoryService = Depends(get_memory_service),
+) -> None:
+    """Delete a diagnosis session and its associated memories.
+
+    Hard-deletes the session record (messages cascade via FK).
+    Also deletes any Mem0 memories extracted from this session.
+    """
+    result = await db.execute(
+        select(DiagnosisSession).where(
+            DiagnosisSession.id == sid,
+            DiagnosisSession.profile_id == profile.id,
+        )
+    )
+    session = result.scalar_one_or_none()
+    if not session:
+        raise HTTPException(status_code=404, detail="Diagnosis session not found")
+
+    chief_complaint = session.chief_complaint
+    await db.delete(session)
+
+    # Delete memories extracted from this session (best-effort)
+    memories_deleted = 0
+    try:
+        memories_deleted = await memory_service.delete_by_source(
+            profile.id, f"diagnosis:{sid}"
+        )
+    except Exception:
+        _diag_stream_logger.warning(
+            "Failed to delete memories for diagnosis %s, session deleted anyway", sid
+        )
+
+    # Log the deletion
+    try:
+        log_svc = ActionLogService(db)
+        await log_svc.log(
+            profile_id=profile.id,
+            account_id=profile.account_id,
+            action_type=ActionType.DIAGNOSIS_DELETED,
+            payload={
+                "session_id": str(sid),
+                "chief_complaint": chief_complaint,
+                "memories_deleted": memories_deleted,
+            },
+        )
+    except Exception:
+        _diag_stream_logger.warning("Action logging failed for diagnosis deletion %s", sid)
