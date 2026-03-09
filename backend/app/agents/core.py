@@ -169,6 +169,8 @@ class AgentCore:
         """
         tool_declarations = self._tools.get_declarations(agent_def.tool_names)
         last_text = ""
+        self._retried_incomplete = False
+        self._debug_rounds: list[dict] = []
 
         for round_num in range(agent_def.max_tool_rounds + 1):
             request = self._build_request(session, agent_def, tool_declarations)
@@ -209,11 +211,78 @@ class AgentCore:
             session.turn_count += 1
             last_text = text_buffer
 
+            # Record debug info for this round
+            round_debug = {
+                "round": round_num + 1,
+                "message_count": len(session.messages),
+                "text_length": len(text_buffer),
+                "text_preview": text_buffer[:200] if text_buffer else "",
+                "tool_calls": [{"name": tc.name, "args_preview": str(tc.arguments)[:100]} for tc in tool_calls],
+            }
+            self._debug_rounds.append(round_debug)
+
             if not tool_calls:
+                if not text_buffer.strip() and round_num < agent_def.max_tool_rounds:
+                    # Empty response (e.g. model only produced thinking) — retry once
+                    logger.warning(
+                        "Agent '%s' produced empty response on round %d, retrying",
+                        agent_def.name,
+                        round_num + 1,
+                    )
+                    session.messages.append(
+                        {"role": "assistant", "content": ""},
+                    )
+                    session.messages.append(
+                        {"role": "user", "content": "[System: your previous response was empty. Please respond to the patient.]"},
+                    )
+                    continue
+
+                # Detect incomplete response: agent has tools, produced text
+                # but didn't call any tool, and text doesn't look like a final
+                # assessment. Nudge it to use its tools.
+                if (
+                    text_buffer.strip()
+                    and agent_def.tool_names
+                    and "## Assessment" not in text_buffer
+                    and not self._retried_incomplete
+                    and round_num < agent_def.max_tool_rounds
+                ):
+                    logger.warning(
+                        "Agent '%s' responded with text but no tool call on round %d, nudging",
+                        agent_def.name,
+                        round_num + 1,
+                    )
+                    self._retried_incomplete = True
+                    session.messages.append(
+                        {"role": "assistant", "content": text_buffer},
+                    )
+                    session.messages.append(
+                        {"role": "user", "content": (
+                            "[System: you wrote a response but did not call any tool. "
+                            "If you need to ask the patient a question, you MUST use "
+                            "the `present_question` tool. Do not ask in free text. "
+                            "Continue from where you left off.]"
+                        )},
+                    )
+                    continue
+
                 # Final response — text already streamed token-by-token
                 yield AgentEvent(
                     type=AgentEventType.DONE,
-                    data={"content": text_buffer},
+                    data={"content": text_buffer, "debug_rounds": self._debug_rounds},
+                )
+                return
+
+            # If the response contains a final assessment alongside tool calls,
+            # treat it as done — don't execute the extra tool calls.
+            if "## Assessment" in text_buffer:
+                logger.info(
+                    "Agent '%s' produced assessment with tool calls — treating as final",
+                    agent_def.name,
+                )
+                yield AgentEvent(
+                    type=AgentEventType.DONE,
+                    data={"content": text_buffer, "debug_rounds": self._debug_rounds},
                 )
                 return
 
@@ -263,7 +332,7 @@ class AgentCore:
             if hit_terminal:
                 yield AgentEvent(
                     type=AgentEventType.DONE,
-                    data={"content": text_buffer},
+                    data={"content": text_buffer, "debug_rounds": self._debug_rounds},
                 )
                 return
 
