@@ -54,6 +54,9 @@ DO NOT extract:
 - Questions the AI asked (only extract the user's answers)
 - Speculative statements ("might be", "could indicate")
 - Generic health advice given by the AI
+- Warning signs or red flags listed in assessments (e.g., "seek immediate care for vomiting blood")
+- Generic recommendations from assessments (e.g., "check back in 2-3 days", "stay hydrated")
+- OTC medication suggestions from the AI (only extract medications the user is actually taking)
 
 Input conversation:
 {input}

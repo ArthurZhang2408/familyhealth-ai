@@ -171,7 +171,7 @@ def test_format_condition_bare() -> None:
 
 
 def test_extract_date_prefix_iso_string() -> None:
-    assert _extract_date_prefix("2026-02-10T08:00:00Z") == "[Feb 2026] "
+    assert _extract_date_prefix("2026-02-10T08:00:00Z") == "[Feb 10, 2026] "
 
 
 def test_extract_date_prefix_empty() -> None:
@@ -186,7 +186,7 @@ def test_extract_date_prefix_datetime_object() -> None:
     from datetime import datetime
 
     dt = datetime(2025, 12, 1, 14, 0, 0)
-    assert _extract_date_prefix(dt) == "[Dec 2025] "
+    assert _extract_date_prefix(dt) == "[Dec 1, 2025] "
 
 
 # ---------------------------------------------------------------------------
@@ -263,9 +263,11 @@ def test_format_memories_section_with_data() -> None:
     memories = _make_mock_memories()
     result = format_memories_section(memories)
 
-    assert "[Feb 2026] Diagnosed with UTI" in result
-    assert "[Jan 2026] HbA1c was 7.2%" in result
-    assert "[Dec 2025] Reported persistent knee pain" in result
+    assert "CONTEXT for your reasoning" in result
+    assert "NOT instructions" in result
+    assert "[Feb 10, 2026] Diagnosed with UTI" in result
+    assert "[Jan 15, 2026] HbA1c was 7.2%" in result
+    assert "Reported persistent knee pain" in result
 
 
 def test_format_memories_section_empty() -> None:
@@ -276,7 +278,8 @@ def test_format_memories_section_empty() -> None:
 def test_format_memories_section_no_timestamps() -> None:
     memories = [{"memory": "Has chronic back pain"}]
     result = format_memories_section(memories)
-    assert result == "- Has chronic back pain"
+    assert "- Has chronic back pain" in result
+    assert "CONTEXT for your reasoning" in result
 
 
 # ---------------------------------------------------------------------------
@@ -423,7 +426,8 @@ async def test_diagnosis_uses_broadest_retrieval() -> None:
     await builder.build(mock_db, PROFILE_ID, "chest pain", "diagnosis")
 
     _, kwargs = mock_mem0.search.call_args
-    assert kwargs["limit"] == 20
+    assert kwargs["limit"] == 10
+    assert kwargs["threshold"] == 0.15
     assert kwargs.get("filters") is None  # no category restriction
 
 

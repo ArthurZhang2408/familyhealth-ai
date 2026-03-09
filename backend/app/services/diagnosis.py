@@ -43,6 +43,7 @@ from app.services.diagnosis_safety import (
 from app.services.llm import ImagePart, LLMMessage, LLMRequest, LLMResponse, LLMTask
 from app.services.memory import build_conversation_window
 from app.services.memory_extractor import MemoryExtractor
+from app.services.memory_trace import record_extraction, record_retrieval
 from app.services.message_parts_builder import (
     PartsAccumulator,
     build_assistant_parts,
@@ -356,12 +357,24 @@ class DiagnosisService:
             ctx = await self._ctx.build(
                 db=self._db,
                 profile_id=profile.id,
-                query=content,
+                query=session.chief_complaint,
                 interaction_type="diagnosis",
                 memory_budget=2000,
                 template=DIAGNOSIS_SYSTEM_PROMPT,
             )
             system_prompt = ctx.system_prompt
+
+            # Record memory retrieval trace
+            await record_retrieval(
+                self._db,
+                profile_id=profile.id,
+                session_type="diagnosis",
+                session_id=session.id,
+                turn_number=None,  # set after building messages below
+                query=session.chief_complaint,
+                raw_memories=ctx.raw_memories or [],
+                injected_count=ctx.memories_used,
+            )
 
             # Emit detailed context results
             profile_name = ctx.profile_context.get("name", "patient")
@@ -412,6 +425,12 @@ class DiagnosisService:
             turn_number = sum(1 for m in messages if m["role"] == "user")
             system_prompt = system_prompt.replace("{turn_number}", str(turn_number))
 
+            # Snapshot conversation history before agent loop mutates it
+            debug_history_snapshot = [
+                {"role": m["role"], "content": m["content"]}
+                for m in messages
+            ]
+
             agent_session = AgentSession(
                 profile_id=profile.id,
                 system_prompt=system_prompt,
@@ -419,12 +438,16 @@ class DiagnosisService:
             )
 
             conversation_text = ""
+            debug_rounds: list[dict] = []
             async for event in self._agent.run_stream(agent_session, DIAGNOSIS_AGENT):
                 if event.type == AgentEventType.TEXT_DELTA:
                     conversation_text += event.data.get("content", "")
                     yield event
                 elif event.type == AgentEventType.DONE:
-                    conversation_text = event.data.get("content", conversation_text)
+                    done_content = event.data.get("content", "")
+                    if done_content:
+                        conversation_text = done_content
+                    debug_rounds = event.data.get("debug_rounds", [])
                 elif event.type == AgentEventType.TOOL_RESULT:
                     accumulator.record_event(event)
                     yield event
@@ -461,6 +484,36 @@ class DiagnosisService:
         user_parts = build_user_parts(content, image_urls, structured_response)
         assistant_parts = build_assistant_parts(conversation_text, accumulator, ctx)
 
+        # Build debug metadata — records what the agent saw and did
+        debug_metadata = None
+        if not red_flags:
+            # Build enriched history with thinking stripped for readability
+            enriched_preview = []
+            for m in debug_history_snapshot:
+                c = m["content"]
+                # Strip [Thinking: ...] prefix to show the actual content
+                if c.startswith("[Thinking:"):
+                    # Find the end of the thinking block
+                    end = c.find("]\n")
+                    actual = c[end + 2:].strip() if end != -1 else c
+                    enriched_preview.append({
+                        "role": m["role"],
+                        "content": actual[:300] if actual else "(thinking only)",
+                        "has_thinking": True,
+                    })
+                else:
+                    enriched_preview.append({
+                        "role": m["role"],
+                        "content": c[:300],
+                    })
+
+            debug_metadata = {
+                "turn_number": turn_number,
+                "enriched_history": enriched_preview,
+                "agent_rounds": debug_rounds,
+                "memories_used": ctx.memories_used,
+            }
+
         user_msg = DiagnosisMessage(
             session_id=session.id,
             role="user",
@@ -472,6 +525,7 @@ class DiagnosisService:
             role="assistant",
             content=conversation_text,
             content_parts=assistant_parts,
+            metadata_=debug_metadata,
         )
         now = datetime.now(timezone.utc)
         user_msg.created_at = now
@@ -577,11 +631,19 @@ class DiagnosisService:
 
         # Extract resolution facts to long-term memory (best-effort)
         try:
-            await self._mem_extractor.extract_and_store(
+            extraction_result = await self._mem_extractor.extract_and_store(
                 profile_id=profile.id,
                 messages=[{"role": "system", "content": resolution_summary}],
                 source=f"diagnosis:{session.id}:resolution",
                 category="diagnoses",
+            )
+            await record_extraction(
+                self._db,
+                profile_id=profile.id,
+                session_type="diagnosis",
+                session_id=session.id,
+                mem0_result=extraction_result,
+                input_message_count=1,
             )
         except Exception:
             logger.exception("Resolution memory extraction failed for session %s", session.id)
@@ -736,6 +798,19 @@ class DiagnosisService:
             return content
 
         extras: list[str] = []
+
+        # --- Recover empty assistant messages (tool calls with no text) ---
+        if msg.role == "assistant" and not content.strip():
+            for part in parts_list:
+                if (
+                    isinstance(part, dict)
+                    and part.get("type") == "tool_call"
+                    and part.get("name") == "present_question"
+                ):
+                    question = (part.get("arguments") or {}).get("prompt", "")
+                    if question:
+                        content = question
+                    break
 
         for part in parts_list:
             if not isinstance(part, dict):
