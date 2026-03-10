@@ -129,7 +129,7 @@ function AssistantBubble({ content, contentParts, Colors, markdownStyles, onStru
             case 'image':
               return <ImagePartView key={i} part={part} />;
             case 'structured_input':
-              return <StructuredInputView key={i} part={part} onResponse={onStructuredResponse} isLatest={!!isLatestAssistant} />;
+              return <StructuredInputView key={`si-${part.prompt}`} part={part} onResponse={onStructuredResponse} isLatest={!!isLatestAssistant} />;
             case 'text':
               return <Markdown key={i} style={markdownStyles}>{part.text}</Markdown>;
             default:

@@ -959,16 +959,26 @@ class DiagnosisService:
                 continue
             reported.append(content)
 
+        # Count turns since last assessment (or from start)
+        prev_turn = 0
+        for m in messages:
+            if m["role"] == "assistant" and "## Assessment" in m.get("content", ""):
+                prev_turn = sum(1 for msg in messages[:messages.index(m) + 1] if msg["role"] == "user")
+
         if is_followup:
-            header = f"Follow-up assessment on {date_str} (turns {prev_assessments * 8 + 1}–{turn_number})."
+            header = f"Follow-up assessment on {date_str} (turns {prev_turn + 1}–{turn_number})."
         else:
             header = f"Initial assessment on {date_str} (turns 1–{turn_number})."
+
+        # Extract just the assessment section, not the full response
+        assessment_start = assessment_text.find("## Assessment")
+        assessment_section = assessment_text[assessment_start:assessment_start + 2000] if assessment_start >= 0 else assessment_text[:2000]
 
         summary = (
             f"{header}\n"
             f"Chief complaint: {session.chief_complaint}.\n"
             f"Patient reported: {'; '.join(reported)}.\n"
-            f"Assessment:\n{assessment_text[:2000]}"
+            f"Assessment:\n{assessment_section}"
         )
 
         # Use our own LLM to extract discrete facts (not Mem0's nemotron)
