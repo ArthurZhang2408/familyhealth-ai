@@ -220,6 +220,29 @@ class TestRedFlagPreCheck:
         flags = pre_check_red_flags("child has a fever", profile_age=5.0)
         assert flags == []
 
+    def test_negated_multi_select_not_flagged(self) -> None:
+        """'Does NOT have' section should be stripped before scanning."""
+        msg = (
+            "Has: None of the above. Does NOT have: Nausea or vomiting, "
+            "Bloating or excessive gas, Black, tarry, or bloody stools, "
+            "Vomiting blood or coffee-ground material"
+        )
+        flags = pre_check_red_flags(msg)
+        assert flags == [], f"False positive on negated symptoms: {flags}"
+
+    def test_negated_multiple_choice_not_flagged(self) -> None:
+        """'Not selected' section should be stripped before scanning."""
+        msg = "Selected: Mild headache. Not selected: Chest pain, Slurred speech."
+        flags = pre_check_red_flags(msg)
+        assert flags == [], f"False positive on rejected options: {flags}"
+
+    def test_affirmed_symptoms_still_flagged(self) -> None:
+        """'Has' section should still trigger flags."""
+        msg = "Has: Vomiting blood. Does NOT have: Nausea, Bloating."
+        flags = pre_check_red_flags(msg)
+        assert len(flags) >= 1
+        assert any("abdominal" in f for f in flags)
+
 
 class TestResponseValidation:
     def test_clean_response(self) -> None:

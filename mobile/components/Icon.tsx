@@ -32,7 +32,12 @@ export type IconName =
   | 'brain'
   | 'pencil'
   | 'trash'
-  | 'chevron-back';
+  | 'chevron-back'
+  | 'alert-circle'
+  | 'medkit'
+  | 'flask'
+  | 'shield'
+  | 'link';
 
 interface Props {
   name: IconName;
@@ -92,5 +97,15 @@ export function Icon({ name, size, color }: Props) {
       return <Ionicons name="trash-outline" size={size} color={color} />;
     case 'chevron-back':
       return <Ionicons name="chevron-back" size={size} color={color} />;
+    case 'alert-circle':
+      return <Ionicons name="alert-circle" size={size} color={color} />;
+    case 'medkit':
+      return <Ionicons name="medkit-outline" size={size} color={color} />;
+    case 'flask':
+      return <Ionicons name="flask-outline" size={size} color={color} />;
+    case 'shield':
+      return <Ionicons name="shield-checkmark-outline" size={size} color={color} />;
+    case 'link':
+      return <Ionicons name="link-outline" size={size} color={color} />;
   }
 }

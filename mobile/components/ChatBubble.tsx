@@ -13,6 +13,7 @@ import {
   ImagePartView,
   ThinkingPartView,
 } from '@/components/message-parts';
+import { DiagnosisReportView } from '@/components/message-parts/DiagnosisReportView';
 import type { MessagePart } from '@/types/api';
 
 class PartErrorBoundary extends React.Component<{ fallback: React.ReactNode; children: React.ReactNode }, { hasError: boolean }> {
@@ -120,9 +121,11 @@ function AssistantBubble({ content, contentParts, Colors, markdownStyles, onStru
               return <AgentStepsPartView key={i} part={part} />;
             case 'memory_context':
               return <MemoryContextPartView key={i} part={part} />;
+            case 'assessment':
+              return <DiagnosisReportView key={i} part={part} />;
             case 'tool_call':
-              // Skip tools that have dedicated UI (structured input, agent steps)
-              if (part.name === 'present_question' || part.name === 'search_patient_memory') return null;
+              // Skip tools that have dedicated UI (structured input, agent steps, assessment)
+              if (part.name === 'present_question' || part.name === 'present_assessment' || part.name === 'search_patient_memory') return null;
               return <ToolCallPartView key={i} call={part} result={toolResults.get(part.id)} />;
             case 'tool_result':
               return null;

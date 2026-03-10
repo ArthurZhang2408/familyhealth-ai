@@ -151,6 +151,7 @@ erDiagram
         uuid id PK
         uuid profile_id FK
         text status
+        text title
         text chief_complaint
         jsonb differential_diagnoses
         text resolution_notes
@@ -259,6 +260,7 @@ CREATE TABLE diagnosis_sessions (
     profile_id             UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
     status                 TEXT NOT NULL DEFAULT 'active'
                                CHECK (status IN ('active','resolved','abandoned')),
+    title                  TEXT,            -- display title (auto-generated or user-renamed)
     chief_complaint        TEXT,
     differential_diagnoses JSONB DEFAULT '[]',
     resolution_notes       TEXT,
@@ -612,8 +614,40 @@ Append-only `action_log` table. Every significant action is recorded with full p
 | `memory_updated` | Mem0 memory changed | `{ "memory_id": "...", "source": "diagnosis" }` |
 | `memory_extracted` | New facts extracted | `{ "facts": ["hemoglobin 14.2 g/dL"], "source": "report" }` |
 | `memory_deleted` | Admin action | `{ "memory_id": "...", "reason": "user request" }` |
+| `chat_deleted` | Chat deletion | `{ "conversation_id": "..." }` |
+| `diagnosis_deleted` | Session deletion | `{ "session_id": "..." }` |
 
 ### Runtime Memory Flow
+
+**Diagnosis (agent-driven retrieval):**
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant API as FastAPI
+    participant Agent as AgentCore
+    participant MS as MemoryService
+    participant M0 as Mem0
+    participant PG as PostgreSQL
+
+    U->>API: Send message (profile_id, content)
+    API->>PG: Load profile (Tier 1 facts)
+    Note over API: Build system prompt with profile only
+
+    API->>Agent: run_stream(session, DIAGNOSIS_AGENT)
+
+    Agent->>MS: search_patient_memory tool (on-demand)
+    MS->>M0: search(query, user_id=profile_id)
+    M0-->>MS: Episodic memories with dates
+    MS-->>Agent: Results for clinical reasoning
+
+    Agent-->>U: Stream response (text + tools)
+
+    Note over API: Post-assessment: extract memories
+    API->>PG: Store messages + action_log
+```
+
+**Chat / Reports (auto-injected retrieval):**
 
 ```mermaid
 sequenceDiagram
@@ -626,26 +660,18 @@ sequenceDiagram
 
     U->>API: Send message (profile_id, content)
 
-    par Load context
-        API->>PG: Load profile (Tier 1 facts)
-        API->>MS: Retrieve relevant memories
-        MS->>M0: search(query=content, user_id=profile_id, limit=10)
-        M0-->>MS: Episodic memories (Tier 2)
-    end
+    API->>PG: Load profile (Tier 1 facts)
+    API->>MS: Retrieve relevant memories
+    MS->>M0: search(query=content, user_id=profile_id, limit=10)
+    M0-->>MS: Episodic memories (Tier 2)
 
-    MS-->>API: Combined context (profile + memories)
-
-    Note over API,LLM: Build system prompt with profile facts,<br/>relevant memories, and conversation history
+    Note over API,LLM: Build system prompt with profile + memories
 
     API->>LLM: Generate response
     LLM-->>API: AI response
 
     par Post-interaction
-        API->>PG: Store message pair (user + assistant)
-        API->>MS: Memory update
-        MS->>M0: add(messages, user_id=profile_id)
-        Note over M0: Extract facts + entities
-        M0->>PG: Store embeddings (Tier 2)
+        API->>PG: Store messages
         API->>PG: Append to action_log (Tier 3)
     end
 

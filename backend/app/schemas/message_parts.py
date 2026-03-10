@@ -22,6 +22,7 @@ class MessagePartType(StrEnum):
     MEMORY_CONTEXT = "memory_context"
     STRUCTURED_INPUT = "structured_input"
     THINKING = "thinking"
+    ASSESSMENT = "assessment"
 
 
 # ── Individual part models ───────────────────────────────────────────────
@@ -89,6 +90,48 @@ class StructuredInputPart(BaseModel):
     selected: Any | None = None
 
 
+class AssessmentCondition(BaseModel):
+    name: str
+    confidence: str  # "most_likely", "possible", "less_likely"
+    reasoning: str
+    confirming_tests: str | None = None
+
+
+class AssessmentAction(BaseModel):
+    action: str
+    detail: str | None = None
+
+
+class AssessmentMedication(BaseModel):
+    name: str
+    dosage: str
+    notes: str | None = None
+
+
+class AssessmentTest(BaseModel):
+    name: str
+    reason: str
+    urgency: str | None = None
+
+
+class AssessmentSource(BaseModel):
+    title: str
+    url: str
+
+
+class AssessmentPart(BaseModel):
+    """Structured diagnosis assessment — rendered as card-based native UI."""
+
+    type: Literal["assessment"] = "assessment"
+    conditions: list[AssessmentCondition]
+    self_care: list[AssessmentAction] = []
+    medications: list[AssessmentMedication] = []
+    tests: list[AssessmentTest] = []
+    warnings: list[str] = []
+    follow_up: str | None = None
+    sources: list[AssessmentSource] = []
+
+
 # ── Union type ───────────────────────────────────────────────────────────
 
 MessagePart = (
@@ -100,6 +143,7 @@ MessagePart = (
     | MemoryContextPart
     | ThinkingPart
     | StructuredInputPart
+    | AssessmentPart
 )
 
 

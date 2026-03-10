@@ -17,6 +17,7 @@ app/agents/
 ├── definitions.py     # DIAGNOSIS_AGENT, REPORT_AGENT, CHAT_AGENT
 └── tools/
     ├── memory_search.py     # search_patient_memory (wraps MemoryService)
+    ├── present_assessment.py # present_assessment (terminal, structured diagnosis report)
     ├── present_question.py  # present_question (terminal, structured Q&A)
     ├── profile_lookup.py    # get_profile_context (loads from DB)
     └── web_search.py        # web_search (DuckDuckGo + Tavily + PubMed)
@@ -35,7 +36,7 @@ app/agents/
 
 | Agent | Task | Tools | Default Provider | Max Rounds | Thinking |
 |-|-|-|-|-|-|
-| DIAGNOSIS_AGENT | DIAGNOSIS | search_patient_memory, present_question, web_search | Cerebras (Gemini via env) | 6 | budget=-1 (auto) |
+| DIAGNOSIS_AGENT | DIAGNOSIS | search_patient_memory, present_question, present_assessment, web_search | Cerebras (Gemini via env) | 6 | budget=-1 (auto) |
 | REPORT_AGENT | REPORT_ANALYSIS | (none — JSON mode) | Gemini | 0 | disabled |
 | CHAT_AGENT | CHAT | search_patient_memory, web_search | Cerebras | 3 | disabled |
 
@@ -92,5 +93,4 @@ ignore the `thinking_budget` field.
 
 ## Future Extensions
 
-- Structured assessment rendering (`present_assessment` tool)
 - Security hooks (PreToolUse validation)

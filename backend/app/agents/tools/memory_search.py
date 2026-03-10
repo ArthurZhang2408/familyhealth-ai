@@ -28,8 +28,33 @@ def build_memory_search_tool(memory_service: MemoryService) -> ToolDefinition:
             categories=categories,
             threshold=0.05,
         )
-        memories = [m.get("memory", "") for m in results if m.get("memory")]
-        return {"memories": memories, "count": len(memories)}
+        memories = []
+        memories_with_dates = []
+        for m in results:
+            text = m.get("memory", "")
+            if not text:
+                continue
+            # Extract date for both LLM context and UI display
+            ts = m.get("updated_at") or m.get("created_at") or ""
+            date_str = None
+            if ts:
+                try:
+                    from datetime import datetime
+                    dt = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+                    date_str = dt.strftime("%b %-d, %Y")
+                except (ValueError, AttributeError):
+                    pass
+            # Include date in the string the LLM sees — temporal context matters
+            if date_str:
+                memories.append(f"[{date_str}] {text}")
+            else:
+                memories.append(text)
+            memories_with_dates.append({"text": text, "date": date_str})
+        return {
+            "memories": memories,  # date-prefixed strings for the LLM
+            "memories_with_dates": memories_with_dates,  # structured for UI
+            "count": len(memories),
+        }
 
     return ToolDefinition(
         name="search_patient_memory",

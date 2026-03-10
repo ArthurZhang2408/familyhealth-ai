@@ -61,6 +61,7 @@ class AgentEventType(StrEnum):
     COMPLETE = "complete"
     DONE = "done"
     STRUCTURED_QUESTION = "structured_question"
+    STRUCTURED_ASSESSMENT = "structured_assessment"
     THINKING_DELTA = "thinking_delta"
 
 

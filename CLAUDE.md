@@ -24,10 +24,10 @@ AI-powered diagnosis, medical report analysis, and health chat.
 - Backend is FastAPI with service layer pattern
 - All LLM interactions go through an abstract `LLMProvider` interface with `LLMRouter` dispatcher so models are swappable
 - Memory layer sits between app logic and LLM — every interaction:
-  1. Loads structured profile + retrieves relevant episodic memory
-  2. Injects into system prompt
+  1. Loads structured profile into system prompt
+  2. Agent retrieves episodic memory on demand via `search_patient_memory` tool (diagnosis) or auto-injected (chat/reports)
   3. Runs conversation
-  4. Post-interaction: extracts facts → updates profile + stores episodic memory
+  4. Post-interaction: extracts facts → stores episodic memory
 
 ## Frontend Architecture
 - **Navigation**: Drawer sidebar (Claude/ChatGPT-style), no bottom tabs
@@ -63,8 +63,12 @@ The diagnosis agent uses hypothesis-driven reasoning with structured Q&A:
 - OLDCARTS framework as coverage audit (not a rigid script), red flags as hard interrupt
 - Conversation history enrichment: user messages prepend question context (`_enrich_content`); assistant messages NOT enriched (models mimic any text placed there)
 - User responses include rejected options ("Does NOT have: fever, vomiting") to prevent re-asking
-- Assessment delivered as formatted markdown (no tables) with ranked differential, OTC meds, tests, warning signs
-- State extraction runs post-DONE (non-blocking) via `_extract_state`
+- Red flag pre-check strips negated symptoms ("Does NOT have:", "Not selected:") before keyword scanning
+- Memory retrieval is agent-driven: `search_patient_memory` tool called on turn 1 (chief complaint) and later when clinically relevant. No auto-injection into system prompt. `ContextBuilder` called with `skip_memories=True` for diagnosis
+- Assessment delivered via `present_assessment` terminal tool → `AssessmentPart` in `content_parts` → `DiagnosisReportView` card-based native UI
+- `present_assessment` provides structured data (conditions, medications, self_care, tests, warnings, follow_up, sources) — eliminates separate `_extract_state()` LLM call on assessment turns
+- `_format_assessment_text()` generates markdown fallback for the `content` column (backward compat, search)
+- `DiagnosisState.differential_diagnoses` populated directly from tool args via `_state_from_assessment_tool()`
 - `StructuredInputPart` persisted in `content_parts` for both assistant (question) and user (answer)
 
 ### Agent Web Search
@@ -82,8 +86,10 @@ The diagnosis agent uses hypothesis-driven reasoning with structured Q&A:
 - Thinking tokens excluded from conversation history and text buffer
 
 ### Planned — next phases
-- **Structured assessment rendering**: `present_assessment` tool with custom `DiagnosisReportView` component (card-based native UI instead of markdown)
 - **Unified session abstraction**: ✅ Done. `title` column on `diagnosis_sessions`, `PATCH /{sid}/rename`, shared `useDeleteSession`/`useRenameSession` hooks, unified `openSessionMenu` sidebar handler, auto-title generation for diagnosis
+- **Structured assessment rendering**: ✅ Done. `present_assessment` terminal tool, `AssessmentPart` schema, `DiagnosisReportView` card-based native UI, SSE `structured_assessment` event
+- **Consolidated session memories**: Replace per-fact extraction with one consolidated memory per diagnosis session. Current approach produces garbage (duplicates, negations, assistant-attributed facts). New approach: LLM summarizes the full conversation (patient Q&A answers + assessment tool output) into a single narrative paragraph per session. Stored with `source=diagnosis:{sid}` for clean UPDATE on follow-up assessments. Eliminates Mem0 dedup failures. Also fix: duplicate memories in Mem0 store from prior sessions need cleanup.
+- **Memory quality improvements**: Agent-driven retrieval is working (searches on turn 1 + when clinically relevant). Remaining issues: empty transitional text on some turns (model behavior), memory dedup in Mem0 store
 
 ## Critical Rules
 - NEVER store raw medical data in LLM context without profile scoping

@@ -19,6 +19,7 @@ const TOOL_LABELS: Record<string, string> = {
   web_search: 'Searching the web',
   search_patient_memory: 'Searching memory',
   present_question: 'Preparing question',
+  present_assessment: 'Preparing assessment',
   profile_lookup: 'Looking up profile',
 };
 
@@ -58,6 +59,7 @@ export function useConversation({ serverMessages, streamSendFn, dedupMode, onSen
   const agentStepsRef = useRef<AgentStep[]>([]);
   const activeAbortRef = useRef<(() => void) | null>(null);
   const structuredQuestionsRef = useRef<MessagePart[]>([]);
+  const assessmentRef = useRef<MessagePart | null>(null);
 
   const handleAttach = useAttachMenu((attachment) => setPendingAttachment(attachment));
 
@@ -156,6 +158,18 @@ export function useConversation({ serverMessages, streamSendFn, dedupMode, onSen
           range: event.range as Record<string, unknown> | undefined,
         });
         break;
+      case 'structured_assessment':
+        assessmentRef.current = {
+          type: 'assessment' as const,
+          conditions: event.conditions,
+          self_care: event.self_care ?? [],
+          medications: event.medications ?? [],
+          tests: event.tests ?? [],
+          warnings: event.warnings ?? [],
+          follow_up: event.follow_up,
+          sources: event.sources,
+        };
+        break;
     }
   }, []);
 
@@ -202,6 +216,7 @@ export function useConversation({ serverMessages, streamSendFn, dedupMode, onSen
       streamingContentRef.current = '';
       agentStepsRef.current = [];
       structuredQuestionsRef.current = [];
+      assessmentRef.current = null;
       setAgentSteps([]);
 
       let doneEvent: DoneEvent | undefined;
@@ -230,7 +245,12 @@ export function useConversation({ serverMessages, streamSendFn, dedupMode, onSen
             steps: steps.map((s) => ({ id: s.id, message: s.message, tool: s.tool, details: s.details })),
           });
         }
-        parts.push({ type: 'text' as const, text: done.content });
+        // Include assessment part if present (replaces text for assessment turns)
+        if (assessmentRef.current) {
+          parts.push(assessmentRef.current);
+        } else {
+          parts.push({ type: 'text' as const, text: done.content });
+        }
         // Include structured questions accumulated during streaming
         for (const sq of structuredQuestionsRef.current) {
           parts.push(sq);
@@ -271,6 +291,7 @@ export function useConversation({ serverMessages, streamSendFn, dedupMode, onSen
         setAgentSteps([]);
         agentStepsRef.current = [];
         structuredQuestionsRef.current = [];
+        assessmentRef.current = null;
         isSendingRef.current = false;
         activeAbortRef.current = null;
         onSendComplete?.(doneEvent);
