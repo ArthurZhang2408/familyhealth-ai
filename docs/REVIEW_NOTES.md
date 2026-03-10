@@ -12,48 +12,25 @@ Review of `ARCHITECTURE.md`, `API_SPEC.md`, `MEMORY_SYSTEM.md`, `DIAGNOSIS_AGENT
 
 ## 1. Inconsistencies Between Documents
 
-### 1.1 Mem0 LLM provider conflict (HIGH)
+### 1.1 ~~Mem0 LLM provider conflict~~ ✅ RESOLVED
 
-ARCHITECTURE.md configures Mem0's internal LLM as **Gemini**:
+Both docs now use `nemotron-3-nano:30b` via Ollama Cloud. Diagnosis extraction bypasses Mem0's internal LLM entirely (Cerebras `FACT_EXTRACTION` + `add_raw(infer=False)`).
 
-```python
-"llm": {"provider": "google", "config": {"model": "gemini-2.0-flash"}}
-```
+### 1.2 ~~MemoryService sync vs async~~ ✅ RESOLVED
 
-MEMORY_SYSTEM.md configures it as **Qwen** via OpenAI-compatible endpoint:
+Both docs show `async def` with `asyncio.to_thread()` wrapping Mem0's sync calls.
 
-```python
-"llm": {"provider": "openai_structured", "config": {"model": "qwen-turbo"}}
-```
+### 1.3 ~~MemoryService.search() return type~~ ✅ RESOLVED
 
-MEMORY_SYSTEM.md includes an explicit rationale section ("Why Qwen for Mem0's Internal LLM"). The ARCHITECTURE.md version appears outdated. **Pick one and update the other.**
+Both docs use the unwrapped `result.get("results", [])` pattern.
 
-### 1.2 MemoryService sync vs async (HIGH)
+### 1.4 ~~Diagnosis structured output tag~~ ✅ RESOLVED
 
-- ARCHITECTURE.md declares all MemoryService methods as `async def`.
-- MEMORY_SYSTEM.md declares them as plain `def` (synchronous).
-- Mem0's Python client is synchronous, so MEMORY_SYSTEM.md is likely correct. But calling sync code from async FastAPI blocks the event loop — see Section 3.2.
+Inline tag parsing eliminated. State extraction now uses a separate post-DONE `_extract_state()` call with `FACT_EXTRACTION` task (JSON mode). No `<diagnosis_state>` or `<differential>` tags in prompts.
 
-### 1.3 MemoryService.search() return type (MEDIUM)
+### 1.5 ~~DifferentialDiagnosis schema~~ ✅ RESOLVED
 
-- ARCHITECTURE.md returns the raw Mem0 result: `return self._mem0.search(...)`.
-- MEMORY_SYSTEM.md unwraps it: `return result.get("results", [])`.
-
-Downstream code (prompt assembly, retrieval pipeline) assumes a `list[dict]`, so the unwrapped version is correct. ARCHITECTURE.md needs updating.
-
-### 1.4 Diagnosis structured output tag (HIGH)
-
-- MEMORY_SYSTEM.md Section 5 uses `<differential>` tags with a simple array schema.
-- DIAGNOSIS_AGENT.md uses `<diagnosis_state>` tags with a rich schema (phase, severity, information_gathered, etc.).
-
-These are fundamentally different. The parsing code in DIAGNOSIS_AGENT.md references `<diagnosis_state>`. **MEMORY_SYSTEM.md's prompt template needs updating to match.**
-
-### 1.5 DifferentialDiagnosis schema (MEDIUM)
-
-- ARCHITECTURE.md / API_SPEC.md: `{ condition, confidence, reasoning }` (3 fields).
-- DIAGNOSIS_AGENT.md: `{ condition, confidence, reasoning, action_plan, urgency }` (5 fields).
-
-The DB stores this as JSONB so it's flexible, but the API TypeScript types and mobile app will need to agree on one schema. DIAGNOSIS_AGENT.md's richer version is more useful. **Update API_SPEC.md and ARCHITECTURE.md to include `action_plan` and `urgency`.**
+All docs now use 5-field schema: `{ condition, confidence, reasoning, action_plan, urgency }`.
 
 ### 1.6 Chat `per_page` default (LOW)
 
@@ -62,12 +39,9 @@ The DB stores this as JSONB so it's flexible, but the API TypeScript types and m
 
 Intentional or oversight? If intentional, document the exception.
 
-### 1.7 `LLMService` vs `LLMProvider` naming (LOW)
+### 1.7 ~~`LLMService` vs `LLMProvider` naming~~ ✅ RESOLVED
 
-- CLAUDE.md: "All LLM interactions go through an abstract `LLMService`".
-- ARCHITECTURE.md: defines `LLMProvider` (interface) + `LLMRouter` (dispatcher).
-
-Update CLAUDE.md to use the actual names.
+CLAUDE.md now uses `LLMProvider` + `LLMRouter`.
 
 ### 1.8 Security table formatting (LOW)
 
@@ -77,24 +51,13 @@ ARCHITECTURE.md Section 6 "Security Summary" table has `|-|-|-|` (3 columns) but
 
 ## 2. Missing Details That Block Implementation
 
-### 2.1 OpenAI embedding dependency undocumented (HIGH)
+### 2.1 ~~OpenAI embedding dependency undocumented~~ ✅ RESOLVED
 
-MEMORY_SYSTEM.md requires `OPENAI_API_KEY` for `text-embedding-3-small` embeddings. This is absent from:
-- CLAUDE.md tech stack
-- ARCHITECTURE.md component table
-- Any environment variable listing
+Using Gemini embeddings (`models/gemini-embedding-001`, 768 dims). No OpenAI dependency. Reuses existing Gemini API key.
 
-This is a third API vendor (alongside Gemini and Qwen) that no one would know about from reading CLAUDE.md or ARCHITECTURE.md. **Decision needed: use OpenAI embeddings, switch to Gemini embeddings (`text-embedding-004`), or use Qwen embeddings to reduce vendor count?**
+### 2.2 ~~Qwen API provider unspecified~~ ✅ RESOLVED
 
-### 2.2 Qwen API provider unspecified (HIGH)
-
-No document specifies:
-- Which Qwen model version (qwen-turbo, qwen-plus, qwen-max, qwen2.5-*?)
-- The API provider (DashScope, Together AI, OpenRouter, self-hosted?)
-- The `QWEN_BASE_URL` value
-- Pricing tier considerations
-
-This blocks anyone from setting up the dev environment.
+Qwen `qwen3.5:397b` via Ollama Cloud (OpenAI-compatible API). Cerebras `gpt-oss-120b` is now the primary provider. Qwen is fallback only.
 
 ### 2.3 Background task mechanism (HIGH)
 
@@ -105,12 +68,9 @@ MEMORY_SYSTEM.md says extraction is a "post-interaction background task" that "n
 
 For a health app where losing extracted memories is tolerable (they'll be re-extracted), `BackgroundTasks` is fine for v1 — but this should be an explicit decision.
 
-### 2.4 Neo4j deployment (MEDIUM)
+### 2.4 ~~Neo4j deployment~~ ✅ RESOLVED
 
-ARCHITECTURE.md lists Neo4j as required infrastructure. Deployment section only mentions Railway + Expo EAS. Where does Neo4j run?
-- Railway (Docker container)?
-- Neo4j Aura (managed cloud)?
-- Same server as PostgreSQL?
+Neo4j / graph memory deferred to v2. Not in the current stack. pgvector only.
 
 ### 2.5 Push notification infrastructure (MEDIUM)
 
@@ -162,19 +122,13 @@ A `.env.example` template should exist.
 
 ## 3. Architectural Decisions to Revisit
 
-### 3.1 Three API vendors for LLM/embeddings
+### 3.1 ~~Three API vendors for LLM/embeddings~~ ✅ RESOLVED
 
-Current: Gemini (diagnosis/reports) + Qwen (chat/extraction) + OpenAI (embeddings only). Three vendors means three API keys, three billing accounts, three failure modes.
+Now: Cerebras (primary text tasks) + Gemini (reports, multimodal, embeddings) + Qwen (fallback). No OpenAI dependency. Embeddings use Gemini (`gemini-embedding-001`).
 
-**Consider:** Gemini's `text-embedding-004` or Qwen's embedding model to eliminate the OpenAI dependency entirely. This reduces vendor count to two, which is the minimum given the Gemini/Qwen split.
+### 3.2 ~~Synchronous Mem0 in async FastAPI~~ ✅ RESOLVED
 
-### 3.2 Synchronous Mem0 in async FastAPI
-
-Mem0's Python client is synchronous. Calling it directly from `async def` route handlers will block the event loop and kill concurrency under load. Two options:
-1. Wrap every Mem0 call in `asyncio.to_thread()` / `run_in_executor()`
-2. Check if Mem0 has released an async client
-
-This is a performance-critical detail for a multi-user app. **Decide on the wrapping strategy and document it in MemoryService.**
+All Mem0 calls wrapped in `asyncio.to_thread()` in `MemoryService`.
 
 ### 3.3 LLM-only drug interaction checking
 
@@ -182,21 +136,17 @@ DIAGNOSIS_AGENT.md acknowledges that drug interaction checking is purely LLM-bas
 
 **For v1, this is acceptable if:** (a) the disclaimer is prominent, (b) the system never _recommends_ specific drugs (it doesn't), and (c) the interaction warnings are framed as "possible" not "confirmed." All three are currently true. But document this as a known limitation in user-facing terms, not just in the design doc.
 
-### 3.4 Fragile `<diagnosis_state>` JSON extraction
+### 3.4 ~~Fragile `<diagnosis_state>` JSON extraction~~ ✅ RESOLVED
 
-The system relies on the LLM emitting valid JSON inside `<diagnosis_state>` tags. The fallback on parse failure is `{"phase": "unknown", "severity": "moderate"}`, which loses the differential diagnosis.
+Inline tag parsing eliminated. Uses two-pass approach: agentic conversation loop (Pass 1) + separate `_extract_state()` call with JSON mode (Pass 2). No inline JSON tags.
 
-**Consider:** Using Gemini's structured output / JSON mode (`response_mime_type: "application/json"`) and separating the conversational response from the structured data via a two-pass approach or function calling. This would be more reliable than regex-parsing embedded tags.
+### 3.5 ~~PUT for partial profile updates~~ ✅ RESOLVED
 
-### 3.5 PUT for partial profile updates
+API_SPEC.md and ARCHITECTURE.md both use `PATCH /profiles/{pid}` for partial updates.
 
-API_SPEC.md uses `PUT /profiles/{pid}` but describes partial-update semantics ("only provided fields are changed"). REST convention: `PUT` = full replacement, `PATCH` = partial update. Using `PUT` with partial semantics will confuse API consumers and tools (e.g., OpenAPI generators may treat omitted fields as intentional nullification).
+### 3.6 ~~Mem0 data cleanup on profile deletion~~ ✅ RESOLVED
 
-**Recommend:** Change to `PATCH /profiles/{pid}`.
-
-### 3.6 Mem0 data cleanup on profile deletion
-
-When a profile is deleted, `memory_service.delete_all(profile_id)` is called. This should clean pgvector entries, but does it also clean Neo4j graph data? Mem0's `delete_all(user_id=...)` behavior for graph stores needs verification. If it doesn't clean Neo4j, orphaned graph nodes will accumulate.
+Neo4j not in v1 (pgvector only). `delete_all(profile_id)` cleans pgvector entries. Session-level cleanup via `delete_by_source()` also implemented.
 
 ### 3.7 No rate limiting on SSE connections
 

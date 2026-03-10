@@ -173,6 +173,35 @@ export interface Report {
 
 // ── Message Parts ────────────────────────────────────────────────────────────
 
+export interface AssessmentCondition {
+  name: string;
+  confidence: 'most_likely' | 'possible' | 'less_likely';
+  reasoning: string;
+  confirming_tests?: string;
+}
+
+export interface AssessmentAction {
+  action: string;
+  detail?: string;
+}
+
+export interface AssessmentMedication {
+  name: string;
+  dosage: string;
+  notes?: string;
+}
+
+export interface AssessmentTest {
+  name: string;
+  reason: string;
+  urgency?: string;
+}
+
+export interface AssessmentSource {
+  title: string;
+  url: string;
+}
+
 export type MessagePart =
   | { type: 'text'; text: string }
   | { type: 'image'; url: string; mime_type: string; filename?: string }
@@ -181,7 +210,8 @@ export type MessagePart =
   | { type: 'agent_steps'; steps: Array<{ id: string; message: string; tool?: string; details?: string[] }> }
   | { type: 'memory_context'; memories: Array<{ text: string; date?: string }>; count: number }
   | { type: 'thinking'; text: string }
-  | { type: 'structured_input'; input_type: string; prompt: string; options?: Array<Record<string, unknown>>; range?: Record<string, unknown>; selected?: unknown };
+  | { type: 'structured_input'; input_type: string; prompt: string; options?: Array<Record<string, unknown>>; range?: Record<string, unknown>; selected?: unknown }
+  | { type: 'assessment'; conditions: AssessmentCondition[]; self_care: AssessmentAction[]; medications: AssessmentMedication[]; tests: AssessmentTest[]; warnings: string[]; follow_up?: string; sources?: AssessmentSource[] };
 
 // ── Chat ─────────────────────────────────────────────────────────────────────
 
@@ -230,5 +260,6 @@ export type StreamEvent =
   | { type: 'tool_call'; tool: string; arguments?: Record<string, unknown> }
   | { type: 'tool_result'; tool: string; summary: string }
   | { type: 'structured_question'; input_type: string; prompt: string; options?: Array<{ label: string; value: string }>; range?: { min: number; max: number; step?: number; labels?: { min: string; max: string } } }
+  | { type: 'structured_assessment'; conditions: AssessmentCondition[]; self_care?: AssessmentAction[]; medications?: AssessmentMedication[]; tests?: AssessmentTest[]; warnings?: string[]; follow_up?: string; sources?: AssessmentSource[] }
   | { type: 'error'; message?: string }
   | { type: 'done'; content: string; id?: string; user_message_id?: string; conversation_id?: string; session_id?: string; disclaimer?: string; diagnosis_state?: DiagnosisState };

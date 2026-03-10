@@ -14,6 +14,24 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
+def _strip_negated_symptoms(message: str) -> str:
+    """Remove negated symptom sections from structured responses.
+
+    Structured responses from multi_select follow the format:
+      "Has: X. Does NOT have: Y, Z."
+    and from multiple_choice:
+      "Selected: X. Not selected: Y, Z."
+
+    Keywords in the negated section are symptoms the patient DENIED.
+    Scanning them would cause false-positive red flag matches.
+    """
+    # Strip "Does NOT have: ..." section (multi_select)
+    msg = re.sub(r"(?i)does not have:.*", "", message)
+    # Strip "Not selected: ..." section (multiple_choice)
+    msg = re.sub(r"(?i)not selected:.*", "", msg)
+    return msg
+
+
 def pre_check_red_flags(message: str, profile_age: float | None = None) -> list[str]:
     """Fast keyword-based red flag pre-check.
 
@@ -21,17 +39,17 @@ def pre_check_red_flags(message: str, profile_age: float | None = None) -> list[
     This is a SUPPLEMENT to the LLM check, not a replacement.
     """
     flags: list[str] = []
-    message_lower = message.lower()
+    scannable = _strip_negated_symptoms(message).lower()
 
     for category, keywords in RED_FLAG_KEYWORDS.items():
         for keyword in keywords:
-            if keyword in message_lower:
+            if keyword in scannable:
                 flags.append(f"{category}: '{keyword}'")
                 break  # one match per category is enough
 
     # Pediatric age-based flags
     if profile_age is not None and profile_age < 0.25:  # under 3 months
-        if any(w in message_lower for w in ["fever", "temperature", "hot"]):
+        if any(w in scannable for w in ["fever", "temperature", "hot"]):
             flags.append("pediatric: infant under 3 months with possible fever")
 
     return flags

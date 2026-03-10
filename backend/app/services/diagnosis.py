@@ -21,6 +21,7 @@ from app.models.profile import Profile
 from app.schemas.action_log import ActionType
 from app.schemas.common import PaginatedResponse
 from app.schemas.diagnosis import (
+    DifferentialDiagnosis,
     DiagnosisMessageResponse,
     DiagnosisSessionResponse,
     DiagnosisState,
@@ -56,6 +57,77 @@ logger = logging.getLogger(__name__)
 
 # Max tokens for conversation history window
 MAX_HISTORY_TOKENS = 4000
+
+
+# Confidence display labels used by _format_assessment_text
+_CONFIDENCE_LABELS = {
+    "most_likely": "Most likely",
+    "possible": "Also possible",
+    "less_likely": "Less likely but worth checking",
+}
+
+
+def _format_assessment_text(args: dict) -> str:
+    """Format present_assessment tool args into markdown for the content column.
+
+    This produces the same markdown shape the agent used to write by hand,
+    ensuring backward compatibility for search and old clients.
+    """
+    sections: list[str] = ["## Assessment\n"]
+
+    for cond in args.get("conditions", []):
+        label = _CONFIDENCE_LABELS.get(cond.get("confidence", ""), cond.get("confidence", ""))
+        sections.append(f"### {label}: {cond.get('name', '')}\n")
+        sections.append(cond.get("reasoning", ""))
+        if cond.get("confirming_tests"):
+            sections.append(f"\n**What would confirm this:** {cond['confirming_tests']}")
+        sections.append("")
+
+    meds = args.get("medications", [])
+    self_care = args.get("self_care", [])
+    if meds or self_care:
+        sections.append("---\n\n## What You Can Do Now\n")
+        for med in meds:
+            line = f"- **{med.get('name', '')}** {med.get('dosage', '')}"
+            if med.get("notes"):
+                line += f" — {med['notes']}"
+            sections.append(line)
+        for sc in self_care:
+            line = f"- {sc.get('action', '')}"
+            if sc.get("detail"):
+                line += f" — {sc['detail']}"
+            sections.append(line)
+        sections.append("")
+
+    tests = args.get("tests", [])
+    if tests:
+        sections.append("## Tests to Consider\n")
+        for t in tests:
+            line = f"- **{t.get('name', '')}** — {t.get('reason', '')}"
+            if t.get("urgency"):
+                line += f" ({t['urgency']})"
+            sections.append(line)
+        sections.append("")
+
+    warnings = args.get("warnings", [])
+    if warnings:
+        sections.append("## Watch For (seek immediate care if)\n")
+        for w in warnings:
+            sections.append(f"- {w}")
+        sections.append("")
+
+    follow_up = args.get("follow_up")
+    if follow_up:
+        sections.append(f"## Follow-up\n\n{follow_up}\n")
+
+    sources = args.get("sources", [])
+    if sources:
+        sections.append("---\n\n**Sources:**")
+        for i, s in enumerate(sources, 1):
+            sections.append(f"{i}. {s.get('title', '')} — {s.get('url', '')}")
+        sections.append("")
+
+    return "\n".join(sections)
 
 
 class DiagnosisService:
@@ -360,6 +432,8 @@ class DiagnosisService:
             accumulator.record_event(ctx_event)
             yield ctx_event
 
+            # Profile only — no auto memory retrieval.
+            # The agent has search_patient_memory tool and queries on demand.
             ctx = await self._ctx.build(
                 db=self._db,
                 profile_id=profile.id,
@@ -367,22 +441,11 @@ class DiagnosisService:
                 interaction_type="diagnosis",
                 memory_budget=2000,
                 template=DIAGNOSIS_SYSTEM_PROMPT,
+                skip_memories=True,
             )
             system_prompt = ctx.system_prompt
 
-            # Record memory retrieval trace
-            await record_retrieval(
-                self._db,
-                profile_id=profile.id,
-                session_type="diagnosis",
-                session_id=session.id,
-                turn_number=None,  # set after building messages below
-                query=session.chief_complaint,
-                raw_memories=ctx.raw_memories or [],
-                injected_count=ctx.memories_used,
-            )
-
-            # Emit detailed context results
+            # Emit profile loaded status
             profile_name = ctx.profile_context.get("name", "patient")
             profile_event = AgentEvent(
                 type=AgentEventType.STATUS,
@@ -391,37 +454,9 @@ class DiagnosisService:
             accumulator.record_event(profile_event)
             yield profile_event
 
-            if ctx.raw_memories:
-                summaries = []
-                for mem in ctx.raw_memories[:5]:
-                    text = mem.get("memory", "")[:80]
-                    ts = mem.get("updated_at") or mem.get("created_at") or ""
-                    date_str = ""
-                    if ts:
-                        try:
-                            dt = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
-                            date_str = dt.strftime("%b %Y")
-                        except (ValueError, AttributeError):
-                            pass
-                    prefix = f"[{date_str}] " if date_str else ""
-                    summaries.append(f"{prefix}{text}")
-                mem_event = AgentEvent(
-                    type=AgentEventType.STATUS,
-                    data={
-                        "step": "memory",
-                        "message": f"Retrieved {ctx.memories_used} memories",
-                        "details": summaries,
-                    },
-                )
-                accumulator.record_event(mem_event)
-                yield mem_event
-            else:
-                mem_event = AgentEvent(
-                    type=AgentEventType.STATUS,
-                    data={"step": "memory", "message": "No relevant memories found"},
-                )
-                accumulator.record_event(mem_event)
-                yield mem_event
+            # Memory retrieval is agent-driven (search_patient_memory tool).
+            # No auto-retrieval status events — the agent's tool calls
+            # appear in agent steps naturally, like web_search.
 
             messages = await self._build_conversation_messages(
                 session.id, content, image_parts=image_parts
@@ -443,6 +478,8 @@ class DiagnosisService:
 
             conversation_text = ""
             debug_rounds: list[dict] = []
+            has_assessment_tool = False
+            assessment_tool_args: dict = {}
             async for event in self._agent.run_stream(agent_session, DIAGNOSIS_AGENT):
                 if event.type == AgentEventType.TEXT_DELTA:
                     conversation_text += event.data.get("content", "")
@@ -455,9 +492,9 @@ class DiagnosisService:
                 elif event.type == AgentEventType.TOOL_RESULT:
                     accumulator.record_event(event)
                     yield event
+                    tool_name = event.data.get("tool")
                     # Emit structured question for present_question tool results
-                    if event.data.get("tool") == "present_question":
-                        # Use the last present_question tool call's args
+                    if tool_name == "present_question":
                         pq_calls = [
                             tc for tc in accumulator.tool_calls
                             if tc.name == "present_question"
@@ -472,6 +509,23 @@ class DiagnosisService:
                                     "options": tc.arguments.get("options"),
                                     "range": tc.arguments.get("range"),
                                 },
+                            )
+                    # Emit structured assessment for present_assessment tool results
+                    elif tool_name == "present_assessment":
+                        pa_calls = [
+                            tc for tc in accumulator.tool_calls
+                            if tc.name == "present_assessment"
+                        ]
+                        if pa_calls:
+                            assessment_tool_args = pa_calls[-1].arguments
+                            has_assessment_tool = True
+                            # Format as markdown for the content column
+                            conversation_text = _format_assessment_text(
+                                assessment_tool_args
+                            )
+                            yield AgentEvent(
+                                type=AgentEventType.STRUCTURED_ASSESSMENT,
+                                data=assessment_tool_args,
                             )
                 else:
                     accumulator.record_event(event)
@@ -515,7 +569,11 @@ class DiagnosisService:
                 "turn_number": turn_number,
                 "enriched_history": enriched_preview,
                 "agent_rounds": debug_rounds,
-                "memories_used": ctx.memories_used,
+                "memories_used": sum(
+                    1 for tr in accumulator.tool_results
+                    if tr.name == "search_patient_memory" and not tr.is_error
+                    for _ in tr.output.get("memories", [])
+                ) if accumulator else 0,
             }
 
         user_msg = DiagnosisMessage(
@@ -561,22 +619,38 @@ class DiagnosisService:
 
         # Best-effort post-processing: state extraction + memory extraction + logging
         if not red_flags:
-            try:
-                diagnosis_state = await self._extract_state(
-                    system_prompt, messages, conversation_text
-                )
-                if diagnosis_state.differential_diagnoses:
+            if has_assessment_tool:
+                # Build DiagnosisState directly from the structured tool output
+                # — no need for a separate LLM _extract_state() call.
+                try:
+                    diagnosis_state = self._state_from_assessment_tool(
+                        assessment_tool_args, turn_number
+                    )
                     session.differential_diagnoses = [
                         d.model_dump() for d in diagnosis_state.differential_diagnoses
                     ]
-                await self._db.commit()
-            except Exception:
-                logger.warning("Post-DONE state extraction failed", exc_info=True)
+                    await self._db.commit()
+                except Exception:
+                    logger.warning(
+                        "Assessment tool state extraction failed", exc_info=True
+                    )
+            else:
+                try:
+                    diagnosis_state = await self._extract_state(
+                        system_prompt, messages, conversation_text
+                    )
+                    if diagnosis_state.differential_diagnoses:
+                        session.differential_diagnoses = [
+                            d.model_dump() for d in diagnosis_state.differential_diagnoses
+                        ]
+                    await self._db.commit()
+                except Exception:
+                    logger.warning("Post-DONE state extraction failed", exc_info=True)
 
             # Extract session facts to long-term memory when an assessment
             # is delivered.  Uses a stable source key so Mem0 UPDATEs existing
             # memories on follow-up assessments instead of creating duplicates.
-            if "## Assessment" in conversation_text:
+            if has_assessment_tool or "## Assessment" in conversation_text:
                 try:
                     await self._extract_assessment_memories(
                         session, profile, messages, conversation_text, turn_number,
@@ -728,7 +802,7 @@ class DiagnosisService:
         image_parts: list[ImagePart] | None = None,
     ) -> tuple[str, DiagnosisState]:
         """Process a single turn: context -> LLM Pass 1 -> safety -> Pass 2."""
-        # 1. Build context via ContextBuilder
+        # 1. Build context — profile only, agent searches memory on demand
         ctx = await self._ctx.build(
             db=self._db,
             profile_id=profile.id,
@@ -736,6 +810,7 @@ class DiagnosisService:
             interaction_type="diagnosis",
             memory_budget=2000,
             template=DIAGNOSIS_SYSTEM_PROMPT,
+            skip_memories=True,
         )
         system_prompt = ctx.system_prompt
 
@@ -882,6 +957,45 @@ class DiagnosisService:
             content = "\n".join(extras) + "\n" + content
 
         return content
+
+    @staticmethod
+    def _state_from_assessment_tool(
+        args: dict, turn_number: int
+    ) -> DiagnosisState:
+        """Build DiagnosisState directly from present_assessment tool arguments.
+
+        Avoids a separate LLM call for state extraction when the agent
+        has already provided structured assessment data via the tool.
+        """
+        confidence_to_score = {
+            "most_likely": 0.8,
+            "possible": 0.5,
+            "less_likely": 0.2,
+        }
+        confidence_to_urgency = {
+            "most_likely": "see_doctor_this_week",
+            "possible": "see_doctor_soon",
+            "less_likely": "monitor_at_home",
+        }
+        differentials = []
+        for cond in args.get("conditions", []):
+            conf_key = cond.get("confidence", "possible")
+            differentials.append(
+                DifferentialDiagnosis(
+                    condition=cond.get("name", ""),
+                    confidence=confidence_to_score.get(conf_key, 0.5),
+                    reasoning=cond.get("reasoning", ""),
+                    action_plan=cond.get("confirming_tests", ""),
+                    urgency=confidence_to_urgency.get(conf_key, "see_doctor_soon"),
+                )
+            )
+        return DiagnosisState(
+            phase="differential",
+            turn_number=turn_number,
+            severity="moderate",
+            differential_diagnoses=differentials,
+            ready_for_differential=True,
+        )
 
     async def _extract_state(
         self,

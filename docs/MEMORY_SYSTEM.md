@@ -233,34 +233,38 @@ Every memory is tagged with a `category` via Mem0's metadata system. Categories 
 
 ### When Extraction Runs
 
-Memory extraction is a **post-interaction background task**. It runs after the AI response is sent to the user, so it never blocks the request. The pipeline is identical for all interaction types (diagnosis, chat, report analysis).
+Memory extraction is a **post-interaction background task**. It runs after the AI response is sent to the user, so it never blocks the request.
+
+**Two extraction paths exist:**
+
+1. **Diagnosis sessions (LLM bypass):** Mem0's internal nemotron LLM produces unreliable output (hallucinated negations, instruction-like facts). For diagnosis, extraction is handled externally: Cerebras (`FACT_EXTRACTION` task, JSON mode) extracts discrete medical facts via `_llm_extract_facts()`, then `MemoryExtractor.store_facts()` stores them via `MemoryService.add_raw(infer=False)` — bypassing Mem0's internal LLM entirely. Extraction triggers on assessment delivery (`## Assessment` marker), not every turn.
+
+2. **Chat and report analysis:** Use Mem0's standard `add()` pipeline (internal LLM handles extraction and dedup).
 
 ```mermaid
 sequenceDiagram
     participant API as FastAPI
-    participant LLM as LLMRouter
+    participant LLM as LLMRouter (Cerebras)
+    participant ME as MemoryExtractor
     participant MS as MemoryService
     participant M0 as Mem0
     participant PG as PostgreSQL
 
-    Note over API: User message processed,<br/>AI response sent
+    Note over API: Diagnosis assessment delivered
 
-    API--)MS: Background: extract_and_store(profile_id, messages)
+    API--)ME: Background: store_facts(profile_id, conversation)
 
-    MS->>M0: add(messages, user_id=profile_id, metadata={category, source})
+    ME->>LLM: Extract facts (FACT_EXTRACTION, JSON mode)
+    LLM-->>ME: {facts: ["fact 1", "fact 2", ...]}
 
-    Note over M0: Internal pipeline:
+    loop For each fact
+        ME->>MS: add_raw(fact, infer=False)
+        MS->>M0: add(fact, infer=False)
+        Note over M0: Skips internal LLM,<br/>stores embedding directly
+        M0->>PG: Store vector embedding
+    end
 
-    M0->>M0: 1. LLM: extract facts from messages<br/>(custom_fact_extraction_prompt)
-    M0->>M0: 2. For each fact: semantic search<br/>existing memories (top 5)
-    M0->>M0: 3. LLM: compare new vs existing<br/>(custom_update_memory_prompt)
-    M0->>M0: 4. Execute decisions:<br/>ADD / UPDATE / DELETE / NONE
-
-    M0->>PG: Store/update vector embeddings
-
-    M0-->>MS: Result: {results: [{id, memory, event}]}
-
-    MS->>PG: Append to action_log<br/>(action_type: memory_fact_extracted)
+    ME->>PG: Append to action_log
 ```
 
 ### The Extraction Prompt
@@ -354,22 +358,32 @@ Return JSON:
 
 ### Source-Specific Extraction
 
-Different interaction types pass different metadata and may use per-call prompt overrides:
+Different interaction types use different extraction strategies:
 
 ```python
+# ── Diagnosis: LLM bypass (Cerebras extracts facts, Mem0 stores only) ──
+
+class MemoryExtractor:
+    async def store_facts(
+        self, profile_id: UUID, facts: list[str], session_id: str
+    ) -> int:
+        """Store pre-extracted facts via MemoryService.add_raw(infer=False).
+        Bypasses Mem0's internal LLM entirely."""
+        stored = 0
+        for fact in facts:
+            await self._memory_service.add_raw(
+                profile_id,
+                fact,
+                metadata={"category": "diagnoses", "source": f"diagnosis:{session_id}"},
+                infer=False,
+            )
+            stored += 1
+        return stored
+
+# ── Chat: standard Mem0 pipeline ──
+
 class MemoryService:
     # ...
-
-    async def extract_from_diagnosis(
-        self, profile_id: UUID, messages: list[dict], session_id: str
-    ) -> dict:
-        """Extract memories from a diagnosis conversation turn."""
-        return await self.add(
-            profile_id,
-            messages,
-            category="diagnoses",
-            source=f"diagnosis:{session_id}",
-        )
 
     async def extract_from_report(
         self, profile_id: UUID, analysis: dict, report_id: str
@@ -424,20 +438,35 @@ Return: {{"facts": ["fact 1", "fact 2", ...]}}"""
 
 ### Retrieval Flow
 
-Memory retrieval happens at the **start** of every LLM interaction, before the system prompt is assembled. It combines Tier 1 (profile facts) and Tier 2 (episodic memories).
+Retrieval strategy differs by interaction type:
+
+**Diagnosis — agent-driven retrieval:**
+
+The diagnosis agent controls when to search memory via the `search_patient_memory` tool. The system prompt loads profile (Tier 1) only — no auto-injected memories. The agent is instructed to:
+- ALWAYS search on turn 1 with the chief complaint
+- Search again later when clinically relevant (new symptom, checking past labs, verifying med history)
+- Use targeted queries (e.g., "gastritis ulcer treatment H. pylori")
+
+Results include dates (`[Mar 10, 2026] Pain in upper abdomen`) so the agent can reason about temporal patterns. This replaces the previous auto-injection approach which queried Mem0 identically on every turn.
 
 ```mermaid
 flowchart TB
-    START[User sends message] --> PARALLEL
+    START[User sends message] --> T1[Tier 1: Load profile<br/>from PostgreSQL]
+    T1 --> PROMPT[Assemble system prompt<br/>profile only]
+    PROMPT --> AGENT[Agent loop]
+    AGENT -->|"search_patient_memory tool"| MEM0[Tier 2: Search Mem0<br/>targeted query]
+    MEM0 --> AGENT
+    AGENT -->|"present_question / present_assessment"| DONE[Response]
+```
 
-    subgraph PARALLEL["Parallel Fetch"]
-        T1[Tier 1: Load profile<br/>from PostgreSQL]
-        T2[Tier 2: Search Mem0<br/>by user message]
-    end
+**Chat and report analysis — auto-injected retrieval:**
 
-    PARALLEL --> ASSEMBLE[Assemble system prompt]
-    ASSEMBLE --> BUDGET[Apply token budget]
-    BUDGET --> LLM[Send to LLM]
+```mermaid
+flowchart TB
+    START[User sends message] --> T1[Tier 1: Load profile]
+    T1 --> T2[Tier 2: Search Mem0<br/>by user message]
+    T2 --> ASSEMBLE[Assemble system prompt]
+    ASSEMBLE --> LLM[Send to LLM]
 ```
 
 ### Tier 1 Retrieval: Profile Facts
@@ -459,9 +488,9 @@ async def load_profile_context(db: AsyncSession, profile_id: UUID) -> dict:
     }
 ```
 
-### Tier 2 Retrieval: Episodic Memories
+### Tier 2 Retrieval: Episodic Memories (auto-injected path)
 
-Semantic search against Mem0, using the user's current message as the query. Retrieval strategy varies by interaction type:
+Used by chat and report analysis. The `ContextBuilder` performs semantic search against Mem0 using the user's current message as the query. Diagnosis skips this (`skip_memories=True`) since the agent searches on demand.
 
 ```python
 async def retrieve_memories(
@@ -473,14 +502,9 @@ async def retrieve_memories(
     """Retrieve relevant episodic memories for an interaction."""
 
     if interaction_type == "diagnosis":
-        # Diagnosis needs broad context but not noise. Threshold 0.15
-        # filters out very weak matches (buttock pain for stomachache).
-        memories = memory_service.search(
-            profile_id,
-            query,
-            limit=10,
-            threshold=0.15,
-        )
+        # Agent-driven — ContextBuilder called with skip_memories=True.
+        # Agent uses search_patient_memory tool instead.
+        return []
 
     elif interaction_type == "report_analysis":
         # For reports: retrieve past lab results for trend comparison
@@ -507,7 +531,7 @@ async def retrieve_memories(
     return memories
 ```
 
-> **Note on thresholds:** The design originally specified higher thresholds (0.4–0.5), but Gemini's 768-dimensional embeddings produce lower cosine similarity scores than 1536d models. Diagnosis uses 0.15 (tuned to filter out weak matches like "buttock pain" for stomachache queries). Chat and report analysis use 0.1.
+> **Note on thresholds:** Gemini's 768-dimensional embeddings produce lower cosine similarity scores than 1536d models (rarely exceeding 0.5). Diagnosis retrieval is agent-driven (threshold 0.05, limit 10 via `search_patient_memory` tool — agent controls when/what to search). Chat and report analysis use auto-injection with threshold 0.1, limit 10.
 
 ### Memory Object Shape
 
@@ -603,7 +627,7 @@ LLMs have fixed context windows. We must allocate tokens carefully across the pr
 
 ### Budget Allocation
 
-Using Gemini 2.0 Flash (1M context) for diagnosis and Qwen for chat, but we target much smaller windows to control cost and latency:
+Using Cerebras (`gpt-oss-120b`) as default for all text tasks (Gemini 2.5 Flash for reports/multimodal), but we target small windows to control cost and latency:
 
 | Component | Diagnosis Budget | Chat Budget | Notes |
 |-|-|-|-|
@@ -765,24 +789,26 @@ flowchart LR
     end
 
     subgraph Pipeline["Extraction Pipeline"]
-        EX[Mem0 add<br/>fact extraction + dedup]
+        LLM_EX[Cerebras extract<br/>+ add_raw infer=False]
+        MEM0_EX[Mem0 add<br/>fact extraction + dedup]
     end
 
     subgraph Storage["Storage"]
         VEC[(pgvector<br/>embeddings)]
     end
 
-    D --> EX
-    C --> EX
-    R --> EX
-    EX --> VEC
+    D --> LLM_EX
+    C --> MEM0_EX
+    R --> MEM0_EX
+    LLM_EX --> VEC
+    MEM0_EX --> VEC
 ```
 
 **What triggers creation:**
 
 | Source | Trigger | Category Assignment |
 |-|-|-|
-| Diagnosis message | After each AI response | `diagnoses`, `symptoms`, `medications` |
+| Diagnosis assessment | On `## Assessment` delivery (not every turn) | `diagnoses`, `symptoms`, `medications` |
 | Chat message | After each AI response | Auto-detected by extraction prompt |
 | Report analysis | After analysis completes | `lab_results`, `vitals` |
 | Profile edit | Sync to Mem0 for searchability | Matches the edited field |

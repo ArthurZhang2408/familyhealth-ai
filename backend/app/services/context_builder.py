@@ -224,6 +224,7 @@ class ContextBuilder:
         *,
         memory_budget: int = 2000,
         template: str | None = None,
+        skip_memories: bool = False,
     ) -> ContextResult:
         """Build the full context for an LLM interaction.
 
@@ -235,6 +236,8 @@ class ContextBuilder:
             memory_budget: Max tokens for the episodic memories section.
             template: Custom prompt template with ``{profile_section}`` and
                 ``{memories_section}`` placeholders.
+            skip_memories: If True, skip Mem0 retrieval entirely. Use when
+                the agent has its own memory search tool and will query on demand.
 
         Returns:
             ``ContextResult`` with the assembled system prompt and metadata.
@@ -242,13 +245,11 @@ class ContextBuilder:
         Raises:
             ValueError: If the profile does not exist.
         """
-        # Fetch profile and memories sequentially. Memory retrieval is
-        # best-effort — if Mem0 is unavailable we still return a useful
-        # context built from the structured profile alone.
-        # NOTE: we intentionally avoid asyncio.gather here because the db
-        # session is not safe for concurrent coroutine use.
         profile = await db.get(Profile, profile_id)
-        memories = await self._safe_retrieve_memories(profile_id, query, interaction_type)
+        if skip_memories:
+            memories = []
+        else:
+            memories = await self._safe_retrieve_memories(profile_id, query, interaction_type)
 
         if profile is None:
             raise ValueError(f"Profile {profile_id} not found")

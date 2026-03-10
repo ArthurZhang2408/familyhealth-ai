@@ -13,6 +13,12 @@ from app.agents.types import AgentEvent, AgentEventType, ToolCall, ToolResult
 from app.schemas.message_parts import (
     AgentStepRecord,
     AgentStepsPart,
+    AssessmentAction,
+    AssessmentCondition,
+    AssessmentMedication,
+    AssessmentPart,
+    AssessmentSource,
+    AssessmentTest,
     MemoryContextPart,
     MessagePart,
     StructuredInputPart,
@@ -113,8 +119,25 @@ def build_assistant_parts(
     if accumulator and accumulator.agent_steps:
         parts.append(AgentStepsPart(steps=accumulator.agent_steps))
 
-    # Memory context
-    if ctx and ctx.raw_memories:
+    # Memory context — built from search_patient_memory tool results (agent-driven),
+    # falling back to auto-injected context (for chat which still auto-retrieves).
+    if accumulator:
+        mem_results = [
+            tr for tr in accumulator.tool_results
+            if tr.name == "search_patient_memory" and not tr.is_error
+        ]
+        if mem_results:
+            output = mem_results[0].output
+            # Prefer memories_with_dates (has timestamps) over plain memories
+            dated = output.get("memories_with_dates", [])
+            if dated:
+                memories = [{"text": m["text"], "date": m.get("date")} for m in dated]
+            else:
+                memories = [{"text": m, "date": None} for m in output.get("memories", [])]
+            if memories:
+                parts.append(MemoryContextPart(memories=memories, count=len(memories)))
+    elif ctx and ctx.raw_memories:
+        # Fallback for chat/reports which still use auto-retrieval
         memories = []
         for mem in ctx.raw_memories[:5]:
             memories.append(
@@ -136,8 +159,12 @@ def build_assistant_parts(
     if accumulator and accumulator.thinking_text:
         parts.append(ThinkingPart(text=accumulator.thinking_text))
 
-    # Final text response
-    parts.append(TextPart(text=response_text))
+    # Final text response — skip when assessment tool was called (assessment part replaces it)
+    has_assessment = accumulator and any(
+        tc.name == "present_assessment" for tc in accumulator.tool_calls
+    )
+    if not has_assessment:
+        parts.append(TextPart(text=response_text))
 
     # Structured question from the last present_question tool call (if any)
     if accumulator:
@@ -155,7 +182,59 @@ def build_assistant_parts(
                 )
             )
 
+    # Structured assessment from the last present_assessment tool call (if any)
+    if accumulator:
+        pa_calls = [tc for tc in accumulator.tool_calls if tc.name == "present_assessment"]
+        if pa_calls:
+            parts.append(_build_assessment_part(pa_calls[-1].arguments))
+
     return serialize_parts(parts)
+
+
+def _build_assessment_part(args: dict[str, Any]) -> AssessmentPart:
+    """Build an AssessmentPart from present_assessment tool call arguments."""
+    conditions = [
+        AssessmentCondition(
+            name=c.get("name", ""),
+            confidence=c.get("confidence", "possible"),
+            reasoning=c.get("reasoning", ""),
+            confirming_tests=c.get("confirming_tests"),
+        )
+        for c in args.get("conditions", [])
+    ]
+    self_care = [
+        AssessmentAction(action=s.get("action", ""), detail=s.get("detail"))
+        for s in args.get("self_care", [])
+    ]
+    medications = [
+        AssessmentMedication(
+            name=m.get("name", ""),
+            dosage=m.get("dosage", ""),
+            notes=m.get("notes"),
+        )
+        for m in args.get("medications", [])
+    ]
+    tests = [
+        AssessmentTest(
+            name=t.get("name", ""),
+            reason=t.get("reason", ""),
+            urgency=t.get("urgency"),
+        )
+        for t in args.get("tests", [])
+    ]
+    sources = [
+        AssessmentSource(title=s.get("title", ""), url=s.get("url", ""))
+        for s in args.get("sources", [])
+    ]
+    return AssessmentPart(
+        conditions=conditions,
+        self_care=self_care,
+        medications=medications,
+        tests=tests,
+        warnings=args.get("warnings", []),
+        follow_up=args.get("follow_up"),
+        sources=sources,
+    )
 
 
 def build_assistant_parts_from_result(
