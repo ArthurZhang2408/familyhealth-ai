@@ -91,13 +91,16 @@ function DiagnosisScreenInner() {
 
   const serverMessages: LocalMessage[] = useMemo(() => {
     const rawMessages = session?.messages ?? [];
-    // Build a map of prompt → selected from user structured_input answers
+    // Build a map of "prompt::assistantIndex" → selected from user answers.
+    // Keyed by assistant index to avoid collision when the same prompt repeats.
     const answerMap = new Map<string, unknown>();
-    for (const m of rawMessages) {
+    for (let idx = 0; idx < rawMessages.length; idx++) {
+      const m = rawMessages[idx];
       if (m.role === 'user' && m.content_parts) {
+        const assistantIdx = rawMessages.slice(0, idx).findLastIndex((msg) => msg.role === 'assistant');
         for (const p of m.content_parts) {
           if (p.type === 'structured_input' && p.selected != null) {
-            answerMap.set(p.prompt, p.selected);
+            answerMap.set(`${p.prompt}::${assistantIdx}`, p.selected);
           }
         }
       }
@@ -107,16 +110,11 @@ function DiagnosisScreenInner() {
       // Merge user selections onto assistant question parts
       let parts = m.content_parts;
       if (m.role === 'assistant' && parts && answerMap.size > 0) {
-        const needsUpdate = parts.some(
-          (p) => p.type === 'structured_input' && p.selected == null && answerMap.has(p.prompt),
+        parts = parts.map((p) =>
+          p.type === 'structured_input' && p.selected == null && answerMap.has(`${p.prompt}::${i}`)
+            ? { ...p, selected: answerMap.get(`${p.prompt}::${i}`) }
+            : p,
         );
-        if (needsUpdate) {
-          parts = parts.map((p) =>
-            p.type === 'structured_input' && p.selected == null && answerMap.has(p.prompt)
-              ? { ...p, selected: answerMap.get(p.prompt) }
-              : p,
-          );
-        }
       }
       return {
         id: `${activeSid ?? sid}-${i}`,
