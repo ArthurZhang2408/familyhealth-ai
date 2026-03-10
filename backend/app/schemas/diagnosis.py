@@ -91,6 +91,10 @@ class DiagnosisSessionUpdate(BaseModel):
     resolution_notes: str | None = None
 
 
+class DiagnosisSessionRename(BaseModel):
+    title: str = Field(..., min_length=1, max_length=200)
+
+
 class DiagnosisMessageCreate(BaseModel):
     content: str
 
@@ -112,6 +116,7 @@ class DiagnosisSessionResponse(BaseModel):
     profile_id: UUID
     status: str
     chief_complaint: str | None
+    title: str | None = None
     differential_diagnoses: list[dict[str, Any]]
     resolution_notes: str | None
     resolved_at: datetime | None

@@ -976,3 +976,57 @@ class TestDeleteSession:
         assert resp.status_code == 404
 
         app.dependency_overrides.pop(get_memory_service, None)
+
+
+class TestRenameSession:
+    @pytest.mark.asyncio
+    @pytest.mark.usefixtures("_override_diagnosis_deps")
+    async def test_rename_session(self, client: AsyncClient) -> None:
+        pid = await _create_profile(client)
+
+        # Create a session
+        resp = await client.post(
+            f"/api/v1/profiles/{pid}/diagnosis",
+            json={"chief_complaint": "test headache"},
+        )
+        assert resp.status_code == 201
+        session_id = resp.json()["message"]["session_id"]
+
+        # Rename it
+        resp2 = await client.patch(
+            f"/api/v1/profiles/{pid}/diagnosis/{session_id}/rename",
+            json={"title": "Recurring migraine"},
+        )
+        assert resp2.status_code == 200
+        assert resp2.json()["title"] == "Recurring migraine"
+        # chief_complaint should be unchanged
+        assert resp2.json()["chief_complaint"] == "test headache"
+
+    @pytest.mark.asyncio
+    @pytest.mark.usefixtures("_override_diagnosis_deps")
+    async def test_rename_session_not_found(self, client: AsyncClient) -> None:
+        pid = await _create_profile(client)
+        resp = await client.patch(
+            f"/api/v1/profiles/{pid}/diagnosis/{uuid.uuid4()}/rename",
+            json={"title": "Something"},
+        )
+        assert resp.status_code == 404
+
+    @pytest.mark.asyncio
+    @pytest.mark.usefixtures("_override_diagnosis_deps")
+    async def test_rename_session_empty_title(self, client: AsyncClient) -> None:
+        pid = await _create_profile(client)
+
+        resp = await client.post(
+            f"/api/v1/profiles/{pid}/diagnosis",
+            json={"chief_complaint": "test headache"},
+        )
+        assert resp.status_code == 201
+        session_id = resp.json()["message"]["session_id"]
+
+        # Empty title should fail validation
+        resp2 = await client.patch(
+            f"/api/v1/profiles/{pid}/diagnosis/{session_id}/rename",
+            json={"title": ""},
+        )
+        assert resp2.status_code == 422

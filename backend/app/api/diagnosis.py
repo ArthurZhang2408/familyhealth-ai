@@ -35,6 +35,7 @@ from app.schemas.common import PaginatedResponse
 from app.schemas.diagnosis import (
     DiagnosisSessionCreate,
     DiagnosisSessionDetailResponse,
+    DiagnosisSessionRename,
     DiagnosisSessionResponse,
     DiagnosisSessionUpdate,
     DiagnosisTurnResponse,
@@ -405,6 +406,30 @@ async def update_session(
             setattr(session, field, value)
         await db.flush()
 
+    await db.refresh(session)
+    return DiagnosisSessionResponse.model_validate(session)
+
+
+@router.patch("/{sid}/rename", response_model=DiagnosisSessionResponse)
+async def rename_session(
+    sid: UUID,
+    data: DiagnosisSessionRename,
+    profile: Profile = Depends(get_verified_profile),
+    db: AsyncSession = Depends(get_db),
+) -> DiagnosisSessionResponse:
+    """Rename a diagnosis session (update title only)."""
+    result = await db.execute(
+        select(DiagnosisSession).where(
+            DiagnosisSession.id == sid,
+            DiagnosisSession.profile_id == profile.id,
+        )
+    )
+    session = result.scalar_one_or_none()
+    if not session:
+        raise HTTPException(status_code=404, detail="Diagnosis session not found")
+
+    session.title = data.title
+    await db.flush()
     await db.refresh(session)
     return DiagnosisSessionResponse.model_validate(session)
 

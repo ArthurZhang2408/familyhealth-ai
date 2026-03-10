@@ -85,6 +85,11 @@ export const diagnosisApi = {
     }),
   delete: (pid: string, sid: string) =>
     request<void>(`/profiles/${pid}/diagnosis/${sid}`, { method: 'DELETE' }),
+  rename: (pid: string, sid: string, title: string) =>
+    request<DiagnosisSession>(`/profiles/${pid}/diagnosis/${sid}/rename`, {
+      method: 'PATCH',
+      body: JSON.stringify({ title }),
+    }),
 };
 
 // ── Reports ───────────────────────────────────────────────────────────────────

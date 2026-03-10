@@ -10,9 +10,11 @@ import Animated, { FadeIn, FadeInDown, FadeInUp } from 'react-native-reanimated'
 import * as Haptics from 'expo-haptics';
 import { useProfileStore } from '@/stores/profile';
 import { useAuthStore } from '@/stores/auth';
-import { useChatConversations, useRenameChatConversation, useDeleteChatConversation } from '@/hooks/useChat';
-import { useDiagnosisSessions, useDeleteDiagnosisSession } from '@/hooks/useDiagnosis';
+import { useChatConversations } from '@/hooks/useChat';
+import { useDiagnosisSessions } from '@/hooks/useDiagnosis';
+import { useDeleteSession, useRenameSession } from '@/hooks/useSession';
 import { useReports, useUploadReport } from '@/hooks/useReports';
+import { useNavSource } from '@/services/navigationSource';
 import { useColors } from '@/hooks/useColors';
 
 import { Spacing, FontWeight, BorderRadius } from '@/constants/theme';
@@ -71,9 +73,10 @@ export function SidebarContent({ navigation }: DrawerContentComponentProps) {
   const { data: reportData, isLoading: reportLoading } = useReports(pid);
   const uploadReport = useUploadReport(pid);
 
-  const renameChat = useRenameChatConversation(pid);
-  const deleteChat = useDeleteChatConversation(pid);
-  const deleteDx = useDeleteDiagnosisSession(pid);
+  const renameChat = useRenameSession('chat', pid);
+  const deleteChat = useDeleteSession('chat', pid);
+  const renameDx = useRenameSession('diagnosis', pid);
+  const deleteDx = useDeleteSession('diagnosis', pid);
 
   const conversations = chatData?.items ?? [];
   const activeSessions = (dxData?.items ?? []).filter((s) => s.status === 'active');
@@ -84,20 +87,36 @@ export function SidebarContent({ navigation }: DrawerContentComponentProps) {
 
   const close = () => navigation.closeDrawer();
 
-  const navigateTo = (path: string) => {
+  const navigateTo = (path: string, params?: Record<string, string>) => {
     if (process.env.EXPO_OS === 'ios') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    useNavSource.getState().setFromList(false);
     close();
     const isDrawerRoute = path.startsWith('/(main)');
     setTimeout(() => {
-      if (isDrawerRoute) router.navigate(path as never);
-      else router.push(path as never);
+      if (params) {
+        router.navigate({ pathname: path, params } as never);
+      } else if (isDrawerRoute) {
+        router.navigate(path as never);
+      } else {
+        router.push(path as never);
+      }
     }, 150);
   };
 
   // ── Context menu openers ────────────────────────────────────────────────
 
-  const openChatMenu = (id: string, title: string, x: number, y: number, w: number, h: number) => {
+  const openSessionMenu = (
+    type: 'chat' | 'diagnosis',
+    id: string,
+    title: string,
+    x: number, y: number, w: number, h: number,
+  ) => {
     if (process.env.EXPO_OS === 'ios') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    const rename = type === 'chat' ? renameChat : renameDx;
+    const del = type === 'chat' ? deleteChat : deleteDx;
+    const routeSegment = type === 'chat' ? 'chat' : 'diagnosis';
+    const typeLabel = type === 'chat' ? 'Conversation' : 'Session';
+
     setMenu({
       visible: true, title, x, y, width: w, height: h,
       actions: [
@@ -106,8 +125,8 @@ export function SidebarContent({ navigation }: DrawerContentComponentProps) {
           onPress: () => {
             dismissMenu();
             setTimeout(() => {
-              Alert.prompt('Rename Conversation', undefined, (t) => {
-                if (t?.trim()) renameChat.mutate({ cid: id, topic: t.trim() });
+              Alert.prompt(`Rename ${typeLabel}`, undefined, (t) => {
+                if (t?.trim()) rename.mutate({ id, title: t.trim() });
               }, 'plain-text', title);
             }, 150);
           },
@@ -117,40 +136,13 @@ export function SidebarContent({ navigation }: DrawerContentComponentProps) {
           onPress: () => {
             dismissMenu();
             setTimeout(() => {
-              Alert.alert('Delete Conversation', 'This will also remove memories from this conversation.', [
+              Alert.alert(`Delete ${typeLabel}`, 'This will also remove memories from this session.', [
                 { text: 'Cancel', style: 'cancel' },
                 {
                   text: 'Delete', style: 'destructive',
                   onPress: () => {
-                    deleteChat.mutate(id);
-                    if (pathname.includes(`/chat/${id}`)) router.navigate('/(main)' as never);
-                  },
-                },
-              ]);
-            }, 150);
-          },
-        },
-      ],
-    });
-  };
-
-  const openDxMenu = (id: string, title: string, x: number, y: number, w: number, h: number) => {
-    if (process.env.EXPO_OS === 'ios') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    setMenu({
-      visible: true, title, x, y, width: w, height: h,
-      actions: [
-        {
-          label: 'Delete', icon: 'trash', destructive: true,
-          onPress: () => {
-            dismissMenu();
-            setTimeout(() => {
-              Alert.alert('Delete Session', 'This will also remove memories from this session.', [
-                { text: 'Cancel', style: 'cancel' },
-                {
-                  text: 'Delete', style: 'destructive',
-                  onPress: () => {
-                    deleteDx.mutate(id);
-                    if (pathname.includes(`/diagnosis/${id}`)) router.navigate('/(main)' as never);
+                    del.mutate(id);
+                    if (pathname.includes(`/${routeSegment}/${id}`)) router.navigate('/(main)' as never);
                   },
                 },
               ]);
@@ -208,19 +200,25 @@ export function SidebarContent({ navigation }: DrawerContentComponentProps) {
                   No conversations yet
                 </Text>
               ) : (
-                conversations.slice(0, 20).map((c, i) => (
+                conversations.slice(0, 10).map((c, i) => (
                   <Animated.View key={c.id} entering={FadeInDown.delay(i * 30).duration(200)}>
                     <SidebarItem
                       title={c.topic || 'New conversation'}
                       active={pathname.includes(`/chat/${c.id}`)}
-                      onPress={() => navigateTo(`/(main)/chat/${c.id}`)}
-                      onLongPress={(x, y, w, h) => openChatMenu(c.id, c.topic || 'New conversation', x, y, w, h)}
+                      onPress={() => navigateTo('/(main)/chat/[cid]', { cid: c.id })}
+                      onLongPress={(x, y, w, h) => openSessionMenu('chat', c.id, c.topic || 'New conversation', x, y, w, h)}
                       colors={Colors}
                       fontSize={fonts.item}
                     />
                   </Animated.View>
                 ))
               )}
+              <Pressable
+                onPress={() => navigateTo('/(main)/chat/all')}
+                style={({ pressed }) => ({ paddingVertical: Spacing.sm, opacity: pressed ? 0.6 : 1 })}
+              >
+                <Text style={{ fontSize: fonts.small, color: Colors.textMuted }}>All chats ›</Text>
+              </Pressable>
             </SidebarSection>
 
             <SidebarSection title="Diagnoses" iconName="stethoscope" loading={dxLoading} colors={Colors} fonts={fonts}>
@@ -229,13 +227,13 @@ export function SidebarContent({ navigation }: DrawerContentComponentProps) {
                   No active sessions
                 </Text>
               ) : (
-                activeSessions.slice(0, 20).map((s, i) => (
+                activeSessions.slice(0, 10).map((s, i) => (
                   <Animated.View key={s.id} entering={FadeInDown.delay(i * 30).duration(200)}>
                     <SidebarItem
-                      title={s.chief_complaint}
+                      title={s.title || s.chief_complaint}
                       active={pathname.includes(`/diagnosis/${s.id}`)}
-                      onPress={() => navigateTo(`/(main)/diagnosis/${s.id}`)}
-                      onLongPress={(x, y, w, h) => openDxMenu(s.id, s.chief_complaint, x, y, w, h)}
+                      onPress={() => navigateTo('/(main)/diagnosis/[sid]', { sid: s.id })}
+                      onLongPress={(x, y, w, h) => openSessionMenu('diagnosis', s.id, s.title || s.chief_complaint, x, y, w, h)}
                       colors={Colors}
                       fontSize={fonts.item}
                     />
@@ -243,10 +241,10 @@ export function SidebarContent({ navigation }: DrawerContentComponentProps) {
                 ))
               )}
               <Pressable
-                onPress={() => navigateTo('/(main)/diagnosis/past')}
+                onPress={() => navigateTo('/(main)/diagnosis/all')}
                 style={({ pressed }) => ({ paddingVertical: Spacing.sm, opacity: pressed ? 0.6 : 1 })}
               >
-                <Text style={{ fontSize: fonts.small, color: Colors.textMuted }}>Past sessions ›</Text>
+                <Text style={{ fontSize: fonts.small, color: Colors.textMuted }}>All sessions ›</Text>
               </Pressable>
             </SidebarSection>
 

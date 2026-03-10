@@ -16,6 +16,7 @@ class DiagnosisSession(UUIDPrimaryKey, TimestampMixin, Base):
     )
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="active")
     chief_complaint: Mapped[str | None] = mapped_column(Text)
+    title: Mapped[str | None] = mapped_column(Text)
     differential_diagnoses: Mapped[list] = mapped_column(JSONB, server_default="[]")
     resolution_notes: Mapped[str | None] = mapped_column(Text)
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

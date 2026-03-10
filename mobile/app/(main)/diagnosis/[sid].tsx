@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text } from 'react-native';
+import { View, Text, useWindowDimensions } from 'react-native';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { Stack } from 'expo-router';
 import { useQueryClient } from '@tanstack/react-query';
+import Animated, { useSharedValue, useAnimatedStyle, withTiming } from 'react-native-reanimated';
 import { ConversationView } from '@/components/ConversationView';
 import { HeaderIconButton } from '@/components/HeaderIconButton';
 import { useProfileStore } from '@/stores/profile';
@@ -10,6 +11,7 @@ import { useDiagnosisSession } from '@/hooks/useDiagnosis';
 import { useConversation, type LocalMessage } from '@/hooks/useConversation';
 import { diagnosisStreamApi } from '@/services/api';
 import { consumePendingSend } from '@/services/pendingSend';
+import { useNavSource } from '@/services/navigationSource';
 import { useColors } from '@/hooks/useColors';
 import { Spacing, FontSize, FontWeight, BorderRadius } from '@/constants/theme';
 import type { StreamEvent } from '@/types/api';
@@ -38,6 +40,32 @@ function DiagnosisScreenInner() {
   const { sid } = useLocalSearchParams<{ sid: string }>();
   const pid = useProfileStore((s) => s.activeProfile?.id) ?? '';
   const isNew = sid === 'new';
+
+  // Zustand-driven: list pages set true, sidebar sets false. Reactive re-render.
+  const fromList = useNavSource((s) => s.fromList);
+
+  // Slide in from right when arriving from list
+  const { width: screenWidth } = useWindowDimensions();
+  const slideX = useSharedValue(0);
+  const slideStyle = useAnimatedStyle(() => ({
+    flex: 1,
+    transform: [{ translateX: slideX.value }],
+  }));
+  const prevFromList = useRef(false);
+  useEffect(() => {
+    if (fromList && !prevFromList.current) {
+      slideX.value = screenWidth;
+      slideX.value = withTiming(0, { duration: 250 });
+    } else if (!fromList) {
+      slideX.value = 0;
+    }
+    prevFromList.current = fromList;
+  }, [fromList, slideX, screenWidth]);
+
+  const handleBack = useCallback(() => {
+    // fromList stays true — list page reads it for its slide-in animation
+    router.navigate('/(main)/diagnosis/all' as never);
+  }, [router]);
 
   const [activeSid, setActiveSid] = useState<string | null>(isNew ? null : sid);
   const didAutoSend = useRef(false);
@@ -143,7 +171,10 @@ function DiagnosisScreenInner() {
     <>
       <Stack.Screen
         options={{
-          title: session?.chief_complaint || 'AI Diagnosis',
+          title: session?.title || session?.chief_complaint || 'AI Diagnosis',
+          headerLeft: fromList
+            ? () => <HeaderIconButton icon="chevron-back" onPress={handleBack} />
+            : undefined,
           headerRight: () => (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
               {phaseInfo && (
@@ -172,20 +203,22 @@ function DiagnosisScreenInner() {
           ),
         }}
       />
-      <ConversationView
-        {...conv}
-        onChangeText={conv.setInput}
-        onAttach={conv.handleAttach}
-        pendingAttachment={conv.pendingAttachment}
-        onRemoveAttachment={() => conv.clearAttachment()}
-        isLoading={!!activeSid && isLoading && !conv.isBusy}
-        error={isNew ? null : error}
-        refetch={refetch}
-        errorIcon="stethoscope"
-        errorTitle="Couldn't load session"
-        placeholder="Describe your symptoms…"
-        onStructuredResponse={conv.onStructuredResponse}
-      />
+      <Animated.View style={slideStyle}>
+        <ConversationView
+          {...conv}
+          onChangeText={conv.setInput}
+          onAttach={conv.handleAttach}
+          pendingAttachment={conv.pendingAttachment}
+          onRemoveAttachment={() => conv.clearAttachment()}
+          isLoading={!!activeSid && isLoading && !conv.isBusy}
+          error={isNew ? null : error}
+          refetch={refetch}
+          errorIcon="stethoscope"
+          errorTitle="Couldn't load session"
+          placeholder="Describe your symptoms…"
+          onStructuredResponse={conv.onStructuredResponse}
+        />
+      </Animated.View>
     </>
   );
 }

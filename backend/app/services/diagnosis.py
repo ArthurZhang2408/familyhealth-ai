@@ -97,10 +97,12 @@ class DiagnosisService:
         session = DiagnosisSession(
             profile_id=profile.id,
             chief_complaint=chief_complaint,
+            title=chief_complaint,
             status="active",
         )
         self._db.add(session)
         await self._db.commit()
+        await self._auto_generate_title(session, chief_complaint)
         return session
 
     async def create_session(
@@ -120,6 +122,7 @@ class DiagnosisService:
         session = DiagnosisSession(
             profile_id=profile.id,
             chief_complaint=chief_complaint,
+            title=chief_complaint,
             status="active",
         )
         self._db.add(session)
@@ -183,6 +186,8 @@ class DiagnosisService:
         await self._db.commit()
         await self._db.refresh(user_msg)
         await self._db.refresh(assistant_msg)
+
+        await self._auto_generate_title(session, chief_complaint)
 
         turn_response = DiagnosisTurnResponse(
             message=DiagnosisMessageResponse.model_validate(assistant_msg),
@@ -305,6 +310,7 @@ class DiagnosisService:
             session = DiagnosisSession(
                 profile_id=profile.id,
                 chief_complaint=chief_complaint or content,
+                title=chief_complaint or content,
                 status="active",
             )
             self._db.add(session)
@@ -916,6 +922,38 @@ class DiagnosisService:
             )
         except Exception:
             logger.exception("Action logging failed for %s", action_type)
+
+    async def _auto_generate_title(
+        self,
+        session: DiagnosisSession,
+        chief_complaint: str,
+    ) -> None:
+        """Best-effort title generation via LLM summarization."""
+        try:
+            prompt = (
+                "Generate a very short topic label (3-6 words) for a medical diagnosis session "
+                "that started with this chief complaint. Return ONLY the topic text, nothing else.\n\n"
+                "Examples:\n"
+                '- "I have a bad headache that won\'t go away" → "Persistent headache"\n'
+                '- "My knee hurts when I walk up stairs" → "Knee pain on stairs"\n'
+                '- "I\'ve been coughing for two weeks" → "Persistent cough"\n'
+                '- "Feeling dizzy and nauseous since yesterday" → "Dizziness and nausea"\n\n'
+                f"Chief complaint: {chief_complaint}"
+            )
+            request = LLMRequest(
+                task=LLMTask.SUMMARIZATION,
+                system_prompt="You generate short topic labels for medical sessions.",
+                messages=[LLMMessage(role="user", content=prompt)],
+                temperature=0.3,
+                max_tokens=30,
+            )
+            response = await self._agent.call(request)
+            title = response.content.strip().strip('"').strip("'")
+            if title and len(title) <= 100:
+                session.title = title
+                await self._db.commit()
+        except Exception:
+            logger.debug("Title auto-generation failed for session %s", session.id)
 
     @staticmethod
     def _calculate_age(profile: Profile) -> float | None:
