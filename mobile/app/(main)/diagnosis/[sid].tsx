@@ -89,12 +89,42 @@ function DiagnosisScreenInner() {
     activeSid ?? '',
   );
 
-  const serverMessages: LocalMessage[] = (session?.messages ?? []).map((m, i) => ({
-    id: `${activeSid ?? sid}-${i}`,
-    role: m.role,
-    content: m.content,
-    contentParts: m.content_parts,
-  }));
+  const serverMessages: LocalMessage[] = useMemo(() => {
+    const rawMessages = session?.messages ?? [];
+    // Build a map of "prompt::assistantIndex" → selected from user answers.
+    // Keyed by assistant index to avoid collision when the same prompt repeats.
+    const answerMap = new Map<string, unknown>();
+    for (let idx = 0; idx < rawMessages.length; idx++) {
+      const m = rawMessages[idx];
+      if (m.role === 'user' && m.content_parts) {
+        const assistantIdx = rawMessages.slice(0, idx).findLastIndex((msg) => msg.role === 'assistant');
+        for (const p of m.content_parts) {
+          if (p.type === 'structured_input' && p.selected != null) {
+            answerMap.set(`${p.prompt}::${assistantIdx}`, p.selected);
+          }
+        }
+      }
+    }
+    return rawMessages.map((m, i) => {
+      const isStructuredUser = m.role === 'user' && m.content_parts?.some((p) => p.type === 'structured_input');
+      // Merge user selections onto assistant question parts
+      let parts = m.content_parts;
+      if (m.role === 'assistant' && parts && answerMap.size > 0) {
+        parts = parts.map((p) =>
+          p.type === 'structured_input' && p.selected == null && answerMap.has(`${p.prompt}::${i}`)
+            ? { ...p, selected: answerMap.get(`${p.prompt}::${i}`) }
+            : p,
+        );
+      }
+      return {
+        id: `${activeSid ?? sid}-${i}`,
+        role: m.role,
+        content: m.content,
+        contentParts: parts,
+        hidden: isStructuredUser,
+      };
+    });
+  }, [session?.messages, activeSid, sid]);
 
   const streamSendFn = useCallback(
     (text: string, onEvent: (event: StreamEvent) => void, files?: Attachment[], structuredResponse?: Record<string, unknown>) => {

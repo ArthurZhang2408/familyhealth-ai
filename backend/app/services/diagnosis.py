@@ -399,8 +399,6 @@ class DiagnosisService:
                     date_str = ""
                     if ts:
                         try:
-                            from datetime import datetime
-
                             dt = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
                             date_str = dt.strftime("%b %Y")
                         except (ValueError, AttributeError):
@@ -561,7 +559,7 @@ class DiagnosisService:
             },
         )
 
-        # Best-effort post-processing: state extraction + logging (after client has the response)
+        # Best-effort post-processing: state extraction + memory extraction + logging
         if not red_flags:
             try:
                 diagnosis_state = await self._extract_state(
@@ -574,6 +572,21 @@ class DiagnosisService:
                 await self._db.commit()
             except Exception:
                 logger.warning("Post-DONE state extraction failed", exc_info=True)
+
+            # Extract session facts to long-term memory when an assessment
+            # is delivered.  Uses a stable source key so Mem0 UPDATEs existing
+            # memories on follow-up assessments instead of creating duplicates.
+            if "## Assessment" in conversation_text:
+                try:
+                    await self._extract_assessment_memories(
+                        session, profile, messages, conversation_text, turn_number,
+                    )
+                except Exception:
+                    logger.warning(
+                        "Assessment memory extraction failed for session %s",
+                        session.id,
+                        exc_info=True,
+                    )
 
         await self._log_action(
             profile,
@@ -635,22 +648,25 @@ class DiagnosisService:
 
         resolution_summary = " ".join(summary_parts)
 
-        # Extract resolution facts to long-term memory (best-effort)
+        # Extract resolution facts to long-term memory (best-effort).
+        # Uses our own LLM (Cerebras/Qwen) instead of Mem0's internal LLM.
         try:
-            extraction_result = await self._mem_extractor.extract_and_store(
-                profile_id=profile.id,
-                messages=[{"role": "system", "content": resolution_summary}],
-                source=f"diagnosis:{session.id}:resolution",
-                category="diagnoses",
-            )
-            await record_extraction(
-                self._db,
-                profile_id=profile.id,
-                session_type="diagnosis",
-                session_id=session.id,
-                mem0_result=extraction_result,
-                input_message_count=1,
-            )
+            facts = await self._llm_extract_facts(resolution_summary)
+            if facts:
+                extraction_result = await self._mem_extractor.store_facts(
+                    profile_id=profile.id,
+                    facts=facts,
+                    source=f"diagnosis:{session.id}:resolution",
+                    category="diagnoses",
+                )
+                await record_extraction(
+                    self._db,
+                    profile_id=profile.id,
+                    session_type="diagnosis",
+                    session_id=session.id,
+                    mem0_result=extraction_result,
+                    input_message_count=1,
+                )
         except Exception:
             logger.exception("Resolution memory extraction failed for session %s", session.id)
 
@@ -904,6 +920,136 @@ class DiagnosisService:
             )
             fallback = copy.deepcopy(FALLBACK_DIAGNOSIS_STATE)
             return DiagnosisState.model_validate(fallback)
+
+    async def _extract_assessment_memories(
+        self,
+        session: DiagnosisSession,
+        profile: Profile,
+        messages: list[dict],
+        assessment_text: str,
+        turn_number: int,
+    ) -> None:
+        """Extract session facts to long-term memory on assessment delivery.
+
+        Bypasses Mem0's internal LLM (which produces poor-quality extractions)
+        and uses our own LLM (Cerebras → Qwen fallback) to extract discrete
+        facts, then stores them directly via ``infer=False``.
+
+        Uses a stable source key (``diagnosis:<sid>``) so that follow-up
+        assessments within the same session can be traced to the same source.
+        """
+        now = datetime.now(timezone.utc)
+        date_str = now.strftime("%Y-%m-%d")
+
+        # Count previous assessments to determine if this is a follow-up
+        prev_assessments = sum(
+            1
+            for m in messages
+            if m["role"] == "assistant" and "## Assessment" in m.get("content", "")
+        )
+        is_followup = prev_assessments > 0
+
+        # Build a concise summary from user messages
+        reported: list[str] = []
+        for m in messages:
+            if m["role"] != "user":
+                continue
+            content = m.get("content", "").strip()
+            if not content or content == session.chief_complaint:
+                continue
+            reported.append(content)
+
+        # Count turns since last assessment (or from start)
+        prev_turn = 0
+        for m in messages:
+            if m["role"] == "assistant" and "## Assessment" in m.get("content", ""):
+                prev_turn = sum(1 for msg in messages[:messages.index(m) + 1] if msg["role"] == "user")
+
+        if is_followup:
+            header = f"Follow-up assessment on {date_str} (turns {prev_turn + 1}–{turn_number})."
+        else:
+            header = f"Initial assessment on {date_str} (turns 1–{turn_number})."
+
+        # Extract just the assessment section, not the full response
+        assessment_start = assessment_text.find("## Assessment")
+        assessment_section = assessment_text[assessment_start:assessment_start + 2000] if assessment_start >= 0 else assessment_text[:2000]
+
+        summary = (
+            f"{header}\n"
+            f"Chief complaint: {session.chief_complaint}.\n"
+            f"Patient reported: {'; '.join(reported)}.\n"
+            f"Assessment:\n{assessment_section}"
+        )
+
+        # Use our own LLM to extract discrete facts (not Mem0's nemotron)
+        facts = await self._llm_extract_facts(summary)
+        if not facts:
+            logger.warning("No facts extracted for session %s", session.id)
+            return
+
+        extraction_result = await self._mem_extractor.store_facts(
+            profile_id=profile.id,
+            facts=facts,
+            source=f"diagnosis:{session.id}",
+            category="symptoms",
+        )
+        await record_extraction(
+            self._db,
+            profile_id=profile.id,
+            session_type="diagnosis",
+            session_id=session.id,
+            mem0_result=extraction_result,
+            input_message_count=1,
+        )
+        logger.info(
+            "Assessment memory extraction for session %s (%s, turn %d): %d facts",
+            session.id,
+            "follow-up" if is_followup else "initial",
+            turn_number,
+            len(facts),
+        )
+
+    async def _llm_extract_facts(self, summary: str) -> list[str]:
+        """Use Cerebras/Qwen to extract discrete medical facts from a session summary.
+
+        Returns a list of short, factual statements suitable for memory storage.
+        """
+        prompt = (
+            "Extract discrete medical facts from this diagnosis session summary. "
+            "Return ONLY a JSON array of short factual strings. Each fact should be "
+            "a single, specific observation — not a recommendation or instruction.\n\n"
+            "Good examples:\n"
+            '- "Upper abdominal cramping pain, severity 4/10, started 2026-03-10"\n'
+            '- "Pain worsens after eating"\n'
+            '- "No nausea, vomiting, diarrhea, or fever"\n'
+            '- "Assessed as acute gastritis"\n'
+            '- "No NSAID or alcohol use"\n\n'
+            "Bad examples (do NOT produce these):\n"
+            '- "Recommend antacids" (instruction, not fact)\n'
+            '- "No recent changes in diet" (hallucinated negation)\n\n'
+            f"Session summary:\n{summary}"
+        )
+        request = LLMRequest(
+            task=LLMTask.FACT_EXTRACTION,
+            system_prompt="You are a medical fact extractor. Output only a JSON array of strings.",
+            messages=[LLMMessage(role="user", content=prompt)],
+            temperature=0.0,
+            max_tokens=1000,
+            response_format={"type": "json"},
+        )
+        response: LLMResponse = await self._agent.call(request)
+        try:
+            parsed = json.loads(response.content)
+            if isinstance(parsed, list):
+                return [str(f) for f in parsed if isinstance(f, str) and f.strip()]
+            # Handle {"facts": [...]} wrapper
+            if isinstance(parsed, dict):
+                for v in parsed.values():
+                    if isinstance(v, list):
+                        return [str(f) for f in v if isinstance(f, str) and f.strip()]
+        except (json.JSONDecodeError, TypeError):
+            logger.warning("Failed to parse fact extraction response: %s", response.content[:200])
+        return []
 
     async def _log_action(
         self,

@@ -123,9 +123,11 @@ def _mock_llm_router() -> MagicMock:
         call_count["n"] += 1
         resp = MagicMock()
         # Pass 1 (DIAGNOSIS) returns conversation text
-        # Pass 2 (FACT_EXTRACTION) returns JSON state
+        # Pass 2+ (FACT_EXTRACTION) returns JSON state or facts array
         if request.task.value == "diagnosis":
             resp.content = MOCK_LLM_RESPONSE_TEXT
+        elif any("Extract discrete medical facts" in m.content for m in request.messages if hasattr(m, "content")):
+            resp.content = json.dumps(["Chief complaint: sore throat", "Diagnosed with strep throat"])
         else:
             resp.content = json.dumps(MOCK_DIAGNOSIS_STATE)
         resp.model = "mock-model"
@@ -152,6 +154,7 @@ def _mock_memory_extractor() -> MagicMock:
     """Create a mock MemoryExtractor."""
     extractor = AsyncMock()
     extractor.extract_and_store = AsyncMock(return_value=None)
+    extractor.store_facts = AsyncMock(return_value={"results": [], "facts_stored": 0})
     return extractor
 
 
@@ -468,8 +471,8 @@ class TestDiagnosisServiceCloseSession:
 
         assert result.status == "resolved"
         assert result.resolution_notes == "Doctor confirmed strep throat"
-        # Memory extraction was called
-        extractor.extract_and_store.assert_called_once()
+        # Memory extraction via our own LLM + direct storage (bypasses Mem0 LLM)
+        extractor.store_facts.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_close_already_resolved(self, db_session: Any) -> None:
