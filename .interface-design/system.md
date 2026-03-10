@@ -86,7 +86,7 @@ Always `borderCurve: 'continuous'` on rounded elements.
 ## Icons
 `@expo/vector-icons` (Ionicons, Feather, MaterialCommunityIcons) via centralized `components/Icon.tsx`.
 Exported `IconName` type for type-safe icon references.
-Available icons: gearshape, arrow-up, paperclip, chat-fill, stethoscope, chevron-down, chevron-right, heart-clipboard, plus, people, doc-search, chat-bubbles, menu, pen-square, camera, image, document.
+Available icons: gearshape, arrow-up, paperclip, chat-fill, stethoscope, chevron-down, chevron-up, chevron-right, chevron-back, heart-clipboard, plus, people, doc-search, chat-bubbles, menu, pen-square, camera, image, document, close, checkmark-circle, close-circle, brain, pencil, trash.
 When migrating to dev builds, swap internals to `expo-image` SF Symbols without changing call sites.
 
 ## Haptics

@@ -113,6 +113,7 @@ export interface DiagnosisSession {
   id: string;
   profile_id: string;
   chief_complaint: string;
+  title?: string;
   status: 'active' | 'closed' | 'resolved' | 'abandoned';
   diagnosis_state: DiagnosisState;
   messages: DiagnosisMessage[];

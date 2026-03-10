@@ -447,6 +447,7 @@ interface DiagnosisSession {
   id: string;                                // UUID
   profile_id: string;                        // UUID
   status: DiagnosisStatus;
+  title: string | null;                       // display title (may differ from chief_complaint)
   chief_complaint: string | null;
   differential_diagnoses: DifferentialDiagnosis[];
   resolution_notes: string | null;
@@ -608,6 +609,28 @@ DiagnosisSession  // updated session
 Transitioning to `resolved` automatically sets `resolved_at` to the current timestamp. Transitioning from `resolved` or `abandoned` is not allowed.
 
 **Errors:** `400 INVALID_STATUS_TRANSITION`, `404 NOT_FOUND`
+
+---
+
+### `PATCH /profiles/{pid}/diagnosis/{sid}/rename`
+
+Rename a diagnosis session (update its title). The `chief_complaint` field is not changed.
+
+**Request body:**
+
+```typescript
+interface RenameDiagnosisSessionRequest {
+  title: string;   // required, 1-200 chars
+}
+```
+
+**Response `200`:**
+
+```typescript
+DiagnosisSession
+```
+
+**Errors:** `400 VALIDATION_ERROR`, `404 NOT_FOUND`
 
 ---
 

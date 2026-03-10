@@ -462,6 +462,7 @@ All data endpoints are nested under `/profiles/{pid}` to enforce profile scoping
 | POST | `/profiles/{pid}/diagnosis/{sid}/messages` | Send a message; returns AI response |
 | POST | `/profiles/{pid}/diagnosis/stream` | Send a message with SSE streaming response |
 | PATCH | `/profiles/{pid}/diagnosis/{sid}` | Update session: close/resolve, add resolution notes |
+| PATCH | `/profiles/{pid}/diagnosis/{sid}/rename` | Rename session (update title) |
 | DELETE | `/profiles/{pid}/diagnosis/{sid}` | Delete session + cascade messages + associated Mem0 memories |
 
 ### Reports

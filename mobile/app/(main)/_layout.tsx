@@ -35,7 +35,7 @@ export default function MainLayout() {
         },
         header: ({ options }) => (
           <HeaderBar
-            left={<HeaderIconButton icon="menu" onPress={() => navigation.toggleDrawer()} />}
+            left={options.headerLeft?.({ canGoBack: false }) ?? <HeaderIconButton icon="menu" onPress={() => navigation.toggleDrawer()} />}
             center={<ProfilePill />}
             right={options.headerRight?.({ canGoBack: false })}
           />
@@ -46,7 +46,8 @@ export default function MainLayout() {
       <Drawer.Screen name="index" options={{ drawerItemStyle: { display: 'none' } }} />
       <Drawer.Screen name="chat/[cid]" options={{ drawerItemStyle: { display: 'none' } }} />
       <Drawer.Screen name="diagnosis/[sid]" options={{ drawerItemStyle: { display: 'none' } }} />
-      <Drawer.Screen name="diagnosis/past" options={{ drawerItemStyle: { display: 'none' } }} />
+      <Drawer.Screen name="chat/all" options={{ drawerItemStyle: { display: 'none' } }} />
+      <Drawer.Screen name="diagnosis/all" options={{ drawerItemStyle: { display: 'none' } }} />
       <Drawer.Screen name="report/[rid]" options={{ drawerItemStyle: { display: 'none' } }} />
     </Drawer>
   );

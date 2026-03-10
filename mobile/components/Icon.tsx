@@ -31,7 +31,8 @@ export type IconName =
   | 'close-circle'
   | 'brain'
   | 'pencil'
-  | 'trash';
+  | 'trash'
+  | 'chevron-back';
 
 interface Props {
   name: IconName;
@@ -89,5 +90,7 @@ export function Icon({ name, size, color }: Props) {
       return <Ionicons name="pencil" size={size} color={color} />;
     case 'trash':
       return <Ionicons name="trash-outline" size={size} color={color} />;
+    case 'chevron-back':
+      return <Ionicons name="chevron-back" size={size} color={color} />;
   }
 }
