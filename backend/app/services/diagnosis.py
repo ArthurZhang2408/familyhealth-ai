@@ -44,7 +44,7 @@ from app.services.diagnosis_safety import (
 from app.services.llm import ImagePart, LLMMessage, LLMRequest, LLMResponse, LLMTask
 from app.services.memory import build_conversation_window
 from app.services.memory_extractor import MemoryExtractor
-from app.services.memory_trace import record_extraction, record_retrieval
+from app.services.memory_trace import record_extraction
 from app.services.message_parts_builder import (
     PartsAccumulator,
     build_assistant_parts,
@@ -836,8 +836,22 @@ class DiagnosisService:
         violations = validate_response(conversation_text)
         conversation_text = sanitize_response(conversation_text, violations)
 
-        # 5. Pass 2 — Extract structured diagnosis state
-        diagnosis_state = await self._extract_state(system_prompt, messages, conversation_text)
+        # 5. Extract structured diagnosis state
+        # If present_assessment was called, build state directly from tool args
+        pa_calls = [
+            tc for tc in agent_result.tool_calls_made
+            if tc.name == "present_assessment"
+        ]
+        if pa_calls:
+            assessment_args = pa_calls[-1].arguments
+            conversation_text = _format_assessment_text(assessment_args)
+            diagnosis_state = self._state_from_assessment_tool(
+                assessment_args, turn_number
+            )
+        else:
+            diagnosis_state = await self._extract_state(
+                system_prompt, messages, conversation_text
+            )
 
         return conversation_text, diagnosis_state
 

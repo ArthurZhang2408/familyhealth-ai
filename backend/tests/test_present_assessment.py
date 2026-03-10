@@ -125,6 +125,42 @@ def test_build_assessment_part_empty():
     assert part.follow_up is None
 
 
+def test_build_assistant_parts_with_assessment_skips_text():
+    """When present_assessment tool was called, TextPart should be skipped."""
+    from app.services.message_parts_builder import PartsAccumulator, build_assistant_parts
+    from app.schemas.message_parts import ToolCallPart, ToolResultPart
+
+    acc = PartsAccumulator()
+    # Simulate a present_assessment tool call
+    acc.tool_calls.append(ToolCallPart(
+        id="tc_1", name="present_assessment", arguments=SAMPLE_ARGS
+    ))
+    acc.tool_results.append(ToolResultPart(
+        call_id="tc_1", name="present_assessment",
+        output={"status": "assessment_presented", **SAMPLE_ARGS}
+    ))
+
+    parts = build_assistant_parts("some fallback text", acc)
+
+    # Should have NO text part (assessment replaces it)
+    types = [p["type"] for p in parts]
+    assert "text" not in types, f"TextPart should be skipped when assessment present: {types}"
+    assert "assessment" in types
+    # Assessment should have correct data
+    assessment = next(p for p in parts if p["type"] == "assessment")
+    assert len(assessment["conditions"]) == 2
+
+
+def test_build_assistant_parts_without_assessment_has_text():
+    """Without present_assessment, TextPart should be present as usual."""
+    from app.services.message_parts_builder import PartsAccumulator, build_assistant_parts
+
+    acc = PartsAccumulator()
+    parts = build_assistant_parts("hello world", acc)
+    types = [p["type"] for p in parts]
+    assert "text" in types
+
+
 def test_state_from_assessment_tool():
     from app.services.diagnosis import DiagnosisService
 
