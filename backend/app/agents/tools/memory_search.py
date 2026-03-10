@@ -54,6 +54,7 @@ def build_memory_search_tool(memory_service: MemoryService) -> ToolDefinition:
             "memories": memories,  # date-prefixed strings for the LLM
             "memories_with_dates": memories_with_dates,  # structured for UI
             "count": len(memories),
+            "query": query,  # persisted for debug / UI display
         }
 
     return ToolDefinition(

@@ -56,6 +56,7 @@ class LLMRequest(BaseModel):
     tools: list[dict[str, Any]] | None = None
     tool_choice: str | None = None  # "auto" | "any" | "none"
     thinking_budget: int | None = None  # None=disabled, -1=automatic
+    extra: dict[str, Any] | None = None  # Provider-specific params (e.g. enable_thinking)
 
 
 class LLMResponse(BaseModel):

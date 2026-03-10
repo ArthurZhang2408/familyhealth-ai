@@ -302,11 +302,15 @@ class AgentCore:
                 result = await self._tools.execute(tc, injected_args=injected)
                 session.tool_results.append(result)
 
-                result_summary = (
-                    f"Error: {result.output.get('error', 'unknown')}"
-                    if result.is_error
-                    else f"{result.output.get('count', len(result.output))} results"
-                )
+                if result.is_error:
+                    result_summary = f"Error: {result.output.get('error', 'unknown')}"
+                else:
+                    count = result.output.get("count", len(result.output))
+                    query = result.output.get("query") or tc.arguments.get("query")
+                    if query:
+                        result_summary = f'"{query}" — {count} results'
+                    else:
+                        result_summary = f"{count} results"
                 yield AgentEvent(
                     type=AgentEventType.TOOL_RESULT,
                     data={

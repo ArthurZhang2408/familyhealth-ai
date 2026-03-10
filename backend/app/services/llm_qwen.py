@@ -100,6 +100,8 @@ class QwenProvider(LLMProvider):
             kwargs["tools"] = tools
             if request.tool_choice:
                 kwargs["tool_choice"] = request.tool_choice
+        if request.extra:
+            kwargs["extra_body"] = request.extra
 
         response = await self._client.chat.completions.create(**kwargs)
 
@@ -114,8 +116,26 @@ class QwenProvider(LLMProvider):
         tool_calls = self._parse_tool_calls(choice.message)
         finish = str(choice.finish_reason) if choice.finish_reason else "stop"
 
+        content = choice.message.content or ""
+        if not content and not tool_calls:
+            # Log the full raw response for debugging
+            try:
+                raw = response.model_dump() if hasattr(response, "model_dump") else str(response)
+            except Exception:
+                raw = repr(response)
+            logger.warning(
+                "Empty content from %s (finish=%s, usage=%s, raw_content=%r, "
+                "message_keys=%s, full_response=%s)",
+                response.model,
+                finish,
+                usage,
+                choice.message.content,
+                list(vars(choice.message).keys()) if hasattr(choice.message, "__dict__") else "N/A",
+                str(raw)[:1000],
+            )
+
         return LLMResponse(
-            content=choice.message.content or "",
+            content=content,
             model=response.model,
             usage=usage,
             tool_calls=tool_calls,
@@ -141,6 +161,8 @@ class QwenProvider(LLMProvider):
             kwargs["tools"] = tools
             if request.tool_choice:
                 kwargs["tool_choice"] = request.tool_choice
+        if request.extra:
+            kwargs["extra_body"] = request.extra
 
         response = await self._client.chat.completions.create(**kwargs)
 
