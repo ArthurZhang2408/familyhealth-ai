@@ -9,6 +9,8 @@ export interface LocalMessage {
   role: 'user' | 'assistant';
   content: string;
   contentParts?: MessagePart[];
+  /** Hidden user messages (e.g. structured responses) — still sent to backend but not rendered as bubbles. */
+  hidden?: boolean;
 }
 
 type DoneEvent = Extract<StreamEvent, { type: 'done' }>;
@@ -80,10 +82,14 @@ export function useConversation({ serverMessages, streamSendFn, dedupMode, onSen
   }, [serverIdKey, dedupMode]);
 
   const allMessages = useMemo(() => {
-    if (pendingMessages.length === 0) return serverMessages;
+    // Hide user messages that are structured responses (selection shown on the question UI instead)
+    const isVisible = (m: LocalMessage) => !m.hidden;
+    if (pendingMessages.length === 0) {
+      return serverMessages.filter(isVisible);
+    }
     const serverIds = new Set(serverMessages.map((m) => m.id));
     const uniquePending = pendingMessages.filter((m) => !serverIds.has(m.id));
-    return [...serverMessages, ...uniquePending];
+    return [...serverMessages, ...uniquePending].filter(isVisible);
   }, [serverMessages, pendingMessages]);
 
   const pendingIds = useMemo(() => {
@@ -187,6 +193,7 @@ export function useConversation({ serverMessages, streamSendFn, dedupMode, onSen
         role: 'user',
         content: text,
         contentParts: userParts.length > 0 ? userParts : undefined,
+        hidden: !!structuredResponse,
       };
       setPendingMessages((prev) => [...prev, userMsg]);
 

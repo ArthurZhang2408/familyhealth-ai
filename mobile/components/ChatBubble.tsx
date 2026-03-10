@@ -58,7 +58,6 @@ export function ChatBubble({ content, contentParts, isUser, animate, onStructure
 
 function UserBubble({ content, contentParts, Colors }: { content: string; contentParts?: MessagePart[]; Colors: any }) {
   const images = contentParts?.filter((p): p is Extract<MessagePart, { type: 'image' }> => p.type === 'image');
-  const structuredInput = contentParts?.find((p): p is Extract<MessagePart, { type: 'structured_input' }> => p.type === 'structured_input');
   const hasText = content.trim().length > 0;
 
   return (
@@ -68,23 +67,7 @@ function UserBubble({ content, contentParts, Colors }: { content: string; conten
           {images.map((img, i) => <ImagePartView key={i} part={img} />)}
         </View>
       )}
-      {structuredInput ? (
-        <View
-          style={{
-            backgroundColor: Colors.primary + '15',
-            borderRadius: BorderRadius.lg,
-            borderBottomRightRadius: BorderRadius.sm,
-            borderCurve: 'continuous',
-            padding: Spacing.md,
-            borderWidth: 1,
-            borderColor: Colors.primary + '30',
-          }}
-        >
-          <Text style={{ fontSize: FontSize.sm, color: Colors.primary, fontWeight: FontWeight.semibold }}>
-            {String(structuredInput.selected ?? content)}
-          </Text>
-        </View>
-      ) : hasText ? (
+      {hasText && (
         <View
           style={{
             backgroundColor: Colors.surfaceSecondary,
@@ -101,7 +84,7 @@ function UserBubble({ content, contentParts, Colors }: { content: string; conten
             {content}
           </Text>
         </View>
-      ) : null}
+      )}
     </View>
   );
 }

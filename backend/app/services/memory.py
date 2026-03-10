@@ -267,6 +267,30 @@ class MemoryService:
             metadata=metadata,
         )
 
+    async def add_raw(
+        self,
+        profile_id: UUID,
+        fact: str,
+        *,
+        category: str | None = None,
+        source: str = "conversation",
+    ) -> dict:
+        """Store a pre-extracted fact directly — bypasses Mem0's internal LLM.
+
+        Uses ``infer=False`` so Mem0 only embeds and stores; no nemotron
+        extraction or dedup logic runs.
+        """
+        metadata: dict[str, str] = {"source": source}
+        if category:
+            metadata["category"] = category
+        return await asyncio.to_thread(
+            self._mem0.add,
+            fact,
+            user_id=str(profile_id),
+            metadata=metadata,
+            infer=False,
+        )
+
     async def search(
         self,
         profile_id: UUID,

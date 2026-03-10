@@ -14,17 +14,28 @@ interface Props {
 }
 
 export function StructuredInputView({ part, onResponse, isLatest }: Props) {
-  const isInteractive = part.selected == null && isLatest && !!onResponse;
+  // Track local selection for instant rendering before server round-trip
+  const [localSelected, setLocalSelected] = useState<unknown>(undefined);
+  const effectiveSelected = localSelected !== undefined ? localSelected : part.selected;
+  const isInteractive = effectiveSelected == null && isLatest && !!onResponse;
+
+  const handleResponse = useCallback(
+    (content: string, structuredResponse: Record<string, unknown>) => {
+      setLocalSelected(structuredResponse.selected);
+      onResponse?.(content, structuredResponse);
+    },
+    [onResponse],
+  );
 
   switch (part.input_type) {
     case 'multiple_choice':
-      return <MultipleChoice part={part} onResponse={onResponse} interactive={isInteractive} />;
+      return <MultipleChoice part={part} selected={effectiveSelected} onResponse={handleResponse} interactive={isInteractive} />;
     case 'scale':
-      return <ScaleInput part={part} onResponse={onResponse} interactive={isInteractive} />;
+      return <ScaleInput part={part} selected={effectiveSelected} onResponse={handleResponse} interactive={isInteractive} />;
     case 'yes_no':
-      return <YesNo part={part} onResponse={onResponse} interactive={isInteractive} />;
+      return <YesNo part={part} selected={effectiveSelected} onResponse={handleResponse} interactive={isInteractive} />;
     case 'multi_select':
-      return <MultiSelect part={part} onResponse={onResponse} interactive={isInteractive} />;
+      return <MultiSelect part={part} selected={effectiveSelected} onResponse={handleResponse} interactive={isInteractive} />;
     default:
       return null;
   }
@@ -32,10 +43,12 @@ export function StructuredInputView({ part, onResponse, isLatest }: Props) {
 
 function MultipleChoice({
   part,
+  selected,
   onResponse,
   interactive,
 }: {
   part: StructuredInputPart;
+  selected: unknown;
   onResponse?: Props['onResponse'];
   interactive: boolean;
 }) {
@@ -66,7 +79,7 @@ function MultipleChoice({
         {part.prompt}
       </Text>
       {options.map((opt) => {
-        const isSelected = part.selected === opt.value;
+        const isSelected = selected === opt.value;
         return (
           <OptionCard
             key={opt.value}
@@ -83,10 +96,12 @@ function MultipleChoice({
 
 function YesNo({
   part,
+  selected,
   onResponse,
   interactive,
 }: {
   part: StructuredInputPart;
+  selected: unknown;
   onResponse?: Props['onResponse'];
   interactive: boolean;
 }) {
@@ -111,14 +126,14 @@ function YesNo({
       <View style={{ flexDirection: 'row', gap: Spacing.sm }}>
         <OptionCard
           label="Yes"
-          selected={part.selected === 'yes'}
+          selected={selected === 'yes'}
           disabled={!interactive}
           onPress={() => handleSelect('yes')}
           flex
         />
         <OptionCard
           label="No"
-          selected={part.selected === 'no'}
+          selected={selected === 'no'}
           disabled={!interactive}
           onPress={() => handleSelect('no')}
           flex
@@ -130,10 +145,12 @@ function YesNo({
 
 function ScaleInput({
   part,
+  selected,
   onResponse,
   interactive,
 }: {
   part: StructuredInputPart;
+  selected: unknown;
   onResponse?: Props['onResponse'];
   interactive: boolean;
 }) {
@@ -145,7 +162,7 @@ function ScaleInput({
     labels?: { min: string; max: string };
   };
   const [value, setValue] = useState<number | null>(null);
-  const displayValue = part.selected != null ? Number(part.selected) : value;
+  const displayValue = selected != null ? Number(selected) : value;
   const step = range.step ?? 1;
   const steps: number[] = [];
   for (let i = range.min; i <= range.max; i += step) steps.push(i);
@@ -224,17 +241,19 @@ function ScaleInput({
 
 function MultiSelect({
   part,
+  selected: effectiveSelected,
   onResponse,
   interactive,
 }: {
   part: StructuredInputPart;
+  selected: unknown;
   onResponse?: Props['onResponse'];
   interactive: boolean;
 }) {
   const Colors = useColors();
   const options = (part.options ?? []) as Array<{ label: string; value: string }>;
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const completedSelection = part.selected as string[] | null;
+  const completedSelection = effectiveSelected as string[] | null;
 
   const toggle = useCallback((value: string) => {
     setSelected((prev) => {

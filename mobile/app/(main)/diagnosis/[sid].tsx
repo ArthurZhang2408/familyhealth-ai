@@ -89,12 +89,44 @@ function DiagnosisScreenInner() {
     activeSid ?? '',
   );
 
-  const serverMessages: LocalMessage[] = (session?.messages ?? []).map((m, i) => ({
-    id: `${activeSid ?? sid}-${i}`,
-    role: m.role,
-    content: m.content,
-    contentParts: m.content_parts,
-  }));
+  const serverMessages: LocalMessage[] = useMemo(() => {
+    const rawMessages = session?.messages ?? [];
+    // Build a map of prompt → selected from user structured_input answers
+    const answerMap = new Map<string, unknown>();
+    for (const m of rawMessages) {
+      if (m.role === 'user' && m.content_parts) {
+        for (const p of m.content_parts) {
+          if (p.type === 'structured_input' && p.selected != null) {
+            answerMap.set(p.prompt, p.selected);
+          }
+        }
+      }
+    }
+    return rawMessages.map((m, i) => {
+      const isStructuredUser = m.role === 'user' && m.content_parts?.some((p) => p.type === 'structured_input');
+      // Merge user selections onto assistant question parts
+      let parts = m.content_parts;
+      if (m.role === 'assistant' && parts && answerMap.size > 0) {
+        const needsUpdate = parts.some(
+          (p) => p.type === 'structured_input' && p.selected == null && answerMap.has(p.prompt),
+        );
+        if (needsUpdate) {
+          parts = parts.map((p) =>
+            p.type === 'structured_input' && p.selected == null && answerMap.has(p.prompt)
+              ? { ...p, selected: answerMap.get(p.prompt) }
+              : p,
+          );
+        }
+      }
+      return {
+        id: `${activeSid ?? sid}-${i}`,
+        role: m.role,
+        content: m.content,
+        contentParts: parts,
+        hidden: isStructuredUser,
+      };
+    });
+  }, [session?.messages, activeSid, sid]);
 
   const streamSendFn = useCallback(
     (text: string, onEvent: (event: StreamEvent) => void, files?: Attachment[], structuredResponse?: Record<string, unknown>) => {

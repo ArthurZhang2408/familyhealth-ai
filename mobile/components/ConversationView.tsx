@@ -198,7 +198,7 @@ export function ConversationView({
                 )}
 
                 {/* Typing indicator when busy but not yet streaming */}
-                {isBusy && !isStreaming && agentSteps.length === 0 && thinkingContent.length === 0 && <TypingIndicator />}
+                {isBusy && !isStreaming && thinkingContent.length === 0 && <TypingIndicator />}
 
                 {/* Disclaimer after response */}
                 {disclaimer && !isBusy && (

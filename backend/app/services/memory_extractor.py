@@ -90,13 +90,14 @@ async def retrieve_memories(
 ) -> list[dict]:
     """Retrieve relevant episodic memories based on interaction type."""
     if interaction_type == "diagnosis":
-        # Diagnosis needs broad context but not noise. Threshold 0.15
-        # filters out very weak matches (buttock pain for stomachache).
+        # Diagnosis retrieval: threshold 0.3 filters noise while keeping
+        # relevant memories (Gemini embeddings rarely exceed 0.5 for short
+        # medical phrases).  Limit 5 to avoid injecting marginal matches.
         return await memory_service.search(
             profile_id,
             query,
-            limit=10,
-            threshold=0.15,
+            limit=5,
+            threshold=0.3,
         )
     elif interaction_type == "report_analysis":
         return await memory_service.search(
@@ -170,7 +171,7 @@ class MemoryExtractor:
         source: str,
         category: str | None = None,
     ) -> dict | None:
-        """Run memory extraction as a background task."""
+        """Run memory extraction via Mem0's internal LLM (infer=True)."""
         try:
             enriched = enrich_messages_with_date(messages)
             result = await self._memory.add(profile_id, enriched, category=category, source=source)
@@ -179,3 +180,34 @@ class MemoryExtractor:
         except Exception:
             logger.exception("Memory extraction failed for profile %s", profile_id)
             return None
+
+    async def store_facts(
+        self,
+        profile_id: UUID,
+        facts: list[str],
+        source: str,
+        category: str | None = None,
+    ) -> dict:
+        """Store pre-extracted facts directly — bypasses Mem0's internal LLM.
+
+        Each fact is embedded and stored via ``infer=False``.  Returns a
+        synthetic result dict matching the Mem0 ``add()`` return shape.
+        """
+        results: list[dict] = []
+        for fact in facts:
+            fact = fact.strip()
+            if not fact:
+                continue
+            try:
+                r = await self._memory.add_raw(
+                    profile_id, fact, category=category, source=source,
+                )
+                # add_raw returns {"results": [...]}, flatten
+                for item in r.get("results", []):
+                    results.append(item)
+            except Exception:
+                logger.warning("Failed to store fact for profile %s: %s", profile_id, fact[:80])
+        logger.info(
+            "Stored %d facts for profile %s (source=%s)", len(results), profile_id, source,
+        )
+        return {"results": results, "facts_stored": len(results)}

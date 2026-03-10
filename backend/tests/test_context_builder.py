@@ -426,8 +426,8 @@ async def test_diagnosis_uses_broadest_retrieval() -> None:
     await builder.build(mock_db, PROFILE_ID, "chest pain", "diagnosis")
 
     _, kwargs = mock_mem0.search.call_args
-    assert kwargs["limit"] == 10
-    assert kwargs["threshold"] == 0.15
+    assert kwargs["limit"] == 5
+    assert kwargs["threshold"] == 0.3
     assert kwargs.get("filters") is None  # no category restriction
 
 
