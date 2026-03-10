@@ -466,8 +466,7 @@ class DiagnosisService:
 
             # Snapshot conversation history before agent loop mutates it
             debug_history_snapshot = [
-                {"role": m["role"], "content": m["content"]}
-                for m in messages
+                {"role": m["role"], "content": m["content"]} for m in messages
             ]
 
             agent_session = AgentSession(
@@ -496,8 +495,7 @@ class DiagnosisService:
                     # Emit structured question for present_question tool results
                     if tool_name == "present_question":
                         pq_calls = [
-                            tc for tc in accumulator.tool_calls
-                            if tc.name == "present_question"
+                            tc for tc in accumulator.tool_calls if tc.name == "present_question"
                         ]
                         if pq_calls:
                             tc = pq_calls[-1]
@@ -513,16 +511,13 @@ class DiagnosisService:
                     # Emit structured assessment for present_assessment tool results
                     elif tool_name == "present_assessment":
                         pa_calls = [
-                            tc for tc in accumulator.tool_calls
-                            if tc.name == "present_assessment"
+                            tc for tc in accumulator.tool_calls if tc.name == "present_assessment"
                         ]
                         if pa_calls:
                             assessment_tool_args = pa_calls[-1].arguments
                             has_assessment_tool = True
                             # Format as markdown for the content column
-                            conversation_text = _format_assessment_text(
-                                assessment_tool_args
-                            )
+                            conversation_text = _format_assessment_text(assessment_tool_args)
                             yield AgentEvent(
                                 type=AgentEventType.STRUCTURED_ASSESSMENT,
                                 data=assessment_tool_args,
@@ -553,27 +548,36 @@ class DiagnosisService:
                 if c.startswith("[Thinking:"):
                     # Find the end of the thinking block
                     end = c.find("]\n")
-                    actual = c[end + 2:].strip() if end != -1 else c
-                    enriched_preview.append({
-                        "role": m["role"],
-                        "content": actual[:300] if actual else "(thinking only)",
-                        "has_thinking": True,
-                    })
+                    actual = c[end + 2 :].strip() if end != -1 else c
+                    enriched_preview.append(
+                        {
+                            "role": m["role"],
+                            "content": actual[:300] if actual else "(thinking only)",
+                            "has_thinking": True,
+                        }
+                    )
                 else:
-                    enriched_preview.append({
-                        "role": m["role"],
-                        "content": c[:300],
-                    })
+                    enriched_preview.append(
+                        {
+                            "role": m["role"],
+                            "content": c[:300],
+                        }
+                    )
 
             debug_metadata = {
                 "turn_number": turn_number,
                 "enriched_history": enriched_preview,
                 "agent_rounds": debug_rounds,
-                "memories_used": sum(
-                    1 for tr in accumulator.tool_results
-                    if tr.name == "search_patient_memory" and not tr.is_error
-                    for _ in tr.output.get("memories", [])
-                ) if accumulator else 0,
+                "memories_used": (
+                    sum(
+                        1
+                        for tr in accumulator.tool_results
+                        if tr.name == "search_patient_memory" and not tr.is_error
+                        for _ in tr.output.get("memories", [])
+                    )
+                    if accumulator
+                    else 0
+                ),
             }
 
         user_msg = DiagnosisMessage(
@@ -596,7 +600,8 @@ class DiagnosisService:
 
         # Red flags → triage state; normal → fallback (real extraction after DONE)
         done_state = (
-            diagnosis_state if red_flags
+            diagnosis_state
+            if red_flags
             else DiagnosisState.model_validate(copy.deepcopy(FALLBACK_DIAGNOSIS_STATE))
         )
 
@@ -631,9 +636,7 @@ class DiagnosisService:
                     ]
                     await self._db.commit()
                 except Exception:
-                    logger.warning(
-                        "Assessment tool state extraction failed", exc_info=True
-                    )
+                    logger.warning("Assessment tool state extraction failed", exc_info=True)
             else:
                 try:
                     diagnosis_state = await self._extract_state(
@@ -647,17 +650,20 @@ class DiagnosisService:
                 except Exception:
                     logger.warning("Post-DONE state extraction failed", exc_info=True)
 
-            # Extract session facts to long-term memory when an assessment
-            # is delivered.  Uses a stable source key so Mem0 UPDATEs existing
-            # memories on follow-up assessments instead of creating duplicates.
+            # Store a single consolidated narrative to long-term memory when
+            # an assessment is delivered.  Uses delete-then-add (upsert) so
+            # follow-up assessments cleanly replace the previous narrative.
             if has_assessment_tool or "## Assessment" in conversation_text:
                 try:
-                    await self._extract_assessment_memories(
-                        session, profile, messages, conversation_text, turn_number,
+                    await self._store_session_narrative(
+                        session,
+                        profile,
+                        messages,
+                        assessment_tool_args,
                     )
                 except Exception:
                     logger.warning(
-                        "Assessment memory extraction failed for session %s",
+                        "Session narrative storage failed for session %s",
                         session.id,
                         exc_info=True,
                     )
@@ -707,42 +713,41 @@ class DiagnosisService:
         session.resolved_at = func.now()
         session.resolution_notes = resolution_notes
 
-        # Build resolution summary for memory extraction
-        summary_parts = [
-            f"Diagnosis session resolved for chief complaint: {session.chief_complaint}.",
+        # Build a resolution narrative and upsert to long-term memory.
+        # Replaces any earlier assessment narrative for the same session.
+        now = datetime.now(timezone.utc)
+        date_str = now.strftime("%Y-%m-%d")
+
+        narrative_parts = [
+            f"Diagnosis session on {date_str} for: {session.chief_complaint}.",
         ]
         if session.differential_diagnoses:
             top = session.differential_diagnoses[0]
-            summary_parts.append(
-                f"Top assessment: {top.get('condition', 'unknown')} "
-                f"(confidence: {top.get('confidence', 'N/A')})."
+            narrative_parts.append(
+                f"Assessment: {top.get('condition', top.get('name', 'unknown'))} "
+                f"({top.get('confidence', 'N/A')})."
             )
         if resolution_notes:
-            summary_parts.append(f"Outcome: {resolution_notes}")
+            narrative_parts.append(f"Resolved — {resolution_notes}.")
 
-        resolution_summary = " ".join(summary_parts)
+        narrative = " ".join(narrative_parts)
 
-        # Extract resolution facts to long-term memory (best-effort).
-        # Uses our own LLM (Cerebras/Qwen) instead of Mem0's internal LLM.
         try:
-            facts = await self._llm_extract_facts(resolution_summary)
-            if facts:
-                extraction_result = await self._mem_extractor.store_facts(
-                    profile_id=profile.id,
-                    facts=facts,
-                    source=f"diagnosis:{session.id}:resolution",
-                    category="diagnoses",
-                )
-                await record_extraction(
-                    self._db,
-                    profile_id=profile.id,
-                    session_type="diagnosis",
-                    session_id=session.id,
-                    mem0_result=extraction_result,
-                    input_message_count=1,
-                )
+            extraction_result = await self._mem_extractor.store_narrative(
+                profile_id=profile.id,
+                narrative=narrative,
+                source=f"diagnosis:{session.id}",
+            )
+            await record_extraction(
+                self._db,
+                profile_id=profile.id,
+                session_type="diagnosis",
+                session_id=session.id,
+                mem0_result=extraction_result,
+                input_message_count=1,
+            )
         except Exception:
-            logger.exception("Resolution memory extraction failed for session %s", session.id)
+            logger.exception("Resolution narrative storage failed for session %s", session.id)
 
         # Log action
         await self._log_action(
@@ -838,20 +843,13 @@ class DiagnosisService:
 
         # 5. Extract structured diagnosis state
         # If present_assessment was called, build state directly from tool args
-        pa_calls = [
-            tc for tc in agent_result.tool_calls_made
-            if tc.name == "present_assessment"
-        ]
+        pa_calls = [tc for tc in agent_result.tool_calls_made if tc.name == "present_assessment"]
         if pa_calls:
             assessment_args = pa_calls[-1].arguments
             conversation_text = _format_assessment_text(assessment_args)
-            diagnosis_state = self._state_from_assessment_tool(
-                assessment_args, turn_number
-            )
+            diagnosis_state = self._state_from_assessment_tool(assessment_args, turn_number)
         else:
-            diagnosis_state = await self._extract_state(
-                system_prompt, messages, conversation_text
-            )
+            diagnosis_state = await self._extract_state(system_prompt, messages, conversation_text)
 
         return conversation_text, diagnosis_state
 
@@ -870,10 +868,7 @@ class DiagnosisService:
         result = await self._db.execute(stmt)
         history = result.scalars().all()
 
-        messages = [
-            {"role": m.role, "content": self._enrich_content(m)}
-            for m in history
-        ]
+        messages = [{"role": m.role, "content": self._enrich_content(m)} for m in history]
 
         # Apply sliding window: keep first message (chief complaint) + fill from recent
         if messages:
@@ -929,7 +924,11 @@ class DiagnosisService:
             ptype = part.get("type")
 
             # --- Structured input enrichment (user messages only) ---
-            if ptype == "structured_input" and msg.role == "user" and part.get("selected") is not None:
+            if (
+                ptype == "structured_input"
+                and msg.role == "user"
+                and part.get("selected") is not None
+            ):
                 prompt = part.get("prompt", "")
                 options = part.get("options") or []
                 input_type = part.get("input_type", "")
@@ -973,9 +972,7 @@ class DiagnosisService:
         return content
 
     @staticmethod
-    def _state_from_assessment_tool(
-        args: dict, turn_number: int
-    ) -> DiagnosisState:
+    def _state_from_assessment_tool(args: dict, turn_number: int) -> DiagnosisState:
         """Build DiagnosisState directly from present_assessment tool arguments.
 
         Avoids a separate LLM call for state extraction when the agent
@@ -1049,77 +1046,32 @@ class DiagnosisService:
             fallback = copy.deepcopy(FALLBACK_DIAGNOSIS_STATE)
             return DiagnosisState.model_validate(fallback)
 
-    async def _extract_assessment_memories(
+    async def _store_session_narrative(
         self,
         session: DiagnosisSession,
         profile: Profile,
         messages: list[dict],
-        assessment_text: str,
-        turn_number: int,
+        assessment_tool_args: dict,
     ) -> None:
-        """Extract session facts to long-term memory on assessment delivery.
+        """Store a single consolidated narrative to long-term memory.
 
-        Bypasses Mem0's internal LLM (which produces poor-quality extractions)
-        and uses our own LLM (Cerebras → Qwen fallback) to extract discrete
-        facts, then stores them directly via ``infer=False``.
-
-        Uses a stable source key (``diagnosis:<sid>``) so that follow-up
-        assessments within the same session can be traced to the same source.
+        Replaces per-fact extraction with one narrative paragraph per session.
+        Uses delete-then-add (upsert) so follow-up assessments cleanly replace
+        the previous narrative instead of accumulating duplicates.
         """
-        now = datetime.now(timezone.utc)
-        date_str = now.strftime("%Y-%m-%d")
-
-        # Count previous assessments to determine if this is a follow-up
-        prev_assessments = sum(
-            1
-            for m in messages
-            if m["role"] == "assistant" and "## Assessment" in m.get("content", "")
-        )
-        is_followup = prev_assessments > 0
-
-        # Build a concise summary from user messages
-        reported: list[str] = []
-        for m in messages:
-            if m["role"] != "user":
-                continue
-            content = m.get("content", "").strip()
-            if not content or content == session.chief_complaint:
-                continue
-            reported.append(content)
-
-        # Count turns since last assessment (or from start)
-        prev_turn = 0
-        for m in messages:
-            if m["role"] == "assistant" and "## Assessment" in m.get("content", ""):
-                prev_turn = sum(1 for msg in messages[:messages.index(m) + 1] if msg["role"] == "user")
-
-        if is_followup:
-            header = f"Follow-up assessment on {date_str} (turns {prev_turn + 1}–{turn_number})."
-        else:
-            header = f"Initial assessment on {date_str} (turns 1–{turn_number})."
-
-        # Extract just the assessment section, not the full response
-        assessment_start = assessment_text.find("## Assessment")
-        assessment_section = assessment_text[assessment_start:assessment_start + 2000] if assessment_start >= 0 else assessment_text[:2000]
-
-        summary = (
-            f"{header}\n"
-            f"Chief complaint: {session.chief_complaint}.\n"
-            f"Patient reported: {'; '.join(reported)}.\n"
-            f"Assessment:\n{assessment_section}"
-        )
-
-        # Use our own LLM to extract discrete facts (not Mem0's nemotron)
-        facts = await self._llm_extract_facts(summary)
-        if not facts:
-            logger.warning("No facts extracted for session %s", session.id)
+        narrative = await self._build_session_narrative(session, messages, assessment_tool_args)
+        if not narrative:
+            # Fallback: build bullet points directly from structured data
+            logger.warning("LLM narrative empty for session %s, using fallback", session.id)
+            narrative = self._build_fallback_narrative(session, messages, assessment_tool_args)
+        if not narrative:
+            logger.warning("Empty narrative for session %s", session.id)
             return
 
-        extraction_result = await self._mem_extractor.store_facts(
+        extraction_result = await self._mem_extractor.store_narrative(
             profile_id=profile.id,
-            facts=facts,
+            narrative=narrative,
             source=f"diagnosis:{session.id}",
-            category="symptoms",
         )
         await record_extraction(
             self._db,
@@ -1127,57 +1079,124 @@ class DiagnosisService:
             session_type="diagnosis",
             session_id=session.id,
             mem0_result=extraction_result,
-            input_message_count=1,
+            input_message_count=len([m for m in messages if m["role"] == "user"]),
         )
-        logger.info(
-            "Assessment memory extraction for session %s (%s, turn %d): %d facts",
-            session.id,
-            "follow-up" if is_followup else "initial",
-            turn_number,
-            len(facts),
-        )
+        logger.info("Session narrative stored for session %s", session.id)
 
-    async def _llm_extract_facts(self, summary: str) -> list[str]:
-        """Use Cerebras/Qwen to extract discrete medical facts from a session summary.
+    async def _build_session_narrative(
+        self,
+        session: DiagnosisSession,
+        messages: list[dict],
+        assessment_tool_args: dict,
+    ) -> str:
+        """Build a consolidated narrative paragraph via LLM summarization.
 
-        Returns a list of short, factual statements suitable for memory storage.
+        Combines patient Q&A answers and structured assessment data into a
+        single factual paragraph suitable for long-term memory storage and
+        semantic retrieval.
         """
+        now = datetime.now(timezone.utc)
+        date_str = now.strftime("%Y-%m-%d")
+
+        # Collect user-reported information (strip enrichment prefixes)
+        reported: list[str] = []
+        for m in messages:
+            if m["role"] != "user":
+                continue
+            content = m.get("content", "").strip()
+            if not content:
+                continue
+            # Strip Q&A enrichment prefix if present: "(Q: ...) actual answer"
+            if content.startswith("(Q:"):
+                paren_end = content.find(")")
+                if paren_end != -1:
+                    content = content[paren_end + 1 :].strip()
+            if content:
+                reported.append(content)
+
+        # Build assessment summary from structured tool args
+        assessment_lines: list[str] = []
+        if assessment_tool_args:
+            for cond in assessment_tool_args.get("conditions", []):
+                name = cond.get("name", "unknown")
+                confidence = cond.get("confidence", "")
+                assessment_lines.append(f"- {name} ({confidence})")
+        else:
+            assessment_lines.append("(no structured assessment available)")
+
+        input_text = (
+            f"Date: {date_str}\n"
+            f"Chief complaint: {session.chief_complaint}\n"
+            "Patient reported:\n" + "\n".join(f"- {r}" for r in reported) + "\n"
+            "Assessment:\n" + "\n".join(assessment_lines)
+        )
+
         prompt = (
-            "Extract discrete medical facts from this diagnosis session summary. "
-            "Return ONLY a JSON array of short factual strings. Each fact should be "
-            "a single, specific observation — not a recommendation or instruction.\n\n"
-            "Good examples:\n"
-            '- "Upper abdominal cramping pain, severity 4/10, started 2026-03-10"\n'
-            '- "Pain worsens after eating"\n'
-            '- "No nausea, vomiting, diarrhea, or fever"\n'
-            '- "Assessed as acute gastritis"\n'
-            '- "No NSAID or alcohol use"\n\n'
-            "Bad examples (do NOT produce these):\n"
-            '- "Recommend antacids" (instruction, not fact)\n'
-            '- "No recent changes in diet" (hallucinated negation)\n\n'
-            f"Session summary:\n{summary}"
+            "Summarize this diagnosis session as concise bullet points from the patient's perspective. "
+            "Each bullet should be a single fact. Include: chief complaint with onset/timing/severity "
+            "if mentioned, key reported symptoms and relevant negatives the patient confirmed, "
+            "and the assessment conclusion. Include the date.\n\n"
+            "Do NOT include: recommendations, warnings, advice, medication suggestions, "
+            "or anything the AI told the patient. Only include what the patient reported "
+            "and what the assessment concluded.\n\n"
+            "Format: one fact per line, each starting with '- '. Keep each bullet under 15 words.\n\n"
+            f"Session data:\n{input_text}"
         )
         request = LLMRequest(
-            task=LLMTask.FACT_EXTRACTION,
-            system_prompt="You are a medical fact extractor. Output only a JSON array of strings.",
+            task=LLMTask.SUMMARIZATION,
+            system_prompt="You summarize medical sessions into concise bullet-point facts.",
             messages=[LLMMessage(role="user", content=prompt)],
             temperature=0.0,
-            max_tokens=1000,
-            response_format={"type": "json"},
+            max_tokens=2000,
+            extra={"enable_thinking": False},
         )
         response: LLMResponse = await self._agent.call(request)
-        try:
-            parsed = json.loads(response.content)
-            if isinstance(parsed, list):
-                return [str(f) for f in parsed if isinstance(f, str) and f.strip()]
-            # Handle {"facts": [...]} wrapper
-            if isinstance(parsed, dict):
-                for v in parsed.values():
-                    if isinstance(v, list):
-                        return [str(f) for f in v if isinstance(f, str) and f.strip()]
-        except (json.JSONDecodeError, TypeError):
-            logger.warning("Failed to parse fact extraction response: %s", response.content[:200])
-        return []
+        narrative = response.content.strip()
+        logger.info(
+            "Narrative LLM response for session %s: model=%s, len=%d, content=%s",
+            session.id,
+            response.model,
+            len(narrative),
+            repr(narrative[:200]) if narrative else "(empty)",
+        )
+        return narrative
+
+    @staticmethod
+    def _build_fallback_narrative(
+        session: DiagnosisSession,
+        messages: list[dict],
+        assessment_tool_args: dict,
+    ) -> str:
+        """Build bullet-point narrative directly from structured data — no LLM needed."""
+        from datetime import date
+
+        lines = [
+            f"- Diagnosis session on {date.today().isoformat()} for: {session.chief_complaint}"
+        ]
+
+        # Extract user-reported facts from messages
+        for m in messages:
+            if m["role"] != "user":
+                continue
+            content = m.get("content", "").strip()
+            if not content or content == session.chief_complaint:
+                continue
+            # Strip enrichment prefix
+            if content.startswith("(Q:"):
+                paren_end = content.find(")")
+                if paren_end != -1:
+                    content = content[paren_end + 1 :].strip()
+            if content and len(content) < 200:
+                lines.append(f"- {content}")
+
+        # Assessment conclusions
+        if assessment_tool_args:
+            for cond in assessment_tool_args.get("conditions", []):
+                name = cond.get("name", "unknown")
+                confidence = cond.get("confidence", "")
+                lines.append(f"- Assessment: {name} ({confidence})")
+
+        return "\n".join(lines) if len(lines) > 1 else ""
 
     async def _log_action(
         self,

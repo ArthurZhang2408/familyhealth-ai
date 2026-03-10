@@ -5,7 +5,6 @@ from uuid import UUID
 
 from fastapi import (
     APIRouter,
-    BackgroundTasks,
     Depends,
     File,
     Form,
@@ -84,7 +83,6 @@ async def create_session_only(
 @router.post("", response_model=DiagnosisTurnResponse, status_code=201)
 async def create_session(
     data: DiagnosisSessionCreate,
-    background_tasks: BackgroundTasks,
     profile: Profile = Depends(get_verified_profile),
     db: AsyncSession = Depends(get_db),
     agent_core: AgentCore = Depends(get_agent_core),
@@ -95,16 +93,8 @@ async def create_session(
     svc = _build_service(db, agent_core, context_builder, memory_extractor)
     session, turn_response = await svc.create_session(profile, data.chief_complaint)
 
-    background_tasks.add_task(
-        memory_extractor.extract_and_store,
-        profile_id=profile.id,
-        messages=[
-            {"role": "user", "content": data.chief_complaint},
-            {"role": "assistant", "content": turn_response.message.content},
-        ],
-        source=f"diagnosis:{session.id}",
-        category="diagnoses",
-    )
+    # Memory extraction is handled by the service layer (consolidated
+    # narrative on assessment delivery), not per-turn API-layer extraction.
 
     return turn_response
 
@@ -162,7 +152,6 @@ async def get_session(
 @router.post("/{sid}/messages", response_model=DiagnosisTurnResponse, status_code=201)
 async def send_message(
     sid: UUID,
-    background_tasks: BackgroundTasks,
     content: str = Form(...),
     files: list[UploadFile] = File(default=[]),
     profile: Profile = Depends(get_verified_profile),
@@ -182,16 +171,8 @@ async def send_message(
         session, profile, content, image_parts=image_parts or None
     )
 
-    background_tasks.add_task(
-        memory_extractor.extract_and_store,
-        profile_id=profile.id,
-        messages=[
-            {"role": "user", "content": content},
-            {"role": "assistant", "content": turn_response.message.content},
-        ],
-        source=f"diagnosis:{session.id}",
-        category="diagnoses",
-    )
+    # Memory extraction is handled by the service layer (consolidated
+    # narrative on assessment delivery), not per-turn API-layer extraction.
 
     return turn_response
 
@@ -259,19 +240,8 @@ async def stream_diagnosis(
                     AgentEvent(type=AgentEventType.ERROR, data={"message": "Processing failed"})
                 )
             finally:
-                if done_data and done_data.get("content"):
-                    try:
-                        await memory_extractor.extract_and_store(
-                            profile_id=profile_id,
-                            messages=[
-                                {"role": "user", "content": content},
-                                {"role": "assistant", "content": done_data["content"]},
-                            ],
-                            source=f"diagnosis:{done_data.get('session_id', 'unknown')}",
-                            category="diagnoses",
-                        )
-                    except Exception:
-                        pass
+                # Memory extraction is handled by the service layer
+                # (consolidated narrative on assessment delivery).
                 queue.put_nowait(_DIAG_SENTINEL)
 
     asyncio.create_task(_process())
@@ -338,19 +308,8 @@ async def send_message_stream(
                     AgentEvent(type=AgentEventType.ERROR, data={"message": "Processing failed"})
                 )
             finally:
-                if done_data and done_data.get("content"):
-                    try:
-                        await memory_extractor.extract_and_store(
-                            profile_id=profile_id,
-                            messages=[
-                                {"role": "user", "content": content},
-                                {"role": "assistant", "content": done_data["content"]},
-                            ],
-                            source=f"diagnosis:{sid}",
-                            category="diagnoses",
-                        )
-                    except Exception:
-                        pass
+                # Memory extraction is handled by the service layer
+                # (consolidated narrative on assessment delivery).
                 queue.put_nowait(_DIAG_SENTINEL)
 
     asyncio.create_task(_process())

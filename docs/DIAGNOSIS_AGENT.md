@@ -397,38 +397,14 @@ def format_profile_context(profile: Profile) -> dict[str, str]:
     }
 ```
 
-### Episodic Memory Injection
+### Episodic Memory Retrieval (Agent-Driven)
 
-Memories retrieved from Mem0 (Tier 2) are formatted as a bulleted list, grouped by category:
+Memory retrieval is controlled by the agent via the `search_patient_memory` tool, not auto-injected into the system prompt. The agent is instructed to:
+- **Always search on turn 1** with the chief complaint before asking the first question
+- **Search later** when clinically relevant (new symptom, checking past labs, verifying medication history)
+- **Use targeted queries** (e.g., "gastritis ulcer treatment H. pylori" not just "stomachache")
 
-```python
-def format_episodic_memories(memories: list[dict]) -> str:
-    """Format Mem0 search results for system prompt injection."""
-    if not memories:
-        return "No relevant history found for this patient."
-
-    # Group by category
-    by_category: dict[str, list[str]] = {}
-    for mem in memories:
-        category = mem.get("metadata", {}).get("category", "general")
-        by_category.setdefault(category, []).append(mem["memory"])
-
-    # Format grouped
-    sections = []
-    # Order categories by clinical relevance
-    category_order = [
-        "medical_history", "medications", "allergies", "diagnoses",
-        "symptoms", "lab_results", "vitals", "lifestyle",
-        "mental_health", "procedures", "general",
-    ]
-    for cat in category_order:
-        if cat in by_category:
-            label = cat.replace("_", " ").title()
-            items = "\n".join(f"  - {fact}" for fact in by_category[cat])
-            sections.append(f"[{label}]\n{items}")
-
-    return "\n\n".join(sections)
-```
+Results include date prefixes (e.g., `[Mar 10, 2026] Pain in upper abdomen`) so the agent can reason about temporal patterns. Results are displayed in a `MemoryContextPart` on the frontend (same UI as before, now driven by the agent's tool call rather than auto-injection).
 
 ### Conversation History Management
 
@@ -550,17 +526,19 @@ The backend extracts both the conversational text and the structured state:
 
 ### Agentic + Post-Session Extraction Strategy
 
-Rather than relying on the LLM to emit valid JSON inline, diagnosis uses a separation of concerns:
+Diagnosis uses a separation of concerns with two terminal tools:
 
-1. **Agentic loop (streamed to user):** Cerebras (or Gemini, via `LLM_ROUTE_DIAGNOSIS=gemini`) runs the hypothesis-driven conversation using `AgentCore.run_stream()`. The agent uses `present_question` (terminal tool) for structured Q&A and `web_search` for evidence. The system prompt does NOT ask for structured output. Max 6 tool rounds.
+1. **Agentic loop (streamed to user):** Cerebras (or Gemini, via `LLM_ROUTE_DIAGNOSIS=gemini`) runs the hypothesis-driven conversation using `AgentCore.run_stream()`. The agent uses `present_question` (terminal tool) for structured Q&A, `present_assessment` (terminal tool) for delivering the final assessment as structured data, `search_patient_memory` for on-demand memory retrieval, and `web_search` for evidence. Max 6 tool rounds.
 
-2. **State extraction (post-DONE, non-blocking):** `_extract_state()` uses `FACT_EXTRACTION` task to extract structured `DiagnosisState` from the conversation. This runs after the agentic loop completes and does not block the response.
+2. **State extraction:** When `present_assessment` is called, `DiagnosisState` is built directly from the tool arguments via `_state_from_assessment_tool()` — no separate LLM call needed. For non-assessment turns, `_extract_state()` runs post-DONE as a fallback.
 
-3. **Agent resilience:** Empty response retry (nudge if thinking but no text), incomplete response nudge (if text but no tool call and not an assessment), assessment marker detection (stops extra tool calls when `## Assessment` present).
+3. **Assessment rendering:** `present_assessment` output is persisted as `AssessmentPart` in `content_parts`. `_format_assessment_text()` generates markdown for the `content` column (backward compat). Frontend renders `DiagnosisReportView` (card-based native UI with triage banner, expandable condition cards, unified action section, warnings, collapsible tests).
 
-**Fallback:** If extraction fails, the system logs the failure and uses a minimal state. The conversational response is still delivered to the user — only the structured metadata is degraded.
+4. **Agent resilience:** Empty response retry (nudge if thinking but no text), incomplete response nudge (if text but no tool call and not an assessment), assessment marker detection (stops extra tool calls when `## Assessment` present).
 
-**Debug metadata:** Assistant messages store enriched history snapshot, agent loop rounds (tools called, text produced), and memories used in the `metadata` JSONB column for offline evaluation.
+5. **Red flag pre-check:** Rule-based keyword scanner runs before the agent loop. `_strip_negated_symptoms()` removes "Does NOT have:" and "Not selected:" sections before scanning to prevent false positives on rejected options.
+
+**Debug metadata:** Assistant messages store enriched history snapshot, agent loop rounds (tools called, text produced), and memories used (from `search_patient_memory` tool results) in the `metadata` JSONB column for offline evaluation.
 
 ### Emergency Response Shape
 
@@ -686,13 +664,8 @@ async def handle_diagnosis_message(
     session.updated_at = func.now()
     await db.flush()
 
-    # 8. Background: extract memories
-    await memory_service.extract_from_diagnosis(
-        profile.id,
-        [{"role": "user", "content": user_content},
-         {"role": "assistant", "content": conversation_text}],
-        session_id=str(session.id),
-    )
+    # 8. Memory — consolidated narrative stored on assessment delivery only
+    #    (not per-turn). See _store_session_narrative() in DiagnosisService.
 
     # 9. Log action
     await log_action(db, profile.id, profile.account_id, "diagnosis_message", {
@@ -748,29 +721,17 @@ async def resolve_session(
     session.resolved_at = func.now()
     session.resolution_notes = resolution_notes
 
-    # Build resolution summary for memory extraction
-    summary_parts = [
-        f"Diagnosis session resolved for chief complaint: {session.chief_complaint}.",
-    ]
-
+    # Build resolution narrative and upsert to long-term memory.
+    # Uses same source key as assessment narrative (delete-then-add).
+    narrative = f"Diagnosis session for: {session.chief_complaint}."
     if session.differential_diagnoses:
         top = session.differential_diagnoses[0]
-        summary_parts.append(
-            f"Top assessment: {top['condition']} "
-            f"(confidence: {top['confidence']})."
-        )
-
+        narrative += f" Assessment: {top.get('condition', 'unknown')}."
     if resolution_notes:
-        summary_parts.append(f"Outcome: {resolution_notes}")
+        narrative += f" Resolved — {resolution_notes}."
 
-    resolution_summary = " ".join(summary_parts)
-
-    # Extract resolution facts to long-term memory
-    await memory_service.add(
-        profile.id,
-        resolution_summary,
-        category="diagnoses",
-        source=f"diagnosis:{session.id}:resolution",
+    await memory_extractor.store_narrative(
+        profile.id, narrative, source=f"diagnosis:{session.id}",
     )
 
     # Log
@@ -786,14 +747,12 @@ async def resolve_session(
 
 ### What Gets Written to Long-Term Memory
 
-| When | What Is Extracted | Category |
+One consolidated narrative per session (not per-turn). Uses `MemoryExtractor.store_narrative()` with delete-then-add upsert semantics.
+
+| When | What Is Stored | Category |
 |-|-|-|
-| Each turn | Symptoms described, answers to questions | `symptoms` |
-| Each turn | Medications mentioned, changes reported | `medications` |
-| Risk factor phase | Relevant conditions and family history referenced | `medical_history` |
-| Differential generated | Top conditions considered and their reasoning | `diagnoses` |
-| Resolution | Final outcome, confirmed diagnosis if any, treatment started | `diagnoses` |
-| Resolution | Self-test results | `symptoms` |
+| Assessment delivery | Single bullet-point narrative: chief complaint, key symptoms, negatives, assessment conclusions | `diagnosis_summary` |
+| Session resolution | Updated narrative with resolution outcome (replaces assessment narrative via same source key) | `diagnosis_summary` |
 
 ---
 
@@ -1098,7 +1057,7 @@ At the start of each turn, the agent receives:
 
 ### What the Diagnosis Agent Writes
 
-After each turn, the memory extraction pipeline (see `MEMORY_SYSTEM.md` Section 3) processes the conversation and extracts facts to Mem0. The diagnosis agent itself does not directly write to memory — the `MemoryService` handles extraction in the background.
+On assessment delivery, a single consolidated narrative (bullet points) is stored via `_store_session_narrative()`. The LLM summarizes the session's Q&A answers and assessment conclusions into concise facts. Uses delete-then-add upsert so follow-up assessments replace (not duplicate) the previous narrative. A mechanical fallback builds bullets directly from structured data if the LLM fails. Per-turn extraction was removed — memory is only written on assessment delivery and session resolution.
 
 ### Memory-Informed Clinical Reasoning
 

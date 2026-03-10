@@ -1,8 +1,7 @@
-import { useState } from 'react';
-import { View, Text, Pressable } from 'react-native';
+import { Text } from 'react-native';
 import { useColors } from '@/hooks/useColors';
-import { Spacing, FontSize, FontWeight, BorderRadius } from '@/constants/theme';
-import { Icon } from '@/components/Icon';
+import { FontSize } from '@/constants/theme';
+import { CollapsibleSection } from './CollapsibleSection';
 import type { MessagePart } from '@/types/api';
 
 type ThinkingPart = Extract<MessagePart, { type: 'thinking' }>;
@@ -15,63 +14,20 @@ export function ThinkingPartView({
   defaultExpanded?: boolean;
 }) {
   const Colors = useColors();
-  const [expanded, setExpanded] = useState(defaultExpanded);
 
   return (
-    <View
-      style={{
-        borderWidth: 1,
-        borderColor: Colors.border,
-        borderRadius: BorderRadius.sm,
-        borderCurve: 'continuous',
-        marginBottom: Spacing.xs,
-        overflow: 'hidden',
-      }}
-    >
-      <Pressable
-        onPress={() => setExpanded((p) => !p)}
+    <CollapsibleSection icon="brain" label="Reasoning" defaultExpanded={defaultExpanded}>
+      <Text
         style={{
-          flexDirection: 'row',
-          alignItems: 'center',
-          gap: Spacing.xs,
-          padding: Spacing.sm,
-          backgroundColor: Colors.surface,
+          fontSize: FontSize.xs,
+          color: Colors.textMuted,
+          fontStyle: 'italic',
+          lineHeight: 18,
         }}
+        selectable
       >
-        <Text style={{ fontSize: 12, width: 16, textAlign: 'center' }}>🧠</Text>
-        <Text
-          style={{
-            fontSize: FontSize.xs,
-            color: Colors.textSecondary,
-            fontWeight: FontWeight.medium,
-            flex: 1,
-          }}
-          numberOfLines={1}
-        >
-          Reasoning
-        </Text>
-        <Icon name={expanded ? 'chevron-up' : 'chevron-down'} size={12} color={Colors.textMuted} />
-      </Pressable>
-      {expanded && (
-        <View
-          style={{
-            padding: Spacing.sm,
-            backgroundColor: Colors.surfaceSecondary,
-          }}
-        >
-          <Text
-            style={{
-              fontSize: FontSize.xs,
-              color: Colors.textMuted,
-              fontStyle: 'italic',
-              lineHeight: 18,
-            }}
-            selectable
-          >
-            {part.text}
-          </Text>
-        </View>
-      )}
-    </View>
+        {part.text}
+      </Text>
+    </CollapsibleSection>
   );
 }

@@ -181,33 +181,42 @@ class MemoryExtractor:
             logger.exception("Memory extraction failed for profile %s", profile_id)
             return None
 
-    async def store_facts(
+    async def store_narrative(
         self,
         profile_id: UUID,
-        facts: list[str],
+        narrative: str,
         source: str,
-        category: str | None = None,
+        category: str = "diagnosis_summary",
     ) -> dict:
-        """Store pre-extracted facts directly — bypasses Mem0's internal LLM.
+        """Store a single consolidated narrative — replaces any prior memories for this source.
 
-        Each fact is embedded and stored via ``infer=False``.  Returns a
-        synthetic result dict matching the Mem0 ``add()`` return shape.
+        Uses delete-then-add (upsert) so follow-up assessments cleanly replace
+        the previous narrative instead of accumulating duplicates.
         """
-        results: list[dict] = []
-        for fact in facts:
-            fact = fact.strip()
-            if not fact:
-                continue
-            try:
-                r = await self._memory.add_raw(
-                    profile_id, fact, category=category, source=source,
-                )
-                # add_raw returns {"results": [...]}, flatten
-                for item in r.get("results", []):
-                    results.append(item)
-            except Exception:
-                logger.warning("Failed to store fact for profile %s: %s", profile_id, fact[:80])
+        deleted = 0
+        try:
+            deleted = await self._memory.delete_by_source(profile_id, source)
+        except Exception:
+            logger.warning("Failed to delete old memories for source %s", source)
+
+        try:
+            result = await self._memory.add_raw(
+                profile_id,
+                narrative,
+                category=category,
+                source=source,
+            )
+            results = result.get("results", [])
+        except Exception:
+            logger.warning(
+                "Failed to store narrative for profile %s: %s", profile_id, narrative[:80]
+            )
+            results = []
+
         logger.info(
-            "Stored %d facts for profile %s (source=%s)", len(results), profile_id, source,
+            "Stored narrative for profile %s (source=%s, deleted=%d prior)",
+            profile_id,
+            source,
+            deleted,
         )
-        return {"results": results, "facts_stored": len(results)}
+        return {"results": results, "deleted": deleted}
