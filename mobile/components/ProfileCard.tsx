@@ -191,7 +191,7 @@ export function ProfileCard({ profile, onPress, onLongPress, style }: Props) {
           </Text>
           <Text style={{ fontSize: FontSize.sm, color: Colors.textSecondary, marginTop: 2 }}>
             {profile.date_of_birth
-              ? `${new Date().getFullYear() - new Date(profile.date_of_birth).getFullYear()} yrs`
+              ? `${(() => { const b = new Date(profile.date_of_birth); const t = new Date(); let a = t.getFullYear() - b.getFullYear(); if (t.getMonth() < b.getMonth() || (t.getMonth() === b.getMonth() && t.getDate() < b.getDate())) a--; return a; })()} yrs`
               : '–'}
             {profile.blood_type ? ` · ${profile.blood_type}` : ''}
           </Text>

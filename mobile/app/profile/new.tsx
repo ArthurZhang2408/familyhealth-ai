@@ -810,7 +810,7 @@ function Step0Identity({
             style={{
               fontSize: FontSize.xxxl,
               fontWeight: FontWeight.bold,
-              color: '#ffffff',
+              color: Colors.textInverse,
             }}
           >
             {initial}
