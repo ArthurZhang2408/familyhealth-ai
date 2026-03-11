@@ -1,7 +1,7 @@
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import Date, DateTime, Index, String, Text
+from sqlalchemy import Boolean, Date, DateTime, Float, Index, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.orm import relationship as sa_relationship
@@ -28,6 +28,12 @@ class Profile(UUIDPrimaryKey, TimestampMixin, Base):
         JSONB, nullable=False, server_default="{}"
     )
     emergency_contacts: Mapped[list] = mapped_column(JSONB, nullable=False, server_default="[]")
+    height_cm: Mapped[float | None] = mapped_column(Float)
+    weight_kg: Mapped[float | None] = mapped_column(Float)
+    smoking_status: Mapped[str | None] = mapped_column(String(10))
+    alcohol_frequency: Mapped[str | None] = mapped_column(String(15))
+    is_pregnant: Mapped[bool | None] = mapped_column(Boolean)
+    surgical_history: Mapped[list] = mapped_column(JSONB, nullable=False, server_default="[]")
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     # Relationships — lazy="raise" prevents accidental eager loading;

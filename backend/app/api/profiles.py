@@ -1,5 +1,7 @@
 import copy
 import logging
+from datetime import date, datetime
+from enum import Enum
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -90,11 +92,23 @@ async def update_profile(
             raise AppError(status_code=400, detail=msg, code="VALIDATION_ERROR")
         raise AppError(status_code=409, detail=msg, code="CONFLICT")
     try:
+        # Serialize date/enum values for JSONB storage
+        def _jsonable(obj: object) -> object:
+            if isinstance(obj, (date, datetime)):
+                return obj.isoformat()
+            if isinstance(obj, Enum):
+                return obj.value
+            if isinstance(obj, dict):
+                return {k: _jsonable(v) for k, v in obj.items()}
+            if isinstance(obj, list):
+                return [_jsonable(i) for i in obj]
+            return obj
+
         await ActionLogService(db).log(
             profile.id,
             profile.account_id,
             ActionType.PROFILE_UPDATED,
-            {"fields_changed": fields_changed, "old": old_values, "new": update_data},
+            {"fields_changed": fields_changed, "old": _jsonable(old_values), "new": _jsonable(update_data)},
         )
     except Exception:
         logger.exception("Failed to log profile_updated for %s", profile.id)

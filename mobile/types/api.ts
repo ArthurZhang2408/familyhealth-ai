@@ -9,9 +9,23 @@ export interface PaginatedResponse<T> {
 
 // ── Profiles ─────────────────────────────────────────────────────────────────
 
-export type Relationship = 'self' | 'parent' | 'spouse' | 'child' | 'sibling' | 'other';
+export type Relationship =
+  | 'self'
+  | 'parent' | 'father' | 'mother'
+  | 'spouse'
+  | 'child' | 'son' | 'daughter'
+  | 'sibling' | 'brother' | 'sister'
+  | 'grandparent' | 'grandfather' | 'grandmother'
+  | 'other';
 export type Sex = 'male' | 'female' | 'other';
-export type BloodType = 'A+' | 'A-' | 'B+' | 'B-' | 'AB+' | 'AB-' | 'O+' | 'O-';
+export type BloodType = 'A' | 'A+' | 'A-' | 'B' | 'B+' | 'B-' | 'AB' | 'AB+' | 'AB-' | 'O' | 'O+' | 'O-';
+export type SmokingStatus = 'never' | 'former' | 'current';
+export type AlcoholFrequency = 'none' | 'occasional' | 'moderate' | 'heavy';
+
+export interface SurgicalProcedure {
+  procedure: string;
+  year?: number;
+}
 
 export interface Allergy {
   name: string;
@@ -47,6 +61,12 @@ export interface Profile {
   date_of_birth?: string;
   sex?: Sex;
   blood_type?: BloodType;
+  height_cm?: number;
+  weight_kg?: number;
+  smoking_status?: SmokingStatus;
+  alcohol_frequency?: AlcoholFrequency;
+  is_pregnant?: boolean;
+  surgical_history: SurgicalProcedure[];
   allergies: Allergy[];
   medications: Medication[];
   medical_conditions: MedicalCondition[];
@@ -62,6 +82,12 @@ export interface ProfileCreate {
   date_of_birth?: string;
   sex?: Sex;
   blood_type?: BloodType;
+  height_cm?: number;
+  weight_kg?: number;
+  smoking_status?: SmokingStatus;
+  alcohol_frequency?: AlcoholFrequency;
+  is_pregnant?: boolean;
+  surgical_history?: SurgicalProcedure[];
   allergies?: Allergy[];
   medications?: Medication[];
   medical_conditions?: MedicalCondition[];

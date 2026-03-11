@@ -124,6 +124,27 @@ def format_profile_section(profile_context: dict) -> str:
     if blood_type:
         lines.append(f"Blood type: {blood_type}")
 
+    # Height / Weight / BMI
+    height_cm = profile_context.get("height_cm")
+    weight_kg = profile_context.get("weight_kg")
+    if height_cm and weight_kg:
+        bmi = round(weight_kg / ((height_cm / 100) ** 2), 1)
+        lines.append(f"Height: {height_cm} cm | Weight: {weight_kg} kg | BMI: {bmi}")
+    elif height_cm:
+        lines.append(f"Height: {height_cm} cm")
+    elif weight_kg:
+        lines.append(f"Weight: {weight_kg} kg")
+
+    # Lifestyle factors
+    smoking = profile_context.get("smoking_status")
+    if smoking is not None:
+        lines.append(f"Smoking: {smoking}")
+    alcohol = profile_context.get("alcohol_frequency")
+    if alcohol is not None:
+        lines.append(f"Alcohol: {alcohol}")
+    if profile_context.get("is_pregnant"):
+        lines.append("Currently pregnant")
+
     # Allergies
     allergies: list[dict] = profile_context.get("allergies", [])
     lines += ["", "## Known Allergies"]
@@ -147,6 +168,16 @@ def format_profile_section(profile_context: dict) -> str:
         lines.extend(f"- {_format_condition(c)}" for c in conditions)
     else:
         lines.append("None known")
+
+    # Surgical history
+    surgeries: list[dict] = profile_context.get("surgical_history", [])
+    lines += ["", "## Surgical History"]
+    if surgeries:
+        for s in surgeries:
+            year = f" ({s.get('year')})" if s.get('year') else ""
+            lines.append(f"- {s.get('procedure', str(s))}{year}")
+    else:
+        lines.append("None reported")
 
     # Family history
     family: dict[str, list[str]] = profile_context.get("family_medical_history", {})

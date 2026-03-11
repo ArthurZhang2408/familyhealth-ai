@@ -29,6 +29,17 @@ export function useUpdateProfile(pid: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (body: ProfileUpdate) => profilesApi.update(pid, body),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['profiles', pid] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['profiles', pid] });
+      qc.invalidateQueries({ queryKey: ['profiles'] });
+    },
+  });
+}
+
+export function useDeleteProfile() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (pid: string) => profilesApi.remove(pid),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['profiles'] }),
   });
 }

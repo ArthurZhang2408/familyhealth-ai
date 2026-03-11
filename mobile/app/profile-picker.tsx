@@ -9,6 +9,11 @@ import { useProfileStore } from '@/stores/profile';
 import { useColors } from '@/hooks/useColors';
 import { Spacing, FontSize, FontWeight, BorderRadius } from '@/constants/theme';
 
+/**
+ * Fallback profile picker screen (formSheet).
+ * Primary profile selection now happens via the dropdown in ProfilePill.
+ * This screen is kept for NoProfileGuard navigation.
+ */
 export default function ProfilePickerScreen() {
   const Colors = useColors();
   const router = useRouter();
@@ -24,7 +29,6 @@ export default function ProfilePickerScreen() {
     }
     setActiveProfile(profile);
     router.back();
-    // Navigate to fresh new-conversation screen after dismissing picker
     setTimeout(() => router.navigate('/(main)'), 150);
   };
 

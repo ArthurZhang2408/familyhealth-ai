@@ -78,7 +78,7 @@ export default function RootLayout() {
             options={{
               presentation: 'formSheet',
               sheetGrabberVisible: true,
-              sheetAllowedDetents: [0.5, 0.85],
+              sheetAllowedDetents: [0.6, 0.85],
               headerShown: true,
               headerTitle: 'Select Profile',
               headerStyle: { backgroundColor: Colors.surface },
@@ -89,14 +89,13 @@ export default function RootLayout() {
           <Stack.Screen
             name="profile/new"
             options={{
-              presentation: 'formSheet',
-              sheetGrabberVisible: true,
-              sheetAllowedDetents: [0.7, 1.0],
+              presentation: 'modal',
               headerShown: true,
               headerTitle: 'New Profile',
               headerStyle: { backgroundColor: Colors.surface },
               headerTintColor: Colors.text,
               headerShadowVisible: false,
+              contentStyle: { backgroundColor: Colors.surface },
             }}
           />
         </Stack>

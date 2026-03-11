@@ -37,7 +37,8 @@ export type IconName =
   | 'medkit'
   | 'flask'
   | 'shield'
-  | 'link';
+  | 'link'
+  | 'checkmark';
 
 interface Props {
   name: IconName;
@@ -107,5 +108,7 @@ export function Icon({ name, size, color }: Props) {
       return <Ionicons name="shield-checkmark-outline" size={size} color={color} />;
     case 'link':
       return <Ionicons name="link-outline" size={size} color={color} />;
+    case 'checkmark':
+      return <Ionicons name="checkmark" size={size} color={color} />;
   }
 }
