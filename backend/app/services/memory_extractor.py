@@ -70,6 +70,12 @@ def load_profile_context(profile: Profile) -> dict:
         "current_medications": profile.current_medications,
         "medical_conditions": profile.medical_conditions,
         "family_medical_history": profile.family_medical_history,
+        "height_cm": profile.height_cm,
+        "weight_kg": profile.weight_kg,
+        "smoking_status": profile.smoking_status,
+        "alcohol_frequency": profile.alcohol_frequency,
+        "is_pregnant": profile.is_pregnant,
+        "surgical_history": profile.surgical_history,
     }
 
 

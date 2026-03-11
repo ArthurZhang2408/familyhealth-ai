@@ -25,6 +25,15 @@ async function getAuthHeaders(): Promise<Record<string, string>> {
   };
 }
 
+function extractErrorMessage(error: Record<string, unknown>, status: number): string {
+  const detail = error.detail;
+  if (typeof detail === 'string') return detail;
+  if (Array.isArray(detail)) {
+    return detail.map((d: { msg?: string }) => d.msg ?? JSON.stringify(d)).join('; ');
+  }
+  return `HTTP ${status}`;
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const headers = await getAuthHeaders();
   const response = await fetch(`${Config.apiUrl}${path}`, {
@@ -33,7 +42,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   });
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Request failed' }));
-    throw new Error(error.detail ?? `HTTP ${response.status}`);
+    throw new Error(extractErrorMessage(error, response.status));
   }
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
@@ -110,7 +119,7 @@ export const reportsApi = {
     });
     if (!response.ok) {
       const error = await response.json().catch(() => ({ detail: 'Upload failed' }));
-      throw new Error(error.detail ?? `HTTP ${response.status}`);
+      throw new Error(extractErrorMessage(error, response.status));
     }
     return response.json() as Promise<Report>;
   },
@@ -140,7 +149,7 @@ async function multipartRequest<T>(
   });
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Request failed' }));
-    throw new Error(error.detail ?? `HTTP ${response.status}`);
+    throw new Error(extractErrorMessage(error, response.status));
   }
   return response.json() as Promise<T>;
 }
