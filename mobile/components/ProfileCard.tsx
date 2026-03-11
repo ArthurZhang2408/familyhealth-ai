@@ -80,11 +80,11 @@ export function ProfileCard({ profile, onPress, onLongPress, style }: Props) {
   const color = getRelationshipColor(Colors, profile.relationship);
   const completeness = getProfileCompleteness(profile);
 
-  const handlePress = () => {
+  const handlePress = useCallback(() => {
     if (process.env.EXPO_OS === 'ios')
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     onPress();
-  };
+  }, [onPress]);
 
   const handleLongPress = useCallback(() => {
     if (!onLongPress) return;
