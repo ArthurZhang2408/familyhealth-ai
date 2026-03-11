@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -75,6 +75,9 @@ export function ProfilePill() {
   const dismissMenu = useCallback(() => setMenu(MENU_INITIAL), []);
 
   const pillRef = useRef<View>(null);
+  const timerRef = useRef<ReturnType<typeof setTimeout>>(null);
+
+  useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current); }, []);
   // Pill's measured position (screen-absolute)
   const [pillRect, setPillRect] = useState({ x: 0, y: 0, w: 0, h: 0 });
 
@@ -177,7 +180,7 @@ export function ProfilePill() {
           progress.value = withTiming(0, { duration: 150 }, () => {
             runOnJS(setOpen)(false);
           });
-          setTimeout(() => {
+          timerRef.current = setTimeout(() => {
             Alert.alert(
               'Delete profile',
               `Are you sure you want to delete "${profile.name}"? This will remove all sessions and memories.`,
