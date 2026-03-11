@@ -32,6 +32,7 @@ AI-powered diagnosis, medical report analysis, and health chat.
 ## Frontend Architecture
 - **Navigation**: Drawer sidebar (Claude/ChatGPT-style), no bottom tabs
 - **Header**: Custom `HeaderBar` component (not React Navigation default). All buttons via `HeaderIconButton`. Sizes from `useHeaderScale()` hook (dynamic, respects system font scale + screen width)
+- **Profile selector**: Inline dropdown from `ProfilePill` (not a formSheet). Scale-from-pill animation. Long-press context menu for edit/delete. Completeness ring (SVG) on profile avatars
 - **Dark mode**: `useColors()` hook returns light/dark palette based on system setting. `useShadow()` for theme-aware shadows. Bidirectional type safety in `colors.ts`
 - **Styling**: Inline styles + theme constants (`Spacing`, `FontSize`, `BorderRadius`). NO NativeWind/Tailwind
 - **State**: Zustand (auth, active profile with AsyncStorage persistence) + React Query (server data)
@@ -86,9 +87,10 @@ The diagnosis agent uses hypothesis-driven reasoning with structured Q&A:
 - Thinking tokens excluded from conversation history and text buffer
 
 ### Planned — next phases
-- **Unified session abstraction**: ✅ Done. `title` column on `diagnosis_sessions`, `PATCH /{sid}/rename`, shared `useDeleteSession`/`useRenameSession` hooks, unified `openSessionMenu` sidebar handler, auto-title generation for diagnosis
-- **Structured assessment rendering**: ✅ Done. `present_assessment` terminal tool, `AssessmentPart` schema, `DiagnosisReportView` card-based native UI, SSE `structured_assessment` event
-- **Consolidated session memories**: ✅ Done. Single bullet-point narrative per session replaces per-fact extraction. `_store_session_narrative()` + `_build_session_narrative()` with LLM summarization (thinking disabled for Qwen). Delete-then-add upsert via `MemoryExtractor.store_narrative()`. Fallback builds bullets directly from structured data when LLM fails. API-layer per-turn `extract_and_store` removed (4 call sites). `close_session()` also uses narrative upsert. `CollapsibleSection` shared component for memory/thinking UI with dynamic height. Memory search tool now persists query string in results.
+- **Unified session abstraction**: ✅ Done (PR #21)
+- **Structured assessment rendering**: ✅ Done (PR #23)
+- **Consolidated session memories**: ✅ Done (PR #24)
+- **Profile onboarding**: ✅ Done (PR #25). 4-step creation flow, edit/delete, dropdown selector, completeness ring, 6 new health fields
 - **Memory quality improvements**: Agent-driven retrieval working. Remaining: empty transitional text on some turns (model behavior), legacy garbage memories need cleanup, enrichment causes occasional duplicate questions
 
 ## Critical Rules
