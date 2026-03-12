@@ -119,7 +119,7 @@ def _mock_llm_router() -> MagicMock:
 
     call_count = {"n": 0}
 
-    async def mock_route(request: Any) -> MagicMock:
+    async def mock_route(request: Any, **kwargs: Any) -> MagicMock:
         call_count["n"] += 1
         resp = MagicMock()
         # DIAGNOSIS task returns conversation text; others return JSON state
@@ -538,7 +538,7 @@ class TestDiagnosisServiceStateExtraction:
         llm = AsyncMock()
         call_count = {"n": 0}
 
-        async def failing_pass2(request: Any) -> MagicMock:
+        async def failing_pass2(request: Any, **kwargs: Any) -> MagicMock:
             call_count["n"] += 1
             resp = MagicMock()
             if request.task.value == "diagnosis":

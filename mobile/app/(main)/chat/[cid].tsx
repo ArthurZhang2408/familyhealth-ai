@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useWindowDimensions } from 'react-native';
-import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Stack } from 'expo-router';
 import { useQueryClient } from '@tanstack/react-query';
 import Animated, { useSharedValue, useAnimatedStyle, withTiming } from 'react-native-reanimated';
@@ -83,9 +83,24 @@ function ChatScreenInner() {
     if (!isNew) setActiveCid(cid);
   }, [cid, isNew]);
 
+  // Drawer keeps screens mounted — when the active profile changes,
+  // the old conversation doesn't belong to the new profile.
+  // Must be synchronous (not useEffect) because React Query fires
+  // during render, before effects run.
+  const prevPid = useRef(pid);
+  const pidChanged = pid !== prevPid.current;
+  useEffect(() => {
+    if (pidChanged) {
+      prevPid.current = pid;
+      setActiveCid(null);
+    }
+  }, [pid, pidChanged]);
+
+  // Disable query on the same render cycle that pid changes —
+  // don't wait for the effect to clear activeCid.
   const { data: conversation, isLoading, error, refetch } = useChatConversation(
     pid,
-    activeCid ?? '',
+    pidChanged ? '' : (activeCid ?? ''),
   );
 
   const serverMessages: LocalMessage[] = (conversation?.messages ?? []).map((m) => ({
@@ -124,10 +139,13 @@ function ChatScreenInner() {
       if (realId && cid !== realId) {
         router.navigate(`/(main)/chat/${realId}` as never);
       }
-      qc.invalidateQueries({ queryKey: ['chat', pid] });
       if (realId) {
         qc.invalidateQueries({ queryKey: ['chat', pid, realId] });
       }
+      // Re-fetch conversation list so the sidebar picks up the
+      // auto-generated topic (written server-side after the DONE event).
+      // Delay slightly to give the server time to commit the topic.
+      setTimeout(() => qc.invalidateQueries({ queryKey: ['chat', pid] }), 3000);
     },
     [qc, pid, cid, activeCid, router],
   );
@@ -139,13 +157,6 @@ function ChatScreenInner() {
     onSendComplete,
   });
 
-  // Refetch when screen regains focus (picks up server-completed responses).
-  useFocusEffect(
-    useCallback(() => {
-      if (activeCid) refetch();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [activeCid, refetch]),
-  );
 
   // Abort stream only on true unmount (navigating away), NOT on activeCid changes.
   // activeCid changes mid-stream when a new conversation ID arrives — aborting

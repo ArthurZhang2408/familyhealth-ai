@@ -67,11 +67,13 @@ async def record_extraction(
         results = []
         if mem0_result and "results" in mem0_result:
             for r in mem0_result["results"]:
-                results.append({
-                    "id": str(r.get("id", "")),
-                    "memory": r.get("memory", ""),
-                    "event": r.get("event", ""),
-                })
+                results.append(
+                    {
+                        "id": str(r.get("id", "")),
+                        "memory": r.get("memory", ""),
+                        "event": r.get("event", ""),
+                    }
+                )
 
         trace = MemoryTrace(
             profile_id=profile_id,

@@ -128,7 +128,7 @@ def _mock_llm_router(
     """Build a mock LLMRouter that returns canned responses."""
     router = AsyncMock()
 
-    async def _route(request):
+    async def _route(request, **kwargs):
         if request.task == LLMTask.REPORT_ANALYSIS:
             if pass1_error:
                 raise pass1_error

@@ -29,15 +29,16 @@ interface Props {
   animate?: boolean;
   onStructuredResponse?: (content: string, structuredResponse: Record<string, unknown>) => void;
   isLatestAssistant?: boolean;
+  sendErrorCount?: number;
 }
 
-export function ChatBubble({ content, contentParts, isUser, animate, onStructuredResponse, isLatestAssistant }: Props) {
+export function ChatBubble({ content, contentParts, isUser, animate, onStructuredResponse, isLatestAssistant, sendErrorCount }: Props) {
   const Colors = useColors();
   const markdownStyles = useMarkdownStyles();
 
   const inner = isUser
     ? <UserBubble content={content} contentParts={contentParts} Colors={Colors} />
-    : <AssistantBubble content={content} contentParts={contentParts} Colors={Colors} markdownStyles={markdownStyles} onStructuredResponse={onStructuredResponse} isLatestAssistant={isLatestAssistant} />;
+    : <AssistantBubble content={content} contentParts={contentParts} Colors={Colors} markdownStyles={markdownStyles} onStructuredResponse={onStructuredResponse} isLatestAssistant={isLatestAssistant} sendErrorCount={sendErrorCount} />;
 
   if (animate) {
     return (
@@ -90,7 +91,7 @@ function UserBubble({ content, contentParts, Colors }: { content: string; conten
   );
 }
 
-function AssistantBubble({ content, contentParts, Colors, markdownStyles, onStructuredResponse, isLatestAssistant }: { content: string; contentParts?: MessagePart[]; Colors: any; markdownStyles: any; onStructuredResponse?: Props['onStructuredResponse']; isLatestAssistant?: boolean }) {
+function AssistantBubble({ content, contentParts, Colors, markdownStyles, onStructuredResponse, isLatestAssistant, sendErrorCount = 0 }: { content: string; contentParts?: MessagePart[]; Colors: any; markdownStyles: any; onStructuredResponse?: Props['onStructuredResponse']; isLatestAssistant?: boolean; sendErrorCount?: number }) {
   if (!contentParts || contentParts.length === 0) {
     return (
       <View style={{ width: '100%', paddingVertical: Spacing.xs }}>
@@ -132,7 +133,7 @@ function AssistantBubble({ content, contentParts, Colors, markdownStyles, onStru
             case 'image':
               return <ImagePartView key={i} part={part} />;
             case 'structured_input':
-              return <StructuredInputView key={`si-${part.prompt}`} part={part} onResponse={onStructuredResponse} isLatest={!!isLatestAssistant} />;
+              return <StructuredInputView key={`si-${part.prompt}-${sendErrorCount}`} part={part} onResponse={onStructuredResponse} isLatest={!!isLatestAssistant} />;
             case 'text':
               return <Markdown key={i} style={markdownStyles}>{part.text}</Markdown>;
             default:

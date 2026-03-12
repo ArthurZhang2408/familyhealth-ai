@@ -42,9 +42,7 @@ def build_web_search_tool(
         elif search_type in ("general", "drug"):
             domains = DRUG_DOMAINS if search_type == "drug" else MEDICAL_DOMAINS
             # Try DuckDuckGo first (free), fall back to Tavily
-            results = await ddg.search(
-                query, max_results=max_results, allowed_domains=domains
-            )
+            results = await ddg.search(query, max_results=max_results, allowed_domains=domains)
             if not results and tavily:
                 logger.info("DDG returned 0 results, falling back to Tavily")
                 results = await tavily.search(
@@ -55,8 +53,7 @@ def build_web_search_tool(
                 "results": [],
                 "count": 0,
                 "error": (
-                    f"Unknown search_type: {search_type}. "
-                    "Use 'general', 'academic', or 'drug'."
+                    f"Unknown search_type: {search_type}. " "Use 'general', 'academic', or 'drug'."
                 ),
             }
 

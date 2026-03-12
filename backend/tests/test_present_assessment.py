@@ -28,11 +28,19 @@ SAMPLE_ARGS = {
         {"action": "Apply a cool compress to your forehead", "detail": "15 minutes on, 15 off"},
     ],
     "medications": [
-        {"name": "Ibuprofen", "dosage": "400mg every 6 hours with food", "notes": "Avoid on empty stomach"},
+        {
+            "name": "Ibuprofen",
+            "dosage": "400mg every 6 hours with food",
+            "notes": "Avoid on empty stomach",
+        },
         {"name": "Acetaminophen", "dosage": "500mg if ibuprofen unavailable"},
     ],
     "tests": [
-        {"name": "Blood pressure check", "reason": "Hypertension can cause headaches", "urgency": "Next visit"},
+        {
+            "name": "Blood pressure check",
+            "reason": "Hypertension can cause headaches",
+            "urgency": "Next visit",
+        },
     ],
     "warnings": [
         "Sudden severe worsening (worst headache of your life)",
@@ -40,7 +48,10 @@ SAMPLE_ARGS = {
     ],
     "follow_up": "If headaches persist more than 3 days, see your doctor.",
     "sources": [
-        {"title": "Mayo Clinic — Tension Headache", "url": "https://www.mayoclinic.org/diseases-conditions/tension-headache"},
+        {
+            "title": "Mayo Clinic — Tension Headache",
+            "url": "https://www.mayoclinic.org/diseases-conditions/tension-headache",
+        },
     ],
 }
 
@@ -62,7 +73,9 @@ async def test_handler_echoes_args():
 @pytest.mark.asyncio
 async def test_handler_defaults_empty_lists():
     tool = build_present_assessment_tool()
-    result = await tool.handler(conditions=[{"name": "Test", "confidence": "possible", "reasoning": "r"}])
+    result = await tool.handler(
+        conditions=[{"name": "Test", "confidence": "possible", "reasoning": "r"}]
+    )
     assert result["self_care"] == []
     assert result["medications"] == []
     assert result["tests"] == []
@@ -89,9 +102,13 @@ def test_format_assessment_text_contains_sections():
 
 
 def test_format_assessment_text_minimal():
-    text = _format_assessment_text({
-        "conditions": [{"name": "Sprain", "confidence": "most_likely", "reasoning": "Twisted ankle."}],
-    })
+    text = _format_assessment_text(
+        {
+            "conditions": [
+                {"name": "Sprain", "confidence": "most_likely", "reasoning": "Twisted ankle."}
+            ],
+        }
+    )
     assert "## Assessment" in text
     assert "Most likely: Sprain" in text
     # No other sections should appear
@@ -132,13 +149,16 @@ def test_build_assistant_parts_with_assessment_skips_text():
 
     acc = PartsAccumulator()
     # Simulate a present_assessment tool call
-    acc.tool_calls.append(ToolCallPart(
-        id="tc_1", name="present_assessment", arguments=SAMPLE_ARGS
-    ))
-    acc.tool_results.append(ToolResultPart(
-        call_id="tc_1", name="present_assessment",
-        output={"status": "assessment_presented", **SAMPLE_ARGS}
-    ))
+    acc.tool_calls.append(
+        ToolCallPart(id="tc_1", name="present_assessment", arguments=SAMPLE_ARGS)
+    )
+    acc.tool_results.append(
+        ToolResultPart(
+            call_id="tc_1",
+            name="present_assessment",
+            output={"status": "assessment_presented", **SAMPLE_ARGS},
+        )
+    )
 
     parts = build_assistant_parts("some fallback text", acc)
 

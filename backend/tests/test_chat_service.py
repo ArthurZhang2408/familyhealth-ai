@@ -22,7 +22,12 @@ from httpx import AsyncClient
 
 from app.agents.core import AgentCore
 from app.agents.registry import ToolRegistry
-from app.api.deps import get_agent_core, get_context_builder, get_memory_extractor, get_memory_service
+from app.api.deps import (
+    get_agent_core,
+    get_context_builder,
+    get_memory_extractor,
+    get_memory_service,
+)
 from app.main import app
 from app.services.chat import ChatService
 from app.services.chat_prompts import CHAT_DISCLAIMER
@@ -81,7 +86,7 @@ def _mock_llm_router() -> MagicMock:
     """Create a mock LLMRouter that returns canned responses."""
     router = AsyncMock()
 
-    async def mock_route(request: Any) -> MagicMock:
+    async def mock_route(request: Any, **kwargs: Any) -> MagicMock:
         resp = MagicMock()
         if request.task.value == "chat":
             resp.content = MOCK_CHAT_RESPONSE
@@ -391,7 +396,7 @@ class TestChatServiceSendMessage:
 
         router = AsyncMock()
 
-        async def route_with_dosage(request: Any) -> MagicMock:
+        async def route_with_dosage(request: Any, **kwargs: Any) -> MagicMock:
             resp = MagicMock()
             if request.task.value == "chat":
                 resp.content = "I recommend you take 500 mg of ibuprofen."

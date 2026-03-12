@@ -36,6 +36,8 @@ interface ConversationViewProps {
   agentSteps?: AgentStep[];
   isStreaming?: boolean;
   onStructuredResponse?: (content: string, structuredResponse: Record<string, unknown>) => void;
+  /** Incremented on each send error — used to reset StructuredInputView selection. */
+  sendErrorCount?: number;
 }
 
 export function ConversationView({
@@ -61,6 +63,7 @@ export function ConversationView({
   agentSteps = [],
   isStreaming = false,
   onStructuredResponse,
+  sendErrorCount = 0,
 }: ConversationViewProps) {
   const Colors = useColors();
 
@@ -163,6 +166,7 @@ export function ConversationView({
                 animate={pendingIds.has(item.id)}
                 onStructuredResponse={onStructuredResponse}
                 isLatestAssistant={isLatestAssistant}
+                sendErrorCount={sendErrorCount}
               />
             );
           }}

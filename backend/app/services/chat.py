@@ -30,6 +30,7 @@ from app.services.chat_safety import (
 )
 from app.services.context_builder import ContextBuilder
 from app.services.llm import ImagePart, LLMMessage, LLMRequest, LLMTask
+from app.services.llm_trace import record_llm_traces
 from app.services.memory import build_conversation_window
 from app.services.memory_extractor import MemoryExtractor
 from app.services.message_parts_builder import (
@@ -165,6 +166,16 @@ class ChatService:
         )
         agent_result = await self._agent.run(agent_session, CHAT_AGENT)
         response_text = agent_result.content.strip()
+
+        # Persist LLM traces (best-effort)
+        if agent_result.llm_traces:
+            await record_llm_traces(
+                self._db,
+                session_type="chat",
+                session_id=conversation.id,
+                turn_index=sum(1 for m in messages if m["role"] == "user"),
+                traces=agent_result.llm_traces,
+            )
 
         # 6. Safety validation
         violations = validate_response(response_text)
@@ -371,6 +382,7 @@ class ChatService:
         )
 
         full_content = ""
+        llm_traces: list[dict] = []
         async for event in self._agent.run_stream(agent_session, CHAT_AGENT):
             if event.type == AgentEventType.TEXT_DELTA:
                 full_content += event.data.get("content", "")
@@ -380,7 +392,7 @@ class ChatService:
                 # Do NOT override full_content here: it already has the complete
                 # text accumulated from all TEXT_DELTA events across all agent
                 # rounds. The DONE event's content only has the last round's text.
-                pass
+                llm_traces = event.data.get("llm_traces", [])
             else:
                 accumulator.record_event(event)
                 yield event
@@ -432,6 +444,16 @@ class ChatService:
         # 9. Best-effort topic generation (runs after DONE, client doesn't wait)
         if is_new_conversation and not topic:
             await self._auto_generate_topic(conversation, content)
+
+        # Persist LLM traces (best-effort)
+        if llm_traces:
+            await record_llm_traces(
+                self._db,
+                session_type="chat",
+                session_id=conversation.id,
+                turn_index=sum(1 for m in messages if m["role"] == "user"),
+                traces=llm_traces,
+            )
 
         await self._log_action(
             profile,
@@ -544,7 +566,8 @@ class ChatService:
                 system_prompt="You generate short topic labels for conversations.",
                 messages=[LLMMessage(role="user", content=prompt)],
                 temperature=0.3,
-                max_tokens=30,
+                max_tokens=2000,
+                extra={"reasoning_effort": "low", "think": False},
             )
             response = await self._agent.call(request)
             topic = response.content.strip().strip('"').strip("'")

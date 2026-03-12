@@ -42,6 +42,7 @@ from app.services.diagnosis_safety import (
     validate_response,
 )
 from app.services.llm import ImagePart, LLMMessage, LLMRequest, LLMResponse, LLMTask
+from app.services.llm_trace import record_llm_traces
 from app.services.memory import build_conversation_window
 from app.services.memory_extractor import MemoryExtractor
 from app.services.memory_trace import record_extraction
@@ -372,6 +373,7 @@ class DiagnosisService:
         from app.core.exceptions import AppError
 
         # 1. Resolve or create session
+        is_new_session = not session_id
         if session_id:
             session = await self.get_session(session_id, profile.id)
             if not session:
@@ -477,6 +479,7 @@ class DiagnosisService:
 
             conversation_text = ""
             debug_rounds: list[dict] = []
+            llm_traces: list[dict] = []
             has_assessment_tool = False
             assessment_tool_args: dict = {}
             async for event in self._agent.run_stream(agent_session, DIAGNOSIS_AGENT):
@@ -488,6 +491,7 @@ class DiagnosisService:
                     if done_content:
                         conversation_text = done_content
                     debug_rounds = event.data.get("debug_rounds", [])
+                    llm_traces = event.data.get("llm_traces", [])
                 elif event.type == AgentEventType.TOOL_RESULT:
                     accumulator.record_event(event)
                     yield event
@@ -668,6 +672,20 @@ class DiagnosisService:
                         exc_info=True,
                     )
 
+        # Persist LLM traces (best-effort)
+        if llm_traces:
+            await record_llm_traces(
+                self._db,
+                session_type="diagnosis",
+                session_id=session.id,
+                turn_index=turn_number,
+                traces=llm_traces,
+            )
+
+        # Best-effort title generation for new sessions
+        if is_new_session:
+            await self._auto_generate_title(session, session.chief_complaint)
+
         await self._log_action(
             profile,
             ActionType.DIAGNOSIS_MESSAGE,
@@ -836,6 +854,16 @@ class DiagnosisService:
         )
         agent_result = await self._agent.run(agent_session, DIAGNOSIS_AGENT)
         conversation_text = agent_result.content.strip()
+
+        # Persist LLM traces (best-effort)
+        if agent_result.llm_traces:
+            await record_llm_traces(
+                self._db,
+                session_type="diagnosis",
+                session_id=session.id,
+                turn_index=turn_number,
+                traces=agent_result.llm_traces,
+            )
 
         # 4. Safety validation
         violations = validate_response(conversation_text)
@@ -1030,8 +1058,9 @@ class DiagnosisService:
                 system_prompt=system_prompt,
                 messages=[LLMMessage(role=m["role"], content=m["content"]) for m in all_messages],
                 temperature=0.0,
-                max_tokens=2000,
+                max_tokens=4000,
                 response_format={"type": "json"},
+                extra={"reasoning_effort": "low", "think": False},
             )
             response: LLMResponse = await self._agent.call(request)
             raw_state = json.loads(response.content)
@@ -1147,8 +1176,8 @@ class DiagnosisService:
             system_prompt="You summarize medical sessions into concise bullet-point facts.",
             messages=[LLMMessage(role="user", content=prompt)],
             temperature=0.0,
-            max_tokens=2000,
-            extra={"enable_thinking": False},
+            max_tokens=4000,
+            extra={"reasoning_effort": "low", "think": False},
         )
         response: LLMResponse = await self._agent.call(request)
         narrative = response.content.strip()
@@ -1238,7 +1267,8 @@ class DiagnosisService:
                 system_prompt="You generate short topic labels for medical sessions.",
                 messages=[LLMMessage(role="user", content=prompt)],
                 temperature=0.3,
-                max_tokens=30,
+                max_tokens=2000,
+                extra={"reasoning_effort": "low", "think": False},
             )
             response = await self._agent.call(request)
             title = response.content.strip().strip('"').strip("'")

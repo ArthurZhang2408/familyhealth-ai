@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { logger } from './logger';
 import { Config } from '@/constants/config';
 import type {
   Profile,
@@ -35,17 +36,36 @@ function extractErrorMessage(error: Record<string, unknown>, status: number): st
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const headers = await getAuthHeaders();
-  const response = await fetch(`${Config.apiUrl}${path}`, {
-    ...options,
-    headers: { ...headers, ...options.headers },
-  });
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'Request failed' }));
-    throw new Error(extractErrorMessage(error, response.status));
+  const method = (options.method ?? 'GET').toUpperCase();
+  const start = Date.now();
+  let status = 0;
+  try {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${Config.apiUrl}${path}`, {
+      ...options,
+      headers: { ...headers, ...options.headers },
+    });
+    status = response.status;
+    const rid = response.headers.get('x-request-id') ?? undefined;
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Request failed' }));
+      const msg = extractErrorMessage(error, response.status);
+      logger.error('api', `${method} ${path} ${status}`, { duration_ms: Date.now() - start, rid, error: msg });
+      throw new Error(msg);
+    }
+    logger.info('api', `${method} ${path} ${status}`, { duration_ms: Date.now() - start, rid });
+    // Flush any queued client logs on successful request
+    logger.flushPending();
+    if (response.status === 204) return undefined as T;
+    return response.json() as Promise<T>;
+  } catch (err) {
+    if (status === 0) {
+      // Network error — fetch itself threw (no response)
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      logger.error('api', `${method} ${path} NETWORK_ERROR`, { duration_ms: Date.now() - start, error: msg });
+    }
+    throw err;
   }
-  if (response.status === 204) return undefined as T;
-  return response.json() as Promise<T>;
 }
 
 // ── Profiles ──────────────────────────────────────────────────────────────────
@@ -134,24 +154,39 @@ async function multipartRequest<T>(
   fields: Record<string, string>,
   files: Attachment[] = [],
 ): Promise<T> {
-  const headers = await getAuthHeaders();
-  const formData = new FormData();
-  for (const [key, value] of Object.entries(fields)) {
-    formData.append(key, value);
+  const start = Date.now();
+  let status = 0;
+  try {
+    const headers = await getAuthHeaders();
+    const formData = new FormData();
+    for (const [key, value] of Object.entries(fields)) {
+      formData.append(key, value);
+    }
+    for (const f of files) {
+      formData.append('files', { uri: f.uri, name: f.name, type: f.type } as unknown as Blob);
+    }
+    const response = await fetch(`${Config.apiUrl}${path}`, {
+      method: 'POST',
+      headers: { Authorization: headers.Authorization ?? '' },
+      body: formData,
+    });
+    status = response.status;
+    const rid = response.headers.get('x-request-id') ?? undefined;
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Request failed' }));
+      const msg = extractErrorMessage(error, response.status);
+      logger.error('api', `POST ${path} ${status}`, { duration_ms: Date.now() - start, rid, error: msg });
+      throw new Error(msg);
+    }
+    logger.info('api', `POST ${path} ${status}`, { duration_ms: Date.now() - start, rid });
+    return response.json() as Promise<T>;
+  } catch (err) {
+    if (status === 0) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      logger.error('api', `POST ${path} NETWORK_ERROR`, { duration_ms: Date.now() - start, error: msg });
+    }
+    throw err;
   }
-  for (const f of files) {
-    formData.append('files', { uri: f.uri, name: f.name, type: f.type } as unknown as Blob);
-  }
-  const response = await fetch(`${Config.apiUrl}${path}`, {
-    method: 'POST',
-    headers: { Authorization: headers.Authorization ?? '' },
-    body: formData,
-  });
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'Request failed' }));
-    throw new Error(extractErrorMessage(error, response.status));
-  }
-  return response.json() as Promise<T>;
 }
 
 // ── SSE Streaming helper ────────────────────────────────────────────────────
@@ -184,6 +219,13 @@ function streamMultipartRequest(
       formData.append('files', { uri: f.uri, name: f.name, type: f.type } as unknown as Blob);
     }
 
+    const streamStart = Date.now();
+    let eventsReceived = 0;
+    let lastEventType = '';
+    let rid: string | undefined;
+
+    logger.info('stream', `OPEN ${path}`, { fields: Object.keys(fields) });
+
     return new Promise<DoneEvent>((resolve, reject) => {
       xhr = new XMLHttpRequest();
       xhr.open('POST', `${Config.apiUrl}${path}`);
@@ -194,6 +236,13 @@ function streamMultipartRequest(
       let resolved = false;
 
       xhr.onreadystatechange = () => {
+        // Capture request ID from response headers as soon as headers arrive
+        if (xhr!.readyState >= 2 && !rid) {
+          try {
+            rid = xhr!.getResponseHeader('x-request-id') ?? undefined;
+          } catch { /* headers not ready yet */ }
+        }
+
         if (xhr!.readyState >= 3 && xhr!.status === 200) {
           const newText = xhr!.responseText.substring(cursor);
           cursor = xhr!.responseText.length;
@@ -203,13 +252,28 @@ function streamMultipartRequest(
             if (!trimmed.startsWith('data: ')) continue;
             try {
               const event = JSON.parse(trimmed.substring(6)) as StreamEvent;
+              eventsReceived++;
+              lastEventType = event.type;
               onEvent(event);
               if (event.type === 'done' && !resolved) {
                 resolved = true;
+                logger.info('stream', `DONE ${path}`, {
+                  duration_ms: Date.now() - streamStart,
+                  events: eventsReceived,
+                  rid,
+                });
+                // Flush any queued error logs from previous failed attempts
+                logger.flushPending();
                 resolve(event);
               } else if (event.type === 'error' && !resolved) {
                 resolved = true;
                 const msg = (event as { message?: string }).message || 'Processing failed';
+                logger.error('stream', `SERVER_ERROR ${path}`, {
+                  duration_ms: Date.now() - streamStart,
+                  events: eventsReceived,
+                  rid,
+                  error: msg,
+                });
                 reject(new Error(msg));
               }
             } catch {
@@ -222,8 +286,9 @@ function streamMultipartRequest(
       xhr.onload = () => {
         if (!resolved) {
           let detail: string;
-          if (xhr!.status !== 200) {
-            detail = `HTTP ${xhr!.status}`;
+          const status = xhr!.status;
+          if (status !== 200) {
+            detail = `HTTP ${status}`;
             try {
               const body = JSON.parse(xhr!.responseText);
               detail = body.detail || detail;
@@ -231,14 +296,40 @@ function streamMultipartRequest(
           } else {
             detail = 'Connection closed unexpectedly. Please try again.';
           }
+          logger.error('stream', `CLOSED ${path}`, {
+            duration_ms: Date.now() - streamStart,
+            status,
+            events: eventsReceived,
+            last_event: lastEventType || null,
+            rid,
+            error: detail,
+          });
           reject(new Error(detail));
         }
       };
       xhr.onerror = () => {
-        if (!resolved) reject(new Error('Stream connection failed'));
+        if (!resolved) {
+          logger.error('stream', `NETWORK_ERROR ${path}`, {
+            duration_ms: Date.now() - streamStart,
+            xhr_status: xhr!.status,
+            xhr_state: xhr!.readyState,
+            events: eventsReceived,
+            last_event: lastEventType || null,
+            rid,
+          });
+          reject(new Error('Stream connection failed'));
+        }
       };
       xhr.onabort = () => {
-        if (!resolved) reject(new Error('Stream aborted'));
+        if (!resolved) {
+          logger.warn('stream', `ABORTED ${path}`, {
+            duration_ms: Date.now() - streamStart,
+            events: eventsReceived,
+            last_event: lastEventType || null,
+            rid,
+          });
+          reject(new Error('Stream aborted'));
+        }
       };
       xhr.send(formData);
     });

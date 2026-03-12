@@ -13,7 +13,9 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from collections.abc import AsyncIterator
+from typing import Any
 
 from app.agents.registry import ToolRegistry
 from app.agents.session import AgentSession
@@ -41,13 +43,37 @@ class AgentCore:
         self._llm = llm_router
         self._tools = tool_registry
 
-    async def call(self, request: LLMRequest) -> LLMResponse:
+    async def call(
+        self,
+        request: LLMRequest,
+        *,
+        trace_out: list[dict[str, Any]] | None = None,
+    ) -> LLMResponse:
         """Single LLM call — no agent loop, no tools.
 
         Use for non-agentic tasks: structured extraction, summarization,
         fact extraction. Delegates directly to LLMRouter.
+
+        If *trace_out* is provided, appends a trace dict with call metadata.
         """
-        return await self._llm.route(request)
+        trace: dict[str, Any] | None = {} if trace_out is not None else None
+        response = await self._llm.route(request, trace=trace)
+        if trace is not None and trace_out is not None:
+            trace["round_index"] = 1
+            trace["response_text"] = response.content[:2000] if response.content else None
+            trace["response_tool_calls"] = (
+                [{"name": tc.name, "arguments": tc.arguments} for tc in response.tool_calls]
+                if response.tool_calls
+                else None
+            )
+            trace["messages_in"] = [
+                {"role": m.role, "content": m.content[:500]} for m in request.messages
+            ]
+            trace["system_prompt"] = (
+                request.system_prompt[:5000] if request.system_prompt else None
+            )
+            trace_out.append(trace)
+        return response
 
     async def run(
         self,
@@ -62,6 +88,7 @@ class AgentCore:
         ``max_tool_rounds`` is reached.
         """
         tool_declarations = self._tools.get_declarations(agent_def.tool_names)
+        llm_traces: list[dict[str, Any]] = []
 
         last_content = ""
         last_model = ""
@@ -69,15 +96,22 @@ class AgentCore:
 
         for round_num in range(agent_def.max_tool_rounds + 1):
             request = self._build_request(session, agent_def, tool_declarations)
+            trace: dict[str, Any] = {}
             try:
-                response = await self._llm.route(request)
+                response = await self._llm.route(request, trace=trace)
             except Exception:
                 logger.exception(
                     "Agent '%s' LLM call failed on round %d",
                     agent_def.name,
                     round_num + 1,
                 )
+                trace["error"] = trace.get("error", "LLM call failed")
+                self._enrich_trace(trace, request, round_num, None)
+                llm_traces.append(trace)
                 raise
+
+            self._enrich_trace(trace, request, round_num, response)
+            llm_traces.append(trace)
 
             session.turn_count += 1
             last_content = response.content
@@ -93,6 +127,7 @@ class AgentCore:
                     tool_calls_made=list(session.tool_calls_made),
                     tool_results=list(session.tool_results),
                     rounds=round_num + 1,
+                    llm_traces=llm_traces,
                 )
 
             # Append assistant message with tool call intent
@@ -138,6 +173,7 @@ class AgentCore:
                     tool_calls_made=list(session.tool_calls_made),
                     tool_results=list(session.tool_results),
                     rounds=round_num + 1,
+                    llm_traces=llm_traces,
                 )
 
         # Max rounds exceeded
@@ -154,6 +190,7 @@ class AgentCore:
             tool_results=list(session.tool_results),
             rounds=agent_def.max_tool_rounds + 1,
             max_rounds_hit=True,
+            llm_traces=llm_traces,
         )
 
     async def run_stream(
@@ -171,15 +208,18 @@ class AgentCore:
         last_text = ""
         self._retried_incomplete = False
         self._debug_rounds: list[dict] = []
+        self._llm_traces: list[dict[str, Any]] = []
 
         for round_num in range(agent_def.max_tool_rounds + 1):
             request = self._build_request(session, agent_def, tool_declarations)
 
             text_buffer = ""
             tool_calls: list[ToolCall] = []
+            trace: dict[str, Any] = {}
+            stream_start = time.monotonic()
 
             try:
-                async for chunk in self._llm.route_stream(request):
+                async for chunk in self._llm.route_stream(request, trace=trace):
                     if chunk.type == "thinking_delta":
                         yield AgentEvent(
                             type=AgentEventType.THINKING_DELTA,
@@ -206,7 +246,17 @@ class AgentCore:
                     agent_def.name,
                     round_num + 1,
                 )
+                trace["error"] = trace.get("error", "LLM stream failed")
+                trace["latency_ms"] = int((time.monotonic() - stream_start) * 1000)
+                self._enrich_stream_trace(trace, request, round_num, text_buffer, tool_calls)
+                self._llm_traces.append(trace)
                 raise
+
+            # Ensure latency is set (route_stream may have set it, but use our own if not)
+            if "latency_ms" not in trace:
+                trace["latency_ms"] = int((time.monotonic() - stream_start) * 1000)
+            self._enrich_stream_trace(trace, request, round_num, text_buffer, tool_calls)
+            self._llm_traces.append(trace)
 
             session.turn_count += 1
             last_text = text_buffer
@@ -217,7 +267,9 @@ class AgentCore:
                 "message_count": len(session.messages),
                 "text_length": len(text_buffer),
                 "text_preview": text_buffer[:200] if text_buffer else "",
-                "tool_calls": [{"name": tc.name, "args_preview": str(tc.arguments)[:100]} for tc in tool_calls],
+                "tool_calls": [
+                    {"name": tc.name, "args_preview": str(tc.arguments)[:100]} for tc in tool_calls
+                ],
             }
             self._debug_rounds.append(round_debug)
 
@@ -233,7 +285,10 @@ class AgentCore:
                         {"role": "assistant", "content": ""},
                     )
                     session.messages.append(
-                        {"role": "user", "content": "[System: your previous response was empty. Please respond to the patient.]"},
+                        {
+                            "role": "user",
+                            "content": "[System: your previous response was empty. Please respond to the patient.]",
+                        },
                     )
                     continue
 
@@ -258,19 +313,26 @@ class AgentCore:
                         {"role": "assistant", "content": text_buffer},
                     )
                     session.messages.append(
-                        {"role": "user", "content": (
-                            "[System: you wrote a response but did not call any tool. "
-                            "If you need to ask the patient a question, you MUST use "
-                            "the `present_question` tool. Do not ask in free text. "
-                            "Continue from where you left off.]"
-                        )},
+                        {
+                            "role": "user",
+                            "content": (
+                                "[System: you wrote a response but did not call any tool. "
+                                "If you need to ask the patient a question, you MUST use "
+                                "the `present_question` tool. Do not ask in free text. "
+                                "Continue from where you left off.]"
+                            ),
+                        },
                     )
                     continue
 
                 # Final response — text already streamed token-by-token
                 yield AgentEvent(
                     type=AgentEventType.DONE,
-                    data={"content": text_buffer, "debug_rounds": self._debug_rounds},
+                    data={
+                        "content": text_buffer,
+                        "debug_rounds": self._debug_rounds,
+                        "llm_traces": self._llm_traces,
+                    },
                 )
                 return
 
@@ -283,7 +345,11 @@ class AgentCore:
                 )
                 yield AgentEvent(
                     type=AgentEventType.DONE,
-                    data={"content": text_buffer, "debug_rounds": self._debug_rounds},
+                    data={
+                        "content": text_buffer,
+                        "debug_rounds": self._debug_rounds,
+                        "llm_traces": self._llm_traces,
+                    },
                 )
                 return
 
@@ -337,7 +403,11 @@ class AgentCore:
             if hit_terminal:
                 yield AgentEvent(
                     type=AgentEventType.DONE,
-                    data={"content": text_buffer, "debug_rounds": self._debug_rounds},
+                    data={
+                        "content": text_buffer,
+                        "debug_rounds": self._debug_rounds,
+                        "llm_traces": self._llm_traces,
+                    },
                 )
                 return
 
@@ -349,7 +419,7 @@ class AgentCore:
         )
         yield AgentEvent(
             type=AgentEventType.DONE,
-            data={"content": last_text},
+            data={"content": last_text, "llm_traces": self._llm_traces},
         )
 
     @staticmethod
@@ -375,4 +445,53 @@ class AgentCore:
             response_format=agent_def.response_format,
             tools=tool_declarations,
             thinking_budget=agent_def.thinking_budget,
+        )
+
+    @staticmethod
+    def _enrich_trace(
+        trace: dict[str, Any],
+        request: LLMRequest,
+        round_num: int,
+        response: LLMResponse | None,
+    ) -> None:
+        """Add request/response detail to a trace dict from a non-streaming call."""
+        trace["round_index"] = round_num + 1
+        # Only store system prompt on the first round to save space
+        if round_num == 0:
+            trace["system_prompt"] = (
+                request.system_prompt[:5000] if request.system_prompt else None
+            )
+        trace["messages_in"] = [
+            {"role": m.role, "content": m.content[:500]} for m in request.messages
+        ]
+        if response is not None:
+            trace["response_text"] = response.content[:2000] if response.content else None
+            trace["response_tool_calls"] = (
+                [{"name": tc.name, "arguments": tc.arguments} for tc in response.tool_calls]
+                if response.tool_calls
+                else None
+            )
+
+    @staticmethod
+    def _enrich_stream_trace(
+        trace: dict[str, Any],
+        request: LLMRequest,
+        round_num: int,
+        text_buffer: str,
+        tool_calls: list[ToolCall],
+    ) -> None:
+        """Add request/response detail to a trace dict from a streaming call."""
+        trace["round_index"] = round_num + 1
+        if round_num == 0:
+            trace["system_prompt"] = (
+                request.system_prompt[:5000] if request.system_prompt else None
+            )
+        trace["messages_in"] = [
+            {"role": m.role, "content": m.content[:500]} for m in request.messages
+        ]
+        trace["response_text"] = text_buffer[:2000] if text_buffer else None
+        trace["response_tool_calls"] = (
+            [{"name": tc.name, "arguments": tc.arguments} for tc in tool_calls]
+            if tool_calls
+            else None
         )

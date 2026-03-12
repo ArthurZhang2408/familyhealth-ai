@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import time
 from uuid import UUID
 
 from fastapi import (
@@ -174,17 +175,37 @@ async def send_message_stream(
     asyncio.create_task(_process())
 
     async def event_generator():
+        stream_start = time.monotonic()
+        events_sent = 0
+        client_disconnected = False
+        last_event_type = None
         try:
             while True:
                 item = await queue.get()
                 if item is _SENTINEL:
                     break
                 event: AgentEvent = item  # type: ignore[assignment]
+                last_event_type = event.type.value
                 payload = {"type": event.type.value, **event.data}
                 yield f"data: {json.dumps(payload)}\n\n"
+                events_sent += 1
         except asyncio.CancelledError:
-            # Client disconnected — task continues in background
-            pass
+            client_disconnected = True
+        finally:
+            elapsed = int((time.monotonic() - stream_start) * 1000)
+            if client_disconnected:
+                _stream_logger.warning(
+                    "SSE client disconnected after %dms (%d events sent, last=%s)",
+                    elapsed,
+                    events_sent,
+                    last_event_type,
+                )
+            else:
+                _stream_logger.info(
+                    "SSE stream completed in %dms (%d events sent)",
+                    elapsed,
+                    events_sent,
+                )
 
     return StreamingResponse(
         event_generator(),
@@ -295,9 +316,7 @@ async def delete_conversation(
     # Delete memories extracted from this conversation (best-effort)
     memories_deleted = 0
     try:
-        memories_deleted = await memory_service.delete_by_source(
-            profile.id, f"chat:{cid}"
-        )
+        memories_deleted = await memory_service.delete_by_source(profile.id, f"chat:{cid}")
     except Exception:
         _stream_logger.warning(
             "Failed to delete memories for chat %s, conversation deleted anyway", cid

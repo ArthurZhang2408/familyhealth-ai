@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import time
 from uuid import UUID
 
 from fastapi import (
@@ -247,15 +248,36 @@ async def stream_diagnosis(
     asyncio.create_task(_process())
 
     async def event_generator():
+        stream_start = time.monotonic()
+        events_sent = 0
+        client_disconnected = False
+        last_event_type = None
         try:
             while True:
                 item = await queue.get()
                 if item is _DIAG_SENTINEL:
                     break
+                last_event_type = item.type.value
                 payload = {"type": item.type.value, **item.data}
                 yield f"data: {json.dumps(payload)}\n\n"
+                events_sent += 1
         except asyncio.CancelledError:
-            pass
+            client_disconnected = True
+        finally:
+            elapsed = int((time.monotonic() - stream_start) * 1000)
+            if client_disconnected:
+                _diag_stream_logger.warning(
+                    "SSE client disconnected after %dms (%d events sent, last=%s)",
+                    elapsed,
+                    events_sent,
+                    last_event_type,
+                )
+            else:
+                _diag_stream_logger.info(
+                    "SSE stream completed in %dms (%d events sent)",
+                    elapsed,
+                    events_sent,
+                )
 
     return StreamingResponse(
         event_generator(),
@@ -315,15 +337,38 @@ async def send_message_stream(
     asyncio.create_task(_process())
 
     async def event_generator():
+        stream_start = time.monotonic()
+        events_sent = 0
+        client_disconnected = False
+        last_event_type = None
         try:
             while True:
                 item = await queue.get()
                 if item is _DIAG_SENTINEL:
                     break
+                last_event_type = item.type.value
                 payload = {"type": item.type.value, **item.data}
                 yield f"data: {json.dumps(payload)}\n\n"
+                events_sent += 1
         except asyncio.CancelledError:
-            pass
+            client_disconnected = True
+        finally:
+            elapsed = int((time.monotonic() - stream_start) * 1000)
+            if client_disconnected:
+                _diag_stream_logger.warning(
+                    "SSE client disconnected after %dms (%d events sent, last=%s, session=%s)",
+                    elapsed,
+                    events_sent,
+                    last_event_type,
+                    sid,
+                )
+            else:
+                _diag_stream_logger.info(
+                    "SSE stream completed in %dms (%d events sent, session=%s)",
+                    elapsed,
+                    events_sent,
+                    sid,
+                )
 
     return StreamingResponse(
         event_generator(),
@@ -421,9 +466,7 @@ async def delete_session(
     # Delete memories extracted from this session (best-effort)
     memories_deleted = 0
     try:
-        memories_deleted = await memory_service.delete_by_source(
-            profile.id, f"diagnosis:{sid}"
-        )
+        memories_deleted = await memory_service.delete_by_source(profile.id, f"diagnosis:{sid}")
     except Exception:
         _diag_stream_logger.warning(
             "Failed to delete memories for diagnosis %s, session deleted anyway", sid

@@ -94,7 +94,27 @@ The diagnosis agent uses hypothesis-driven reasoning with structured Q&A:
 - **Profile field alignment**: ✅ Done (PR #26). API returns frontend-friendly names via Pydantic `validation_alias`. Accepts both old and new names on input
 - **Chat bug fixes**: ✅ Done (PR #26). `datetime` shadow import, DONE content override, diagnosis-only agent nudge, Drawer param caching
 - **Memory quality improvements**: Agent-driven retrieval working. Remaining: empty transitional text on some turns (model behavior), legacy garbage memories need cleanup, enrichment causes occasional duplicate questions
-- **Topic generation**: Broken — Qwen/Cerebras reasoning tokens consume entire `max_tokens` budget, returning empty content. Needs model-level thinking toggle or provider strategy
+- **LLM tracing & debugging**: ✅ Done (PR #27). `llm_traces` table, request ID middleware, debug API, persistent file logging, client-side logger with auto-report, SSE lifecycle logging
+- **Topic generation fix**: ✅ Done (PR #27). Thinking models consumed entire `max_tokens` on reasoning. Fixed via per-instance QwenProvider param routing, higher token budgets, reasoning field fallback extraction
+- **Profile switch 404 fix**: ✅ Done (PR #27). Synchronous `pidChanged` guard in chat/diagnosis screens prevents stale queries when Drawer keeps screens mounted
+
+### Debugging & Logging Infrastructure (PR #27)
+- **Server logs**: `logs/familyhealth.log` (RotatingFileHandler, 10MB, 5 backups). Every log line includes `request_id` for correlation
+- **Request ID**: ASGI middleware assigns 12-char hex ID to every request. Available via `contextvars`, injected into all log lines, returned in `X-Request-ID` response header
+- **LLM traces**: `llm_traces` table persists every LLM call (provider, model, timing, tokens, prompts, responses, fallback info). Recorded via `record_llm_traces()` after agent runs
+- **Debug API** (dev-only, guarded by `app_env == "development"`):
+  - `GET /debug/sessions/{id}?session_type=chat|diagnosis` — unified timeline of messages + LLM traces + memory traces
+  - `GET /debug/sessions/{id}/traces` — LLM traces only (lighter)
+  - `POST /debug/client-logs` — receives mobile log entries
+- **Client logger** (`mobile/services/logger.ts`): Ring buffer (500 entries), categories (api/stream/auth/nav/app). `logger.reportToServer()` sends error/warn logs; failed reports queue via `pendingReport` and flush on next successful API call
+- **SSE lifecycle**: Chat and diagnosis stream endpoints log duration, event count, and client disconnect detection
+- **To debug a session**: `grep "REQUEST_ID" logs/familyhealth.log` or query `SELECT * FROM llm_traces WHERE session_id = '...' ORDER BY created_at`
+
+### Thinking Model Constraints
+- **Qwen3.5 on Ollama**: `think: false` parameter is broken (known Ollama bug). Thinking cannot be disabled. Must use high `max_tokens` (2000+ for simple tasks, 4000+ for complex) so thinking + answer both fit
+- **Cerebras gpt-oss-120b**: `reasoning_effort: "low"` minimizes thinking but cannot fully disable it. `max_completion_tokens` includes reasoning tokens
+- **QwenProvider per-instance params**: `excluded_params` (silently dropped), `promoted_params` (top-level kwargs). Cerebras excludes `enable_thinking`/`think`, promotes `reasoning_effort`. Qwen/Ollama excludes `enable_thinking`/`reasoning_effort`, passes `think` via `extra_body`
+- **Reasoning fallback**: `_extract_from_reasoning()` attempts to salvage answers from the `reasoning` field when `content` is empty (looks for "Answer:"/"Topic:" markers or short last lines)
 
 ## Critical Rules
 - NEVER store raw medical data in LLM context without profile scoping

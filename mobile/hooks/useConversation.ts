@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { Alert, FlatList } from 'react-native';
 import { useAttachMenu, type Attachment } from '@/hooks/useAttachMenu';
+import { logger } from '@/services/logger';
 import type { StreamEvent, AgentStep, MessagePart } from '@/types/api';
 import type { StreamHandle } from '@/services/api';
 
@@ -49,6 +50,7 @@ export function useConversation({ serverMessages, streamSendFn, dedupMode, onSen
   const [disclaimer, setDisclaimer] = useState<string | null>(null);
   const [pendingAttachment, setPendingAttachment] = useState<Attachment | null>(null);
   const [isSending, setIsSending] = useState(false);
+  const [sendErrorCount, setSendErrorCount] = useState(0);
   const [streamingContent, setStreamingContent] = useState('');
   const [thinkingContent, setThinkingContent] = useState('');
   const [agentSteps, setAgentSteps] = useState<AgentStep[]>([]);
@@ -268,6 +270,11 @@ export function useConversation({ serverMessages, streamSendFn, dedupMode, onSen
           return [...updated, aiMsg];
         });
       } catch (err) {
+        setSendErrorCount((c) => c + 1);
+        const errMsg = err instanceof Error ? err.message : 'Unknown error';
+        logger.error('stream', 'Send failed', { error: errMsg, had_partial: !!streamingContentRef.current });
+        // Auto-report to server for correlation with server-side logs
+        logger.reportToServer({ last: 20 });
         const partial = streamingContentRef.current;
         if (partial) {
           // Stream interrupted after some content — preserve what we got
@@ -346,5 +353,6 @@ export function useConversation({ serverMessages, streamSendFn, dedupMode, onSen
     thinkingContent,
     agentSteps,
     isStreaming,
+    sendErrorCount,
   };
 }
