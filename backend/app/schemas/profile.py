@@ -2,7 +2,7 @@ from datetime import date, datetime
 from enum import StrEnum
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field
 
 
 class Relationship(StrEnum):
@@ -70,7 +70,11 @@ class ConditionStatus(StrEnum):
 
 
 class Allergy(BaseModel):
-    allergen: str = Field(min_length=1, max_length=200)
+    allergen: str = Field(
+        min_length=1,
+        max_length=200,
+        validation_alias=AliasChoices("allergen", "name"),
+    )
     severity: AllergySeverity
     reaction: str | None = None
 
@@ -82,7 +86,11 @@ class Medication(BaseModel):
 
 
 class MedicalCondition(BaseModel):
-    condition: str = Field(min_length=1, max_length=200)
+    condition: str = Field(
+        min_length=1,
+        max_length=200,
+        validation_alias=AliasChoices("condition", "name"),
+    )
     diagnosed: str | None = None
     status: ConditionStatus
 
@@ -105,9 +113,15 @@ class ProfileCreate(BaseModel):
     date_of_birth: date | None = None
     blood_type: BloodType | None = None
     allergies: list[Allergy] = []
-    current_medications: list[Medication] = []
+    current_medications: list[Medication] = Field(
+        default=[],
+        validation_alias=AliasChoices("current_medications", "medications"),
+    )
     medical_conditions: list[MedicalCondition] = []
-    family_medical_history: dict[str, list[str]] = {}
+    family_medical_history: dict[str, list[str]] = Field(
+        default={},
+        validation_alias=AliasChoices("family_medical_history", "family_history"),
+    )
     emergency_contacts: list[EmergencyContact] = []
     height_cm: float | None = Field(None, gt=0, le=300)
     weight_kg: float | None = Field(None, gt=0, le=500)
@@ -124,9 +138,15 @@ class ProfileUpdate(BaseModel):
     date_of_birth: date | None = None
     blood_type: BloodType | None = None
     allergies: list[Allergy] | None = None
-    current_medications: list[Medication] | None = None
+    current_medications: list[Medication] | None = Field(
+        None,
+        validation_alias=AliasChoices("current_medications", "medications"),
+    )
     medical_conditions: list[MedicalCondition] | None = None
-    family_medical_history: dict[str, list[str]] | None = None
+    family_medical_history: dict[str, list[str]] | None = Field(
+        None,
+        validation_alias=AliasChoices("family_medical_history", "family_history"),
+    )
     emergency_contacts: list[EmergencyContact] | None = None
     height_cm: float | None = Field(None, gt=0, le=300)
     weight_kg: float | None = Field(None, gt=0, le=500)
@@ -134,6 +154,22 @@ class ProfileUpdate(BaseModel):
     alcohol_frequency: AlcoholFrequency | None = None
     is_pregnant: bool | None = None
     surgical_history: list[SurgicalProcedure] | None = None
+
+
+class AllergyResponse(BaseModel):
+    """Response model: maps stored ``allergen`` key to ``name``."""
+
+    name: str = Field(validation_alias=AliasChoices("name", "allergen"))
+    severity: str
+    reaction: str | None = None
+
+
+class MedicalConditionResponse(BaseModel):
+    """Response model: maps stored ``condition`` key to ``name``."""
+
+    name: str = Field(validation_alias=AliasChoices("name", "condition"))
+    diagnosed: str | None = None
+    status: str
 
 
 class ProfileResponse(BaseModel):
@@ -144,10 +180,14 @@ class ProfileResponse(BaseModel):
     sex: str | None
     date_of_birth: date | None
     blood_type: str | None
-    allergies: list[Allergy]
-    current_medications: list[Medication]
-    medical_conditions: list[MedicalCondition]
-    family_medical_history: dict[str, list[str]]
+    allergies: list[AllergyResponse]
+    medications: list[Medication] = Field(
+        validation_alias=AliasChoices("medications", "current_medications"),
+    )
+    medical_conditions: list[MedicalConditionResponse]
+    family_history: dict[str, list[str]] = Field(
+        validation_alias=AliasChoices("family_history", "family_medical_history"),
+    )
     emergency_contacts: list[EmergencyContact]
     height_cm: float | None
     weight_kg: float | None

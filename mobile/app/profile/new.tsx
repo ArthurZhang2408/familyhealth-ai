@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { useRouter, useLocalSearchParams, Stack } from 'expo-router';
 import { useCreateProfile, useProfile, useUpdateProfile } from '@/hooks/useProfiles';
+import { useProfileStore } from '@/stores/profile';
 import { useColors } from '@/hooks/useColors';
 import { useShadow } from '@/hooks/useShadow';
 import { useHapticPress } from '@/hooks/useHapticPress';
@@ -22,6 +23,9 @@ import type {
   Relationship,
   Sex,
   BloodType,
+  SmokingStatus,
+  AlcoholFrequency,
+  SurgicalProcedure,
   ProfileCreate,
   ProfileUpdate,
   Allergy,
@@ -30,7 +34,7 @@ import type {
 
 // ── Constants ───────────────────────────────────────────────────────────────
 
-const TOTAL_STEPS = 4;
+const TOTAL_STEPS = 5;
 
 type RelCategory = 'self' | 'parent' | 'spouse' | 'child' | 'sibling' | 'grandparent' | 'other';
 
@@ -109,6 +113,32 @@ const COMMON_CONDITIONS = [
 
 const CONDITION_STATUSES = ['Active', 'Managed', 'Resolved'] as const;
 
+const SMOKING_OPTIONS: { value: SmokingStatus; label: string }[] = [
+  { value: 'never', label: 'Never' },
+  { value: 'former', label: 'Former' },
+  { value: 'current', label: 'Current' },
+];
+
+const ALCOHOL_OPTIONS: { value: AlcoholFrequency; label: string }[] = [
+  { value: 'none', label: 'None' },
+  { value: 'occasional', label: 'Occasional' },
+  { value: 'moderate', label: 'Moderate' },
+  { value: 'heavy', label: 'Heavy' },
+];
+
+const FAMILY_CONDITIONS = [
+  'Heart disease',
+  'Diabetes',
+  'Cancer',
+  'Stroke',
+  'High blood pressure',
+  'Mental illness',
+] as const;
+
+const FAMILY_MEMBERS = [
+  'Father', 'Mother', 'Brother', 'Sister', 'Grandfather', 'Grandmother',
+] as const;
+
 /** Validate and format DOB fields into YYYY-MM-DD, or null if incomplete/invalid. */
 function parseDob(month: string, day: string, year: string): string | null {
   if (!month || !day || !year || year.length !== 4) return null;
@@ -134,6 +164,7 @@ export default function NewProfileScreen() {
   const isEdit = !!pid;
 
   const createProfile = useCreateProfile();
+  const setActiveProfile = useProfileStore((s) => s.setActiveProfile);
   const { data: profile, isLoading: profileLoading } = useProfile(pid ?? '');
   const updateProfile = useUpdateProfile(pid ?? '');
 
@@ -153,7 +184,14 @@ export default function NewProfileScreen() {
   const dayRef = useRef<TextInputType>(null);
   const yearRef = useRef<TextInputType>(null);
 
-  // Step 2 state
+  // Step 2 state (body & lifestyle)
+  const [heightCm, setHeightCm] = useState('');
+  const [weightKg, setWeightKg] = useState('');
+  const [smokingStatus, setSmokingStatus] = useState<SmokingStatus | null>(null);
+  const [alcoholFrequency, setAlcoholFrequency] = useState<AlcoholFrequency | null>(null);
+  const [isPregnant, setIsPregnant] = useState<boolean | null>(null);
+
+  // Step 3 state (meds & allergies)
   const [medications, setMedications] = useState<Medication[]>([]);
   const [allergies, setAllergies] = useState<Allergy[]>([]);
   const [showMedEntry, setShowMedEntry] = useState(false);
@@ -167,12 +205,17 @@ export default function NewProfileScreen() {
   const [allergySeverity, setAllergySeverity] = useState('');
   const [allergyReaction, setAllergyReaction] = useState('');
 
-  // Step 3 state
+  // Step 4 state (conditions, surgical history, family history)
   const [selectedConditions, setSelectedConditions] = useState<
     Map<string, string>
   >(new Map());
   const [showCustomEntry, setShowCustomEntry] = useState(false);
   const [customCondition, setCustomCondition] = useState('');
+  const [surgicalHistory, setSurgicalHistory] = useState<SurgicalProcedure[]>([]);
+  const [showSurgeryEntry, setShowSurgeryEntry] = useState(false);
+  const [surgeryName, setSurgeryName] = useState('');
+  const [surgeryYear, setSurgeryYear] = useState('');
+  const [familyHistory, setFamilyHistory] = useState<Record<string, string[]>>({});
 
   // ── Pre-populate state in edit mode ────────────────────────────────────
   useEffect(() => {
@@ -196,6 +239,20 @@ export default function NewProfileScreen() {
     }
     if (profile.sex) setSex(profile.sex);
     if (profile.blood_type) setBloodType(profile.blood_type as BloodType);
+    if (profile.height_cm) setHeightCm(String(profile.height_cm));
+    if (profile.weight_kg) setWeightKg(String(profile.weight_kg));
+    if (profile.smoking_status) setSmokingStatus(profile.smoking_status as SmokingStatus);
+    if (profile.alcohol_frequency) setAlcoholFrequency(profile.alcohol_frequency as AlcoholFrequency);
+    if (profile.is_pregnant != null) setIsPregnant(profile.is_pregnant);
+    if (profile.surgical_history?.length) {
+      setSurgicalHistory(profile.surgical_history.map(s => ({
+        procedure: s.procedure,
+        year: s.year,
+      })));
+    }
+    if (profile.family_history && Object.keys(profile.family_history).length > 0) {
+      setFamilyHistory(profile.family_history);
+    }
     if (profile.medications?.length) {
       setMedications(profile.medications.map(m => ({
         name: m.name,
@@ -247,11 +304,8 @@ export default function NewProfileScreen() {
   }, [step, router, animateLayout]);
 
   const handleCreate = useCallback(async () => {
-    // Build backend-compatible payload — field names differ from frontend types:
-    // Frontend Allergy.name → backend allergen
-    // Frontend MedicalCondition.name → backend condition
-    // Frontend medications → backend current_medications
-    // Backend requires lowercase severity/status enums
+    // Backend accepts frontend-friendly field names (name, medications, etc.)
+    // via validation aliases — no manual transforms needed.
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const payload: Record<string, any> = {
@@ -267,10 +321,21 @@ export default function NewProfileScreen() {
       if (bloodType) payload.blood_type = bloodType;
     }
 
-    // Step 2: meds & allergies — transform to backend schema
+    // Step 2: body & lifestyle
     if (step >= 2) {
+      const h = parseFloat(heightCm);
+      const w = parseFloat(weightKg);
+      if (!isNaN(h) && h > 0) payload.height_cm = h;
+      if (!isNaN(w) && w > 0) payload.weight_kg = w;
+      if (smokingStatus) payload.smoking_status = smokingStatus;
+      if (alcoholFrequency) payload.alcohol_frequency = alcoholFrequency;
+      if (isPregnant != null) payload.is_pregnant = isPregnant;
+    }
+
+    // Step 3: meds & allergies
+    if (step >= 3) {
       if (medications.length > 0) {
-        payload.current_medications = medications.map((m) => ({
+        payload.medications = medications.map((m) => ({
           name: m.name,
           dosage: m.dosage || 'as prescribed',
           frequency: m.frequency || 'as directed',
@@ -278,34 +343,50 @@ export default function NewProfileScreen() {
       }
       if (allergies.length > 0) {
         payload.allergies = allergies.map((a) => ({
-          allergen: a.name,
+          name: a.name,
           severity: a.severity.toLowerCase(),
           reaction: a.reaction || null,
         }));
       }
     }
 
-    // Step 3: conditions — transform to backend schema
-    if (step >= 3 && selectedConditions.size > 0) {
-      payload.medical_conditions = Array.from(selectedConditions.entries()).map(
-        ([condName, status]) => ({
-          condition: condName,
-          status: status.toLowerCase(),
-        }),
+    // Step 4: conditions, surgical history, family history
+    if (step >= 4) {
+      if (selectedConditions.size > 0) {
+        payload.medical_conditions = Array.from(selectedConditions.entries()).map(
+          ([condName, status]) => ({
+            name: condName,
+            status: status.toLowerCase(),
+          }),
+        );
+      }
+      if (surgicalHistory.length > 0) {
+        payload.surgical_history = surgicalHistory;
+      }
+      const nonEmptyFH = Object.fromEntries(
+        Object.entries(familyHistory).filter(([, members]) => members.length > 0),
       );
+      if (Object.keys(nonEmptyFH).length > 0) {
+        payload.family_history = nonEmptyFH;
+      }
     }
 
     try {
       if (isEdit) {
         await updateProfile.mutateAsync(payload as ProfileUpdate);
+        router.back();
       } else {
-        await createProfile.mutateAsync(payload as ProfileCreate);
+        const created = await createProfile.mutateAsync(payload as ProfileCreate);
+        setActiveProfile(created);
+        // Dismiss this modal, then go home so we don't land on a stale
+        // conversation screen from a different profile.
+        router.dismiss();
+        router.navigate('/(main)' as never);
       }
-      router.back();
     } catch (err: unknown) {
       Alert.alert('Error', err instanceof Error ? err.message : isEdit ? 'Could not update profile.' : 'Could not create profile.');
     }
-  }, [selectedConditions, name, relationship, dobMonth, dobDay, dobYear, sex, bloodType, medications, allergies, step, createProfile, updateProfile, isEdit, router]);
+  }, [selectedConditions, name, relationship, dobMonth, dobDay, dobYear, sex, bloodType, heightCm, weightKg, smokingStatus, alcoholFrequency, isPregnant, medications, allergies, surgicalHistory, familyHistory, step, createProfile, updateProfile, isEdit, router, setActiveProfile]);
 
   const handleSkipCreate = useCallback(async () => {
     // Save whatever we have so far and create
@@ -378,7 +459,25 @@ export default function NewProfileScreen() {
       )}
 
       {step === 2 && (
-        <Step2MedsAllergies
+        <Step2BodyLifestyle
+          heightCm={heightCm}
+          setHeightCm={setHeightCm}
+          weightKg={weightKg}
+          setWeightKg={setWeightKg}
+          smokingStatus={smokingStatus}
+          setSmokingStatus={setSmokingStatus}
+          alcoholFrequency={alcoholFrequency}
+          setAlcoholFrequency={setAlcoholFrequency}
+          isPregnant={isPregnant}
+          setIsPregnant={setIsPregnant}
+          sex={sex}
+          onContinue={goNext}
+          onSkip={isEdit ? undefined : goNext}
+        />
+      )}
+
+      {step === 3 && (
+        <Step3MedsAllergies
           medications={medications}
           setMedications={setMedications}
           allergies={allergies}
@@ -409,14 +508,24 @@ export default function NewProfileScreen() {
         />
       )}
 
-      {step === 3 && (
-        <Step3Conditions
+      {step === 4 && (
+        <Step4Conditions
           selectedConditions={selectedConditions}
           setSelectedConditions={setSelectedConditions}
           showCustomEntry={showCustomEntry}
           setShowCustomEntry={setShowCustomEntry}
           customCondition={customCondition}
           setCustomCondition={setCustomCondition}
+          surgicalHistory={surgicalHistory}
+          setSurgicalHistory={setSurgicalHistory}
+          showSurgeryEntry={showSurgeryEntry}
+          setShowSurgeryEntry={setShowSurgeryEntry}
+          surgeryName={surgeryName}
+          setSurgeryName={setSurgeryName}
+          surgeryYear={surgeryYear}
+          setSurgeryYear={setSurgeryYear}
+          familyHistory={familyHistory}
+          setFamilyHistory={setFamilyHistory}
           onCreateProfile={handleCreate}
           onSkip={isEdit ? undefined : handleSkipCreate}
           isPending={isSaving}
@@ -1055,9 +1164,136 @@ function Step1Basics({
   );
 }
 
-// ── Step 2: Medications & Allergies ─────────────────────────────────────────
+// ── Step 2: Body & Lifestyle ────────────────────────────────────────────────
 
-function Step2MedsAllergies({
+function Step2BodyLifestyle({
+  heightCm,
+  setHeightCm,
+  weightKg,
+  setWeightKg,
+  smokingStatus,
+  setSmokingStatus,
+  alcoholFrequency,
+  setAlcoholFrequency,
+  isPregnant,
+  setIsPregnant,
+  sex,
+  onContinue,
+  onSkip,
+}: {
+  heightCm: string;
+  setHeightCm: (s: string) => void;
+  weightKg: string;
+  setWeightKg: (s: string) => void;
+  smokingStatus: SmokingStatus | null;
+  setSmokingStatus: (s: SmokingStatus) => void;
+  alcoholFrequency: AlcoholFrequency | null;
+  setAlcoholFrequency: (s: AlcoholFrequency) => void;
+  isPregnant: boolean | null;
+  setIsPregnant: (b: boolean) => void;
+  sex: Sex | null;
+  onContinue: () => void;
+  onSkip?: () => void;
+}) {
+  const Colors = useColors();
+
+  return (
+    <View style={{ gap: Spacing.lg }}>
+      <View>
+        <Text
+          style={{
+            fontSize: FontSize.xl,
+            fontWeight: FontWeight.bold,
+            color: Colors.text,
+            textAlign: 'center',
+          }}
+        >
+          Body & Lifestyle
+        </Text>
+        <Text
+          style={{
+            fontSize: FontSize.sm,
+            color: Colors.textSecondary,
+            textAlign: 'center',
+            marginTop: Spacing.xs,
+          }}
+        >
+          Helps with dosing, BMI, and risk assessment
+        </Text>
+      </View>
+
+      {/* Height & Weight */}
+      <View style={{ flexDirection: 'row', gap: Spacing.md }}>
+        <View style={{ flex: 1, gap: Spacing.xs }}>
+          <SectionLabel text="Height (cm)" />
+          <FormInput
+            value={heightCm}
+            onChangeText={(t) => setHeightCm(t.replace(/[^0-9.]/g, ''))}
+            placeholder="e.g. 170"
+            keyboardType="numeric"
+          />
+        </View>
+        <View style={{ flex: 1, gap: Spacing.xs }}>
+          <SectionLabel text="Weight (kg)" />
+          <FormInput
+            value={weightKg}
+            onChangeText={(t) => setWeightKg(t.replace(/[^0-9.]/g, ''))}
+            placeholder="e.g. 70"
+            keyboardType="numeric"
+          />
+        </View>
+      </View>
+
+      {/* Smoking */}
+      <View style={{ gap: Spacing.sm }}>
+        <SectionLabel text="Smoking" />
+        <View style={{ flexDirection: 'row', gap: Spacing.sm }}>
+          {SMOKING_OPTIONS.map((o) => (
+            <Pill
+              key={o.value}
+              label={o.label}
+              selected={smokingStatus === o.value}
+              onPress={() => setSmokingStatus(o.value)}
+            />
+          ))}
+        </View>
+      </View>
+
+      {/* Alcohol */}
+      <View style={{ gap: Spacing.sm }}>
+        <SectionLabel text="Alcohol" />
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm }}>
+          {ALCOHOL_OPTIONS.map((o) => (
+            <Pill
+              key={o.value}
+              label={o.label}
+              selected={alcoholFrequency === o.value}
+              onPress={() => setAlcoholFrequency(o.value)}
+            />
+          ))}
+        </View>
+      </View>
+
+      {/* Pregnancy — only show for female */}
+      {sex === 'female' && (
+        <View style={{ gap: Spacing.sm }}>
+          <SectionLabel text="Currently pregnant?" />
+          <View style={{ flexDirection: 'row', gap: Spacing.sm }}>
+            <Pill label="Yes" selected={isPregnant === true} onPress={() => setIsPregnant(true)} />
+            <Pill label="No" selected={isPregnant === false} onPress={() => setIsPregnant(false)} />
+          </View>
+        </View>
+      )}
+
+      <PrimaryButton label="Continue" onPress={onContinue} />
+      {onSkip && <SkipButton onPress={onSkip} />}
+    </View>
+  );
+}
+
+// ── Step 3: Medications & Allergies ─────────────────────────────────────────
+
+function Step3MedsAllergies({
   medications,
   setMedications,
   allergies,
@@ -1457,15 +1693,25 @@ function Step2MedsAllergies({
   );
 }
 
-// ── Step 3: Health Conditions ───────────────────────────────────────────────
+// ── Step 4: Health Conditions + Surgical History + Family History ────────────
 
-function Step3Conditions({
+function Step4Conditions({
   selectedConditions,
   setSelectedConditions,
   showCustomEntry,
   setShowCustomEntry,
   customCondition,
   setCustomCondition,
+  surgicalHistory,
+  setSurgicalHistory,
+  showSurgeryEntry,
+  setShowSurgeryEntry,
+  surgeryName,
+  setSurgeryName,
+  surgeryYear,
+  setSurgeryYear,
+  familyHistory,
+  setFamilyHistory,
   onCreateProfile,
   onSkip,
   isPending,
@@ -1478,6 +1724,16 @@ function Step3Conditions({
   setShowCustomEntry: (v: boolean) => void;
   customCondition: string;
   setCustomCondition: (s: string) => void;
+  surgicalHistory: SurgicalProcedure[];
+  setSurgicalHistory: React.Dispatch<React.SetStateAction<SurgicalProcedure[]>>;
+  showSurgeryEntry: boolean;
+  setShowSurgeryEntry: (v: boolean) => void;
+  surgeryName: string;
+  setSurgeryName: (s: string) => void;
+  surgeryYear: string;
+  setSurgeryYear: (s: string) => void;
+  familyHistory: Record<string, string[]>;
+  setFamilyHistory: React.Dispatch<React.SetStateAction<Record<string, string[]>>>;
   onCreateProfile: () => void;
   onSkip?: () => void;
   isPending: boolean;
@@ -1485,6 +1741,47 @@ function Step3Conditions({
   submitLabel?: string;
 }) {
   const Colors = useColors();
+
+  const addSurgery = () => {
+    if (!surgeryName.trim()) return;
+    animateLayout();
+    const yr = parseInt(surgeryYear, 10);
+    setSurgicalHistory((prev) => [
+      ...prev,
+      { procedure: surgeryName.trim(), year: !isNaN(yr) && yr > 1900 ? yr : undefined },
+    ]);
+    setSurgeryName('');
+    setSurgeryYear('');
+    setShowSurgeryEntry(false);
+  };
+
+  const removeSurgery = (idx: number) => {
+    animateLayout();
+    setSurgicalHistory((prev) => prev.filter((_, i) => i !== idx));
+  };
+
+  const toggleFamilyCondition = (condition: string) => {
+    animateLayout();
+    setFamilyHistory((prev) => {
+      const next = { ...prev };
+      if (next[condition]) {
+        delete next[condition];
+      } else {
+        next[condition] = [];
+      }
+      return next;
+    });
+  };
+
+  const toggleFamilyMember = (condition: string, member: string) => {
+    setFamilyHistory((prev) => {
+      const members = prev[condition] ?? [];
+      const next = members.includes(member)
+        ? members.filter((m) => m !== member)
+        : [...members, member];
+      return { ...prev, [condition]: next };
+    });
+  };
 
   const toggleCondition = (name: string) => {
     animateLayout();
@@ -1745,6 +2042,152 @@ function Step3Conditions({
           </Text>
         </Pressable>
       )}
+
+      {/* Surgical History */}
+      <View
+        style={{
+          backgroundColor: Colors.surfaceSecondary,
+          borderRadius: BorderRadius.md,
+          borderCurve: 'continuous',
+          borderWidth: 1,
+          borderColor: Colors.border,
+          padding: Spacing.md,
+          gap: Spacing.sm,
+        }}
+      >
+        <SectionLabel text="Surgical history" />
+        <HelperText text="Past surgeries or procedures" />
+
+        {surgicalHistory.length > 0 && (
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm }}>
+            {surgicalHistory.map((s, i) => (
+              <TagChip
+                key={`${s.procedure}-${i}`}
+                label={s.year ? `${s.procedure} (${s.year})` : s.procedure}
+                onRemove={() => removeSurgery(i)}
+              />
+            ))}
+          </View>
+        )}
+
+        {showSurgeryEntry ? (
+          <View
+            style={{
+              gap: Spacing.sm,
+              backgroundColor: Colors.surface,
+              borderRadius: BorderRadius.sm,
+              borderCurve: 'continuous',
+              padding: Spacing.sm,
+            }}
+          >
+            <FormInput
+              value={surgeryName}
+              onChangeText={setSurgeryName}
+              placeholder="Procedure name"
+              autoFocus
+            />
+            <FormInput
+              value={surgeryYear}
+              onChangeText={(t) => setSurgeryYear(t.replace(/\D/g, ''))}
+              placeholder="Year (optional)"
+              keyboardType="number-pad"
+              maxLength={4}
+            />
+            <PrimaryButton label="Add" onPress={addSurgery} />
+          </View>
+        ) : (
+          <Pressable
+            onPress={() => {
+              animateLayout();
+              setShowSurgeryEntry(true);
+            }}
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: Spacing.xs,
+              paddingVertical: Spacing.xs,
+            }}
+          >
+            <Icon name="plus" size={18} color={Colors.primary} />
+            <Text style={{ fontSize: FontSize.sm, color: Colors.primary, fontWeight: FontWeight.medium }}>
+              Add surgery
+            </Text>
+          </Pressable>
+        )}
+      </View>
+
+      {/* Family History */}
+      <View
+        style={{
+          backgroundColor: Colors.surfaceSecondary,
+          borderRadius: BorderRadius.md,
+          borderCurve: 'continuous',
+          borderWidth: 1,
+          borderColor: Colors.border,
+          padding: Spacing.md,
+          gap: Spacing.sm,
+        }}
+      >
+        <SectionLabel text="Family medical history" />
+        <HelperText text="Conditions in blood relatives" />
+
+        {FAMILY_CONDITIONS.map((cond) => {
+          const isSelected = cond in familyHistory;
+          const members = familyHistory[cond] ?? [];
+          return (
+            <View key={cond}>
+              <Pressable
+                onPress={() => toggleFamilyCondition(cond)}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: Spacing.sm,
+                  paddingVertical: Spacing.xs,
+                }}
+              >
+                <View
+                  style={{
+                    width: 20,
+                    height: 20,
+                    borderRadius: 4,
+                    borderWidth: 1.5,
+                    borderColor: isSelected ? Colors.primary : Colors.border,
+                    backgroundColor: isSelected ? Colors.primary : 'transparent',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  {isSelected && <Icon name="checkmark-circle" size={14} color={Colors.textInverse} />}
+                </View>
+                <Text style={{ fontSize: FontSize.sm, color: Colors.text }}>
+                  {cond}
+                </Text>
+              </Pressable>
+              {isSelected && (
+                <View
+                  style={{
+                    flexDirection: 'row',
+                    flexWrap: 'wrap',
+                    gap: Spacing.xs,
+                    marginLeft: Spacing.xl + Spacing.sm,
+                    marginBottom: Spacing.xs,
+                  }}
+                >
+                  {FAMILY_MEMBERS.map((m) => (
+                    <Pill
+                      key={m}
+                      label={m}
+                      selected={members.includes(m)}
+                      onPress={() => toggleFamilyMember(cond, m)}
+                      small
+                    />
+                  ))}
+                </View>
+              )}
+            </View>
+          );
+        })}
+      </View>
 
       <PrimaryButton
         label={isPending ? 'Saving...' : (submitLabel ?? 'Create profile')}

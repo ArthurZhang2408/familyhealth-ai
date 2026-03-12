@@ -145,12 +145,16 @@ export function ProfilePill() {
 
   const handleSelect = useCallback((profile: Profile) => {
     if (process.env.EXPO_OS === 'ios') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    const changed = profile.id !== activeProfile?.id;
     setActiveProfile(profile);
     // Quick close animation
     progress.value = withTiming(0, { duration: 150 }, () => {
       runOnJS(setOpen)(false);
+      // Navigate to home when switching profiles so we don't stay on a
+      // stale conversation that belongs to the previous profile.
+      if (changed) runOnJS(router.navigate)('/(main)' as never);
     });
-  }, [setActiveProfile, progress]);
+  }, [setActiveProfile, progress, activeProfile, router]);
 
   const handleNavigate = useCallback((path: string) => {
     // Animate closed, then navigate

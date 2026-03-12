@@ -22,16 +22,17 @@ import type { Attachment } from '@/hooks/useAttachMenu';
  */
 export default function ChatScreen() {
   const { cid } = useLocalSearchParams<{ cid: string }>();
-  const keyRef = useRef({ cid, key: cid === 'new' ? `new-${Date.now()}` : cid });
+  const keyRef = useRef({ cid, key: cid });
 
   if (cid !== keyRef.current.cid) {
-    const wasNew = keyRef.current.cid === 'new';
-    if (wasNew && cid !== 'new') {
+    const wasNew = keyRef.current.cid?.startsWith('new') ?? false;
+    const nowNew = cid?.startsWith('new') ?? false;
+    if (wasNew && !nowNew) {
       // new → real ID: preserve state (stream still in progress or just finished)
       keyRef.current = { ...keyRef.current, cid };
     } else {
-      // Any other transition (different conversation, or navigating to 'new'): remount
-      keyRef.current = { cid, key: cid === 'new' ? `new-${Date.now()}` : cid };
+      // Any other transition (different conversation, or navigating to 'new-<ts>'): remount
+      keyRef.current = { cid, key: cid };
     }
   }
 
@@ -43,7 +44,7 @@ function ChatScreenInner() {
   const qc = useQueryClient();
   const { cid } = useLocalSearchParams<{ cid: string }>();
   const pid = useProfileStore((s) => s.activeProfile?.id) ?? '';
-  const isNew = cid === 'new';
+  const isNew = cid?.startsWith('new') ?? false;
 
   // Zustand-driven: list pages set true, sidebar sets false. Reactive re-render.
   const fromList = useNavSource((s) => s.fromList);
@@ -105,6 +106,9 @@ function ChatScreenInner() {
           event.conversation_id
         ) {
           setActiveCid(event.conversation_id);
+          // Invalidate the conversation list immediately so the sidebar
+          // shows the new session while the agent is still responding.
+          qc.invalidateQueries({ queryKey: ['chat', pid] });
         }
         onEvent(event);
       };

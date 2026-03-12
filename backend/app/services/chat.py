@@ -334,8 +334,6 @@ class ChatService:
                 date_str = ""
                 if ts:
                     try:
-                        from datetime import datetime
-
                         dt = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
                         date_str = dt.strftime("%b %Y")
                     except (ValueError, AttributeError):
@@ -378,8 +376,11 @@ class ChatService:
                 full_content += event.data.get("content", "")
                 yield event
             elif event.type == AgentEventType.DONE:
-                # Swallow AgentCore's DONE — we emit our own with full metadata
-                full_content = event.data.get("content", full_content)
+                # Swallow AgentCore's DONE — we emit our own with full metadata.
+                # Do NOT override full_content here: it already has the complete
+                # text accumulated from all TEXT_DELTA events across all agent
+                # rounds. The DONE event's content only has the last round's text.
+                pass
             else:
                 accumulator.record_event(event)
                 yield event
@@ -417,7 +418,6 @@ class ChatService:
         await self._db.refresh(assistant_msg)
 
         # 8. Yield DONE immediately — client resolves on this event.
-        # Topic generation and logging continue after but client doesn't wait.
         yield AgentEvent(
             type=AgentEventType.DONE,
             data={
@@ -429,7 +429,7 @@ class ChatService:
             },
         )
 
-        # 9. Best-effort post-processing (runs after client already has the response)
+        # 9. Best-effort topic generation (runs after DONE, client doesn't wait)
         if is_new_conversation and not topic:
             await self._auto_generate_topic(conversation, content)
 

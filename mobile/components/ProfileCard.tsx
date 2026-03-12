@@ -42,21 +42,16 @@ function getInitials(name: string): string {
 }
 
 export function getProfileCompleteness(profile: Profile): number {
-  // Backend field names differ from frontend types (current_medications vs
-  // medications, family_medical_history vs family_history). Cast to any to
-  // safely check whichever name is present at runtime.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const p = profile as any;
   const arr = (v: unknown) => Array.isArray(v) && v.length > 0;
   const obj = (v: unknown) => v != null && typeof v === 'object' && Object.keys(v).length > 0;
   let score = 0;
-  if (p.date_of_birth) score += 20;
-  if (p.sex) score += 15;
-  if (arr(p.allergies)) score += 15;
-  if (arr(p.medications) || arr(p.current_medications)) score += 20;
-  if (arr(p.medical_conditions)) score += 15;
-  if (p.height_cm || p.weight_kg) score += 10;
-  if (arr(p.family_history) || obj(p.family_medical_history)) score += 5;
+  if (profile.date_of_birth) score += 20;
+  if (profile.sex) score += 15;
+  if (arr(profile.allergies)) score += 15;
+  if (arr(profile.medications)) score += 20;
+  if (arr(profile.medical_conditions)) score += 15;
+  if (profile.height_cm || profile.weight_kg) score += 10;
+  if (obj(profile.family_history)) score += 5;
   return score;
 }
 
