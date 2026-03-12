@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, useWindowDimensions } from 'react-native';
-import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Stack } from 'expo-router';
 import { useQueryClient } from '@tanstack/react-query';
 import Animated, { useSharedValue, useAnimatedStyle, withTiming } from 'react-native-reanimated';
@@ -75,6 +75,19 @@ function DiagnosisScreenInner() {
     if (!isNew) setActiveSid(sid);
   }, [sid, isNew]);
 
+  // Drawer keeps screens mounted — when the active profile changes,
+  // the old session doesn't belong to the new profile.
+  // Must be synchronous (not useEffect) because React Query fires
+  // during render, before effects run.
+  const prevPid = useRef(pid);
+  const pidChanged = pid !== prevPid.current;
+  useEffect(() => {
+    if (pidChanged) {
+      prevPid.current = pid;
+      setActiveSid(null);
+    }
+  }, [pid, pidChanged]);
+
   const PHASE_LABELS = useMemo(
     () =>
       ({
@@ -85,9 +98,10 @@ function DiagnosisScreenInner() {
     [Colors],
   );
 
+  // Disable query on the same render cycle that pid changes.
   const { data: session, isLoading, error, refetch } = useDiagnosisSession(
     pid,
-    activeSid ?? '',
+    pidChanged ? '' : (activeSid ?? ''),
   );
 
   const serverMessages: LocalMessage[] = useMemo(() => {
@@ -159,10 +173,12 @@ function DiagnosisScreenInner() {
       if (realId && sid !== realId) {
         router.navigate(`/(main)/diagnosis/${realId}` as never);
       }
-      qc.invalidateQueries({ queryKey: ['diagnosis', pid] });
       if (realId) {
         qc.invalidateQueries({ queryKey: ['diagnosis', pid, realId] });
       }
+      // Re-fetch session list so sidebar picks up auto-generated title
+      // (written server-side after the DONE event).
+      setTimeout(() => qc.invalidateQueries({ queryKey: ['diagnosis', pid] }), 3000);
     },
     [qc, pid, sid, activeSid, router],
   );
@@ -174,12 +190,6 @@ function DiagnosisScreenInner() {
     onSendComplete,
   });
 
-  useFocusEffect(
-    useCallback(() => {
-      if (activeSid) refetch();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [activeSid, refetch]),
-  );
 
   // Abort stream only on true unmount, not on activeSid changes mid-stream
   useEffect(() => {

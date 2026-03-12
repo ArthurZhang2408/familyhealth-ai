@@ -108,7 +108,11 @@ async def update_profile(
             profile.id,
             profile.account_id,
             ActionType.PROFILE_UPDATED,
-            {"fields_changed": fields_changed, "old": _jsonable(old_values), "new": _jsonable(update_data)},
+            {
+                "fields_changed": fields_changed,
+                "old": _jsonable(old_values),
+                "new": _jsonable(update_data),
+            },
         )
     except Exception:
         logger.exception("Failed to log profile_updated for %s", profile.id)

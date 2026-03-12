@@ -78,6 +78,8 @@ def get_llm_router() -> LLMRouter:
             api_key=settings.qwen_api_key,
             base_url=settings.qwen_base_url,
             model=settings.qwen_model,
+            # Ollama accepts "think" in extra_body; strip Gemini-only params
+            excluded_params=frozenset({"enable_thinking", "reasoning_effort"}),
         )
         providers: dict[str, LLMProvider] = {"gemini": gemini, "qwen": qwen}
 
@@ -86,6 +88,10 @@ def get_llm_router() -> LLMRouter:
                 api_key=settings.cerebras_api_key,
                 base_url=settings.cerebras_base_url,
                 model=settings.cerebras_model,
+                # Cerebras accepts reasoning_effort as top-level kwarg;
+                # rejects enable_thinking and think
+                excluded_params=frozenset({"enable_thinking", "think"}),
+                promoted_params=frozenset({"reasoning_effort"}),
             )
             providers["cerebras"] = cerebras
 

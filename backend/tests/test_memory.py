@@ -277,7 +277,6 @@ async def test_extract_from_chat_source(
     assert kwargs["metadata"]["source"] == "chat"
 
 
-
 @pytest.mark.asyncio
 async def test_extract_from_report_uses_prompt(
     memory_service: MemoryService, mock_mem0: MagicMock

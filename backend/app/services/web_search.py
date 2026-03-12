@@ -261,9 +261,7 @@ class PubMedSearchProvider:
 
         try:
             async with httpx.AsyncClient(timeout=PUBMED_TIMEOUT) as client:
-                search_resp = await client.get(
-                    f"{PUBMED_BASE}/esearch.fcgi", params=search_params
-                )
+                search_resp = await client.get(f"{PUBMED_BASE}/esearch.fcgi", params=search_params)
                 search_resp.raise_for_status()
                 search_data = search_resp.json()
 

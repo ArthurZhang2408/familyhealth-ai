@@ -166,8 +166,19 @@ async def get_all_memories(engine, profile_id: UUID):
     # Use docker exec since Mem0 uses a separate database
     result = subprocess.run(
         [
-            "docker", "exec", "familyhealth-ai-db-1",
-            "psql", "-U", "familyhealth", "-d", "mem0_db", "-t", "-A", "-F", "\t", "-c",
+            "docker",
+            "exec",
+            "familyhealth-ai-db-1",
+            "psql",
+            "-U",
+            "familyhealth",
+            "-d",
+            "mem0_db",
+            "-t",
+            "-A",
+            "-F",
+            "\t",
+            "-c",
             f"SELECT id, payload->>'data' as memory, "
             f"payload->'metadata'->>'category' as category, "
             f"payload->'metadata'->>'source' as source "
@@ -175,7 +186,8 @@ async def get_all_memories(engine, profile_id: UUID):
             f"WHERE payload->>'user_id' = '{profile_id}' "
             f"ORDER BY id",
         ],
-        capture_output=True, text=True,
+        capture_output=True,
+        text=True,
     )
     memories = []
     for line in result.stdout.strip().split("\n"):
@@ -183,12 +195,14 @@ async def get_all_memories(engine, profile_id: UUID):
             continue
         parts = line.split("\t")
         if len(parts) >= 2:
-            memories.append({
-                "id": parts[0],
-                "memory": parts[1],
-                "category": parts[2] if len(parts) > 2 else "",
-                "source": parts[3] if len(parts) > 3 else "",
-            })
+            memories.append(
+                {
+                    "id": parts[0],
+                    "memory": parts[1],
+                    "category": parts[2] if len(parts) > 2 else "",
+                    "source": parts[3] if len(parts) > 3 else "",
+                }
+            )
     return memories
 
 
@@ -224,8 +238,10 @@ async def cmd_session(engine, session_id: UUID | None = None):
             payload = t["payload"]
             print_section(f"Retrieval (turn {t.get('turn_number') or i + 1})")
             print(f"  Query: \"{payload.get('query', '')}\"")
-            print(f"  Retrieved: {payload.get('retrieved_count', 0)} | "
-                  f"Injected: {payload.get('injected_count', 0)}")
+            print(
+                f"  Retrieved: {payload.get('retrieved_count', 0)} | "
+                f"Injected: {payload.get('injected_count', 0)}"
+            )
             results = payload.get("results", [])
             if results:
                 print()
@@ -317,19 +333,23 @@ async def cmd_debug(engine, session_id: UUID | None = None):
                     status.append("*** NO OUTPUT ***")
                 print(f"    Round {r.get('round', '?')}: {' | '.join(status)}")
                 if preview:
-                    print(f"      \"{preview}\"")
+                    print(f'      "{preview}"')
 
         # Show what the agent actually produced
         content = msg.get("content") or ""
         parts = msg.get("content_parts") or []
-        questions = [p for p in parts if isinstance(p, dict) and p.get("type") == "structured_input"]
+        questions = [
+            p for p in parts if isinstance(p, dict) and p.get("type") == "structured_input"
+        ]
         thinking = [p for p in parts if isinstance(p, dict) and p.get("type") == "thinking"]
 
         print(f"\n  Output:")
         print(f"    Text: {content[:150] if content else '(empty)'}")
         if questions:
             for q in questions:
-                opts = [o.get("label", "") for o in (q.get("options") or []) if isinstance(o, dict)]
+                opts = [
+                    o.get("label", "") for o in (q.get("options") or []) if isinstance(o, dict)
+                ]
                 print(f"    Question: \"{q.get('prompt', '')}\" [{q.get('input_type', '')}]")
                 if opts:
                     print(f"      Options: {', '.join(opts)}")
@@ -339,7 +359,7 @@ async def cmd_debug(engine, session_id: UUID | None = None):
             # Show last paragraph (usually the decision)
             paragraphs = [p.strip() for p in t.split("\n\n") if p.strip()]
             if paragraphs:
-                print(f"    Last thought: \"{paragraphs[-1][:200]}\"")
+                print(f'    Last thought: "{paragraphs[-1][:200]}"')
 
         print(f"    Memories used: {meta.get('memories_used', '?')}")
 
@@ -372,7 +392,9 @@ async def cmd_quality(engine, profile_id: UUID):
     print(f"  Total memories: {len(memories)}")
 
     # Check for instructions
-    instructions = [m for m in memories if any(p.search(m["memory"]) for p in INSTRUCTION_PATTERNS)]
+    instructions = [
+        m for m in memories if any(p.search(m["memory"]) for p in INSTRUCTION_PATTERNS)
+    ]
     if instructions:
         print_section(f"Memories that look like INSTRUCTIONS ({len(instructions)})")
         for m in instructions:

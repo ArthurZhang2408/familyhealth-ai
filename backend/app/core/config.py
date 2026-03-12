@@ -57,6 +57,7 @@ class Settings(BaseSettings):
     # App
     app_env: str = "development"
     log_level: str = "info"
+    log_dir: str = "logs"
     allowed_origins: str = ""
 
     @property

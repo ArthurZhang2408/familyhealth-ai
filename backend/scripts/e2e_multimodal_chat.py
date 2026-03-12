@@ -92,7 +92,9 @@ async def _retry_llm(coro_fn, *, max_retries: int = 3, base_delay: float = 30.0)
             )
             if is_rate_limit and attempt < max_retries - 1:
                 delay = base_delay * (2**attempt)
-                print(f"  Rate limited (attempt {attempt + 1}/{max_retries}). Waiting {delay:.0f}s...")
+                print(
+                    f"  Rate limited (attempt {attempt + 1}/{max_retries}). Waiting {delay:.0f}s..."
+                )
                 await asyncio.sleep(delay)
             else:
                 raise
@@ -281,19 +283,21 @@ async def run() -> bool:
                 from sqlalchemy import select
 
                 cids = (
-                    await db.execute(
-                        select(ChatConversation.id).where(
-                            ChatConversation.profile_id == profile_id
+                    (
+                        await db.execute(
+                            select(ChatConversation.id).where(
+                                ChatConversation.profile_id == profile_id
+                            )
                         )
                     )
-                ).scalars().all()
+                    .scalars()
+                    .all()
+                )
                 if cids:
                     await db.execute(
                         delete(ChatMessage).where(ChatMessage.conversation_id.in_(cids))
                     )
-                    await db.execute(
-                        delete(ChatConversation).where(ChatConversation.id.in_(cids))
-                    )
+                    await db.execute(delete(ChatConversation).where(ChatConversation.id.in_(cids)))
                 profile = await db.get(Profile, profile_id)
                 if profile:
                     await db.delete(profile)

@@ -468,7 +468,7 @@ class TestAgentCoreCall:
         result = await core.call(request)
 
         assert result.content == "Extracted facts"
-        mock_router.route.assert_called_once_with(request)
+        mock_router.route.assert_called_once_with(request, trace=None)
 
 
 # ===================================================================
@@ -483,7 +483,7 @@ class TestImagePartsInRequest:
 
         captured_requests = []
 
-        async def capture_route(request):
+        async def capture_route(request, **kwargs):
             captured_requests.append(request)
             return _make_llm_response("Analyzed")
 
@@ -606,7 +606,7 @@ class TestResponseFormatPassthrough:
         """response_format from AgentDefinition flows to LLMRequest."""
         captured_requests = []
 
-        async def capture_route(request):
+        async def capture_route(request, **kwargs):
             captured_requests.append(request)
             return _make_llm_response('{"key": "value"}')
 

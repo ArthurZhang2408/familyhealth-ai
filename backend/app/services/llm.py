@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
@@ -142,53 +143,105 @@ class LLMRouter:
         return routing
 
     def _resolve(self, request: LLMRequest) -> LLMProvider:
-        # Auto-upgrade to Gemini when images are present (Qwen doesn't support multimodal)
+        _, provider = self._resolve_named(request)
+        return provider
+
+    def _resolve_named(self, request: LLMRequest) -> tuple[str, LLMProvider]:
+        """Resolve the provider for a request, returning (name, provider)."""
         has_images = any(m.image_parts for m in request.messages if m.image_parts)
         provider_name = "gemini" if has_images else self._routing[request.task]
         provider = self._providers.get(provider_name)
         if provider is None:
             raise ValueError(f"No provider registered for '{provider_name}'")
-        return provider
+        return provider_name, provider
 
-    def _get_fallback(self, request: LLMRequest) -> LLMProvider | None:
+    def _get_fallback_named(self, request: LLMRequest) -> tuple[str, LLMProvider] | None:
         """Get a fallback provider different from the primary one."""
         primary = self._routing[request.task]
-        # Try qwen first, then gemini
         for fallback_name in ("qwen", "gemini"):
             if fallback_name != primary and fallback_name in self._providers:
-                return self._providers[fallback_name]
+                return fallback_name, self._providers[fallback_name]
         return None
 
-    async def route(self, request: LLMRequest) -> LLMResponse:
-        provider = self._resolve(request)
+    async def route(
+        self, request: LLMRequest, *, trace: dict[str, Any] | None = None
+    ) -> LLMResponse:
+        provider_name, provider = self._resolve_named(request)
+        if trace is not None:
+            trace["provider"] = provider_name
+            trace["task"] = request.task.value
+            trace["is_fallback"] = False
+        start = time.monotonic()
         try:
-            return await provider.generate(request)
+            response = await provider.generate(request)
+            if trace is not None:
+                trace["latency_ms"] = int((time.monotonic() - start) * 1000)
+                trace["model"] = response.model
+                trace["tokens_in"] = response.usage.get("prompt_tokens", 0)
+                trace["tokens_out"] = response.usage.get("completion_tokens", 0)
+                trace["finish_reason"] = response.finish_reason
+            return response
         except Exception as exc:
-            fallback = self._get_fallback(request)
-            if fallback is None:
+            fb = self._get_fallback_named(request)
+            if fb is None:
+                if trace is not None:
+                    trace["latency_ms"] = int((time.monotonic() - start) * 1000)
+                    trace["error"] = f"{type(exc).__name__}: {exc}"
                 raise
+            fb_name, fallback = fb
             logger.warning(
                 "Primary provider failed for task=%s (%s), falling back: %s",
                 request.task.value,
                 type(exc).__name__,
                 exc,
             )
-            return await fallback.generate(request)
+            if trace is not None:
+                trace["is_fallback"] = True
+                trace["fallback_reason"] = f"{type(exc).__name__}: {exc}"
+                trace["provider"] = fb_name
+            response = await fallback.generate(request)
+            if trace is not None:
+                trace["latency_ms"] = int((time.monotonic() - start) * 1000)
+                trace["model"] = response.model
+                trace["tokens_in"] = response.usage.get("prompt_tokens", 0)
+                trace["tokens_out"] = response.usage.get("completion_tokens", 0)
+                trace["finish_reason"] = response.finish_reason
+            return response
 
-    async def route_stream(self, request: LLMRequest) -> AsyncIterator[StreamChunk]:
-        provider = self._resolve(request)
+    async def route_stream(
+        self, request: LLMRequest, *, trace: dict[str, Any] | None = None
+    ) -> AsyncIterator[StreamChunk]:
+        provider_name, provider = self._resolve_named(request)
+        if trace is not None:
+            trace["provider"] = provider_name
+            trace["task"] = request.task.value
+            trace["is_fallback"] = False
+            trace["_start"] = time.monotonic()
         try:
             async for chunk in provider.generate_stream(request):
                 yield chunk
+            if trace is not None:
+                trace["latency_ms"] = int((time.monotonic() - trace.pop("_start", 0)) * 1000)
         except Exception as exc:
-            fallback = self._get_fallback(request)
-            if fallback is None:
+            fb = self._get_fallback_named(request)
+            if fb is None:
+                if trace is not None:
+                    trace["latency_ms"] = int((time.monotonic() - trace.pop("_start", 0)) * 1000)
+                    trace["error"] = f"{type(exc).__name__}: {exc}"
                 raise
+            fb_name, fallback = fb
             logger.warning(
                 "Primary provider failed for task=%s (%s), falling back: %s",
                 request.task.value,
                 type(exc).__name__,
                 exc,
             )
+            if trace is not None:
+                trace["is_fallback"] = True
+                trace["fallback_reason"] = f"{type(exc).__name__}: {exc}"
+                trace["provider"] = fb_name
+                trace["_start"] = time.monotonic()  # reset for fallback
             async for chunk in fallback.generate_stream(request):
                 yield chunk
+            if trace is not None:
+                trace["latency_ms"] = int((time.monotonic() - trace.pop("_start", 0)) * 1000)

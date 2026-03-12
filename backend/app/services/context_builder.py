@@ -174,7 +174,7 @@ def format_profile_section(profile_context: dict) -> str:
     lines += ["", "## Surgical History"]
     if surgeries:
         for s in surgeries:
-            year = f" ({s.get('year')})" if s.get('year') else ""
+            year = f" ({s.get('year')})" if s.get("year") else ""
             lines.append(f"- {s.get('procedure', str(s))}{year}")
     else:
         lines.append("None reported")

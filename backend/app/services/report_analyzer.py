@@ -168,8 +168,9 @@ class ReportAnalyzerService:
                 system_prompt=system_prompt,
                 messages=[LLMMessage(role="user", content=prompt)],
                 temperature=0.0,
-                max_tokens=2000,
+                max_tokens=4000,
                 response_format={"type": "json"},
+                extra={"reasoning_effort": "low", "think": False},
             )
             response: LLMResponse = await self._agent.call(request)
             facts = json.loads(response.content)

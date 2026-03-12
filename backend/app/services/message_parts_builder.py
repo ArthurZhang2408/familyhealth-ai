@@ -123,7 +123,8 @@ def build_assistant_parts(
     # falling back to auto-injected context (for chat which still auto-retrieves).
     if accumulator:
         mem_results = [
-            tr for tr in accumulator.tool_results
+            tr
+            for tr in accumulator.tool_results
             if tr.name == "search_patient_memory" and not tr.is_error
         ]
         if mem_results:

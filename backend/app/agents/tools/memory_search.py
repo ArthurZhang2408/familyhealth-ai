@@ -40,6 +40,7 @@ def build_memory_search_tool(memory_service: MemoryService) -> ToolDefinition:
             if ts:
                 try:
                     from datetime import datetime
+
                     dt = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
                     date_str = dt.strftime("%b %-d, %Y")
                 except (ValueError, AttributeError):

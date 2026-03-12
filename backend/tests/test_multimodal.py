@@ -33,10 +33,12 @@ from .conftest import TEST_ACCOUNT_ID
 # Test image fixtures
 # ---------------------------------------------------------------------------
 
+
 # Generate minimal valid test images at import time
 def _make_tiny_jpeg() -> bytes:
     """Create a minimal 1x1 JPEG in memory."""
     from PIL import Image
+
     buf = io.BytesIO()
     Image.new("RGB", (1, 1), color=(255, 0, 0)).save(buf, format="JPEG")
     return buf.getvalue()
@@ -45,6 +47,7 @@ def _make_tiny_jpeg() -> bytes:
 def _make_tiny_png() -> bytes:
     """Create a minimal 1x1 PNG in memory."""
     from PIL import Image
+
     buf = io.BytesIO()
     Image.new("RGB", (1, 1), color=(255, 0, 0)).save(buf, format="PNG")
     return buf.getvalue()
@@ -54,7 +57,9 @@ TINY_JPEG = _make_tiny_jpeg()
 TINY_PNG = _make_tiny_png()
 
 
-def _make_jpeg_file(name: str = "test.jpg", size: int | None = None) -> tuple[str, io.BytesIO, str]:
+def _make_jpeg_file(
+    name: str = "test.jpg", size: int | None = None
+) -> tuple[str, io.BytesIO, str]:
     """Create an (name, file, content_type) tuple for httpx multipart upload."""
     data = TINY_JPEG if size is None else (b"\xff\xd8\xff\xe0" + b"\x00" * size)
     buf = io.BytesIO(data)
@@ -88,14 +93,16 @@ def _mock_llm_router_with_image_tracking() -> MagicMock:
     router = AsyncMock()
     router._calls: list[dict] = []
 
-    async def mock_route(request: Any) -> MagicMock:
+    async def mock_route(request: Any, **kwargs: Any) -> MagicMock:
         has_images = any(m.image_parts for m in request.messages if m.image_parts)
         provider = "gemini" if has_images else "qwen"
-        router._calls.append({
-            "task": str(request.task),
-            "has_images": has_images,
-            "provider": provider,
-        })
+        router._calls.append(
+            {
+                "task": str(request.task),
+                "has_images": has_images,
+                "provider": provider,
+            }
+        )
 
         resp = MagicMock()
         resp.content = MOCK_IMAGE_RESPONSE if has_images else "Text-only response"
@@ -169,7 +176,9 @@ class TestUploadHelpers:
     async def test_read_image_parts_jpeg(self) -> None:
         from fastapi import UploadFile
 
-        file = UploadFile(filename="test.jpg", file=io.BytesIO(TINY_JPEG), headers={"content-type": "image/jpeg"})
+        file = UploadFile(
+            filename="test.jpg", file=io.BytesIO(TINY_JPEG), headers={"content-type": "image/jpeg"}
+        )
         parts = await read_image_parts([file])
         assert len(parts) == 1
         assert parts[0].mime_type == "image/jpeg"
@@ -184,7 +193,9 @@ class TestUploadHelpers:
     async def test_read_image_parts_rejects_heic(self) -> None:
         from fastapi import HTTPException, UploadFile
 
-        file = UploadFile(filename="photo.heic", file=io.BytesIO(b"fake"), headers={"content-type": "image/heic"})
+        file = UploadFile(
+            filename="photo.heic", file=io.BytesIO(b"fake"), headers={"content-type": "image/heic"}
+        )
         with pytest.raises(HTTPException) as exc_info:
             await read_image_parts([file])
         assert exc_info.value.status_code == 400
@@ -195,7 +206,9 @@ class TestUploadHelpers:
         from fastapi import HTTPException, UploadFile
 
         big_data = b"\x00" * (11 * 1024 * 1024)  # 11 MB
-        file = UploadFile(filename="big.jpg", file=io.BytesIO(big_data), headers={"content-type": "image/jpeg"})
+        file = UploadFile(
+            filename="big.jpg", file=io.BytesIO(big_data), headers={"content-type": "image/jpeg"}
+        )
         with pytest.raises(HTTPException) as exc_info:
             await read_image_parts([file])
         assert exc_info.value.status_code == 400
@@ -206,7 +219,11 @@ class TestUploadHelpers:
         from fastapi import UploadFile
 
         pdf_data = b"%PDF-1.4 fake pdf"
-        file = UploadFile(filename="report.pdf", file=io.BytesIO(pdf_data), headers={"content-type": "application/pdf"})
+        file = UploadFile(
+            filename="report.pdf",
+            file=io.BytesIO(pdf_data),
+            headers={"content-type": "application/pdf"},
+        )
         parts = await read_image_parts([file])
         assert len(parts) == 1
         assert parts[0].mime_type == "application/pdf"
@@ -216,7 +233,11 @@ class TestUploadHelpers:
         from fastapi import HTTPException, UploadFile
 
         files = [
-            UploadFile(filename=f"img{i}.jpg", file=io.BytesIO(TINY_JPEG), headers={"content-type": "image/jpeg"})
+            UploadFile(
+                filename=f"img{i}.jpg",
+                file=io.BytesIO(TINY_JPEG),
+                headers={"content-type": "image/jpeg"},
+            )
             for i in range(6)
         ]
         with pytest.raises(HTTPException) as exc_info:
@@ -229,8 +250,14 @@ class TestUploadHelpers:
         from fastapi import UploadFile
 
         files = [
-            UploadFile(filename="a.jpg", file=io.BytesIO(TINY_JPEG), headers={"content-type": "image/jpeg"}),
-            UploadFile(filename="b.png", file=io.BytesIO(TINY_PNG), headers={"content-type": "image/png"}),
+            UploadFile(
+                filename="a.jpg",
+                file=io.BytesIO(TINY_JPEG),
+                headers={"content-type": "image/jpeg"},
+            ),
+            UploadFile(
+                filename="b.png", file=io.BytesIO(TINY_PNG), headers={"content-type": "image/png"}
+            ),
         ]
         parts = await read_image_parts(files)
         assert len(parts) == 2

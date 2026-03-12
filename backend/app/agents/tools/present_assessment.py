@@ -46,9 +46,7 @@ def build_present_assessment_tool() -> ToolDefinition:
             "properties": {
                 "conditions": {
                     "type": "array",
-                    "description": (
-                        "Ranked differential diagnosis. Most likely condition first."
-                    ),
+                    "description": ("Ranked differential diagnosis. Most likely condition first."),
                     "items": {
                         "type": "object",
                         "properties": {
@@ -73,9 +71,7 @@ def build_present_assessment_tool() -> ToolDefinition:
                             },
                             "confirming_tests": {
                                 "type": "string",
-                                "description": (
-                                    "What would confirm or rule out this condition"
-                                ),
+                                "description": ("What would confirm or rule out this condition"),
                             },
                         },
                         "required": ["name", "confidence", "reasoning"],

@@ -115,3 +115,4 @@ class AgentResult:
     tool_results: list[ToolResult] = field(default_factory=list)
     rounds: int = 1
     max_rounds_hit: bool = False
+    llm_traces: list[dict[str, Any]] = field(default_factory=list)
