@@ -75,4 +75,5 @@ async def record_llm_traces(
             db.add(trace)
         await db.flush()
     except Exception:
+        await db.rollback()
         logger.warning("Failed to record LLM traces", exc_info=True)

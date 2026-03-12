@@ -188,7 +188,7 @@ async def get_session_traces(
 
 @router.post("/client-logs")
 async def receive_client_logs(
-    entries: list[dict[str, Any]] = Body(...),
+    entries: list[dict[str, Any]] = Body(..., max_length=100),
     _account=Depends(get_current_account),
 ) -> dict:
     """Receive and persist client-side log entries.
@@ -199,17 +199,17 @@ async def receive_client_logs(
     """
     _require_dev()
 
-    for entry in entries:
-        level = entry.get("level", "info")
-        category = entry.get("category", "app")
-        message = entry.get("message", "")
+    for entry in entries[:100]:
+        level = str(entry.get("level", "info"))[:10]
+        category = str(entry.get("category", "app"))[:20]
+        message = str(entry.get("message", ""))[:500]
         data = entry.get("data")
-        ts = entry.get("timestamp", "")
+        ts = str(entry.get("timestamp", ""))[:30]
         rid = data.get("rid") if isinstance(data, dict) else None
 
         log_line = f"[{ts}] [{category}] {message}"
         if data:
-            log_line += f" {data}"
+            log_line += f" {str(data)[:500]}"
 
         log_fn = {
             "error": _client_logger.error,

@@ -241,7 +241,10 @@ class LLMRouter:
                 trace["fallback_reason"] = f"{type(exc).__name__}: {exc}"
                 trace["provider"] = fb_name
                 trace["_start"] = time.monotonic()  # reset for fallback
-            async for chunk in fallback.generate_stream(request):
-                yield chunk
-            if trace is not None:
-                trace["latency_ms"] = int((time.monotonic() - trace.pop("_start", 0)) * 1000)
+            try:
+                async for chunk in fallback.generate_stream(request):
+                    yield chunk
+            finally:
+                if trace is not None:
+                    start = trace.pop("_start", 0)
+                    trace.setdefault("latency_ms", int((time.monotonic() - start) * 1000))
