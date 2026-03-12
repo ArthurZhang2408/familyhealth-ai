@@ -90,8 +90,11 @@ The diagnosis agent uses hypothesis-driven reasoning with structured Q&A:
 - **Unified session abstraction**: ✅ Done (PR #21)
 - **Structured assessment rendering**: ✅ Done (PR #23)
 - **Consolidated session memories**: ✅ Done (PR #24)
-- **Profile onboarding**: ✅ Done (PR #25). 4-step creation flow, edit/delete, dropdown selector, completeness ring, 6 new health fields
+- **Profile onboarding**: ✅ Done (PR #25, expanded PR #26). 5-step creation flow (identity, basics, body & lifestyle, meds & allergies, conditions + surgical history + family history), edit/delete, dropdown selector, completeness ring
+- **Profile field alignment**: ✅ Done (PR #26). API returns frontend-friendly names via Pydantic `validation_alias`. Accepts both old and new names on input
+- **Chat bug fixes**: ✅ Done (PR #26). `datetime` shadow import, DONE content override, diagnosis-only agent nudge, Drawer param caching
 - **Memory quality improvements**: Agent-driven retrieval working. Remaining: empty transitional text on some turns (model behavior), legacy garbage memories need cleanup, enrichment causes occasional duplicate questions
+- **Topic generation**: Broken — Qwen/Cerebras reasoning tokens consume entire `max_tokens` budget, returning empty content. Needs model-level thinking toggle or provider strategy
 
 ## Critical Rules
 - NEVER store raw medical data in LLM context without profile scoping
