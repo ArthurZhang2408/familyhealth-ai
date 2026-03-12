@@ -19,14 +19,15 @@ import type { Attachment } from '@/hooks/useAttachMenu';
 
 export default function DiagnosisScreen() {
   const { sid } = useLocalSearchParams<{ sid: string }>();
-  const keyRef = useRef({ sid, key: sid === 'new' ? `new-${Date.now()}` : sid });
+  const keyRef = useRef({ sid, key: sid });
 
   if (sid !== keyRef.current.sid) {
-    const wasNew = keyRef.current.sid === 'new';
-    if (wasNew && sid !== 'new') {
+    const wasNew = keyRef.current.sid?.startsWith('new') ?? false;
+    const nowNew = sid?.startsWith('new') ?? false;
+    if (wasNew && !nowNew) {
       keyRef.current = { ...keyRef.current, sid };
     } else {
-      keyRef.current = { sid, key: sid === 'new' ? `new-${Date.now()}` : sid };
+      keyRef.current = { sid, key: sid };
     }
   }
 
@@ -39,7 +40,7 @@ function DiagnosisScreenInner() {
   const qc = useQueryClient();
   const { sid } = useLocalSearchParams<{ sid: string }>();
   const pid = useProfileStore((s) => s.activeProfile?.id) ?? '';
-  const isNew = sid === 'new';
+  const isNew = sid?.startsWith('new') ?? false;
 
   // Zustand-driven: list pages set true, sidebar sets false. Reactive re-render.
   const fromList = useNavSource((s) => s.fromList);
@@ -135,6 +136,7 @@ function DiagnosisScreenInner() {
           event.session_id
         ) {
           setActiveSid(event.session_id);
+          qc.invalidateQueries({ queryKey: ['diagnosis', pid] });
         }
         onEvent(event);
       };

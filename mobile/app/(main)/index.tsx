@@ -33,12 +33,16 @@ export default function NewConversationScreen() {
     const files = pendingAttachment ? [pendingAttachment] : undefined;
     setPendingAttachment(null);
 
-    // Navigate immediately — the target screen handles the streaming send
+    // Navigate immediately — the target screen handles the streaming send.
+    // Use a unique ID each time (not just "new") so the Drawer navigator
+    // is forced to update useLocalSearchParams — it caches params for
+    // chat/[cid] and won't update if the value is the same as last time.
     setPendingSend(text || ' ', files);
+    const ts = Date.now();
     if (mode === 'chat') {
-      router.navigate('/(main)/chat/new' as never);
+      router.navigate({ pathname: '/(main)/chat/[cid]', params: { cid: `new-${ts}` } } as never);
     } else {
-      router.navigate('/(main)/diagnosis/new' as never);
+      router.navigate({ pathname: '/(main)/diagnosis/[sid]', params: { sid: `new-${ts}` } } as never);
     }
   };
 

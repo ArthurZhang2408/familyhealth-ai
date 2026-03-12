@@ -53,8 +53,11 @@ async def test_create_profile_full_fields(client: AsyncClient) -> None:
     assert data["blood_type"] == "A+"
     assert len(data["allergies"]) == 1
     assert data["allergies"][0]["severity"] == "severe"
-    assert len(data["current_medications"]) == 1
-    assert data["family_medical_history"]["father"] == ["heart disease"]
+    assert len(data["medications"]) == 1
+    assert data["family_history"]["father"] == ["heart disease"]
+    # Response uses frontend-friendly nested field names
+    assert data["allergies"][0]["name"] == "Peanuts"
+    assert data["medical_conditions"][0]["name"] == "Hypertension"
 
 
 @pytest.mark.asyncio

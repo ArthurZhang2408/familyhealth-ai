@@ -237,12 +237,13 @@ class AgentCore:
                     )
                     continue
 
-                # Detect incomplete response: agent has tools, produced text
-                # but didn't call any tool, and text doesn't look like a final
-                # assessment. Nudge it to use its tools.
+                # Detect incomplete response: diagnosis agent produced text
+                # but didn't call present_question or present_assessment.
+                # Only applies to agents that have present_question — chat
+                # agents legitimately respond with text and no tool calls.
                 if (
                     text_buffer.strip()
-                    and agent_def.tool_names
+                    and "present_question" in agent_def.tool_names
                     and "## Assessment" not in text_buffer
                     and not self._retried_incomplete
                     and round_num < agent_def.max_tool_rounds

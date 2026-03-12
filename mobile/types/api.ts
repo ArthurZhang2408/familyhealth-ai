@@ -70,7 +70,7 @@ export interface Profile {
   allergies: Allergy[];
   medications: Medication[];
   medical_conditions: MedicalCondition[];
-  family_history: string[];
+  family_history: Record<string, string[]>;
   emergency_contacts: EmergencyContact[];
   created_at: string;
   updated_at: string;
@@ -91,7 +91,7 @@ export interface ProfileCreate {
   allergies?: Allergy[];
   medications?: Medication[];
   medical_conditions?: MedicalCondition[];
-  family_history?: string[];
+  family_history?: Record<string, string[]>;
   emergency_contacts?: EmergencyContact[];
 }
 
