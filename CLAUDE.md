@@ -35,7 +35,7 @@ AI-powered diagnosis, medical report analysis, and health chat.
 - **Profile selector**: Inline dropdown from `ProfilePill` (not a formSheet). Scale-from-pill animation. Long-press context menu for edit/delete. Completeness ring (SVG) on profile avatars
 - **Dark mode**: `useColors()` hook returns light/dark palette based on system setting. `useShadow()` for theme-aware shadows. Bidirectional type safety in `colors.ts`
 - **Styling**: Inline styles + theme constants (`Spacing`, `FontSize`, `BorderRadius`). NO NativeWind/Tailwind
-- **State**: Zustand (auth, active profile with AsyncStorage persistence) + React Query (server data)
+- **State**: Zustand (auth, active profile with AsyncStorage persistence + `_hydrated` flag) + React Query (server data). All `useQuery` hooks guarded with `enabled: isAuthenticated && ...`. Profile store clears on user change via `onAuthStateChange`
 - **Icons**: `@expo/vector-icons` via centralized `components/Icon.tsx` with exported `IconName` type
 - **Attachments**: `useAttachMenu()` hook for Camera/Photos/Files action sheet. Validates file type on select (rejects GIF etc.). HEIC auto-converted to JPEG. Images compressed/resized (max 1536px) before upload. `pendingAttachment` state pattern on screens
 - **Message parts**: Messages persist `content_parts` JSONB (text, image, tool_call, tool_result, agent_steps, memory_context, thinking, structured_input). `ChatBubble` renders rich parts via `components/message-parts/` sub-components. Falls back to plain `content` text when no parts
@@ -52,7 +52,7 @@ AI-powered diagnosis, medical report analysis, and health chat.
 
 ## Commands
 - `cd backend && uvicorn app.main:app --reload --port 8010` — run backend
-- `cd mobile && npx expo start` — run mobile (Expo Go)
+- `cd mobile && npx expo start` — run mobile (dev build on device; `npx expo run:ios` for first native build)
 - `cd backend && pytest` — run backend tests
 - `cd backend && black . && ruff check .` — lint backend
 - `cd mobile && npx tsc --noEmit` — type check mobile
@@ -97,6 +97,7 @@ The diagnosis agent uses hypothesis-driven reasoning with structured Q&A:
 - **LLM tracing & debugging**: ✅ Done (PR #27). `llm_traces` table, request ID middleware, debug API, persistent file logging, client-side logger with auto-report, SSE lifecycle logging
 - **Topic generation fix**: ✅ Done (PR #27). Thinking models consumed entire `max_tokens` on reasoning. Fixed via per-instance QwenProvider param routing, higher token budgets, reasoning field fallback extraction
 - **Profile switch 404 fix**: ✅ Done (PR #27). Synchronous `pidChanged` guard in chat/diagnosis screens prevents stale queries when Drawer keeps screens mounted
+- **Dev build migration & auth hardening**: ✅ Done (PR #28). Expo Go → dev builds (`expo-dev-client`), bundle ID `com.salk.ai`, Apple Sign In re-enabled (paid dev account). Auth guards on all query hooks, profile cleared on user change, `_hydrated` flag prevents empty-state flashes. Replaced `NoProfileGuard` + `profile-picker` with inline welcome screen. Layout clears active profile when all profiles deleted
 
 ### Debugging & Logging Infrastructure (PR #27)
 - **Server logs**: `logs/familyhealth.log` (RotatingFileHandler, 10MB, 5 backups). Every log line includes `request_id` for correlation
@@ -128,3 +129,5 @@ The diagnosis agent uses hypothesis-driven reasoning with structured Q&A:
 - ALWAYS use `HeaderIconButton` for header buttons, never inline Pressable with hardcoded sizes
 - ALWAYS use `useHeaderScale()` for header sizing, never static `Header` constants
 - Chat/diagnosis endpoints use `Form()` + `File()` (multipart), NOT `json` body — tests must use `data=` not `json=`
+- ALWAYS use `!data` (not `isLoading`) to gate loading states — React Query's `isLoading` is false when queries are disabled, causing empty state flashes
+- ALWAYS check `useProfileStore._hydrated` before showing empty/guard states that depend on `activeProfile` — Zustand persist hydration is async

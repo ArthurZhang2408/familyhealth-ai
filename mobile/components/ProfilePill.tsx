@@ -81,8 +81,9 @@ export function ProfilePill() {
   // Pill's measured position (screen-absolute)
   const [pillRect, setPillRect] = useState({ x: 0, y: 0, w: 0, h: 0 });
 
+  const hydrated = useProfileStore((s) => s._hydrated);
   const profiles = data?.items ?? [];
-  const label = activeProfile?.name ?? 'Select profile';
+  const label = activeProfile?.name ?? (hydrated ? 'Select profile' : '');
   const textColor = activeProfile ? Colors.text : Colors.textSecondary;
 
   // Shared values for scale-from-pill animation

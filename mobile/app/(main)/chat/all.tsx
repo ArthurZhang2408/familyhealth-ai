@@ -6,7 +6,6 @@ import * as Haptics from 'expo-haptics';
 import { Icon } from '@/components/Icon';
 import { HeaderIconButton } from '@/components/HeaderIconButton';
 import { LoadingSpinner } from '@/components/LoadingSpinner';
-import { NoProfileGuard } from '@/components/NoProfileGuard';
 import { useProfileStore } from '@/stores/profile';
 import { useChatConversations } from '@/hooks/useChat';
 import { useColors } from '@/hooks/useColors';
@@ -41,10 +40,10 @@ export default function AllChatsScreen() {
 
   const conversations = data?.items ?? [];
 
-  if (isLoading) return <LoadingSpinner />;
+  if (!data) return <LoadingSpinner />;
 
   return (
-    <NoProfileGuard>
+    <>
       <Stack.Screen
         options={{
           title: 'Chats',
@@ -110,6 +109,6 @@ export default function AllChatsScreen() {
           )}
         </ScrollView>
       </Animated.View>
-    </NoProfileGuard>
+    </>
   );
 }

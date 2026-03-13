@@ -1,19 +1,22 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { reportsApi } from '@/services/api';
+import { useAuth } from '@/hooks/useAuth';
 
 export function useReports(pid: string) {
+  const { isAuthenticated } = useAuth();
   return useQuery({
     queryKey: ['reports', pid],
     queryFn: () => reportsApi.list(pid),
-    enabled: !!pid,
+    enabled: isAuthenticated && !!pid,
   });
 }
 
 export function useReport(pid: string, rid: string) {
+  const { isAuthenticated } = useAuth();
   return useQuery({
     queryKey: ['reports', pid, rid],
     queryFn: () => reportsApi.get(pid, rid),
-    enabled: !!pid && !!rid,
+    enabled: isAuthenticated && !!pid && !!rid,
   });
 }
 
