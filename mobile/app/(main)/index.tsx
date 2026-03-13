@@ -64,7 +64,7 @@ export default function NewConversationScreen() {
       return (
         <>
           <Stack.Screen options={{}} />
-          <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: Spacing.xl, backgroundColor: Colors.background }}>
+          <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: Spacing.xl, paddingBottom: '15%', backgroundColor: Colors.background }}>
             <Animated.View entering={FadeIn.duration(500)} style={{ alignItems: 'center' }}>
               <View
                 style={{
