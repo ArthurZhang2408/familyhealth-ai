@@ -196,7 +196,7 @@ function ChatScreenInner() {
           onAttach={conv.handleAttach}
           pendingAttachment={conv.pendingAttachment}
           onRemoveAttachment={() => conv.clearAttachment()}
-          isLoading={!!activeCid && isLoading && !conv.isBusy}
+          isLoading={!!activeCid && !conversation && !error && !conv.isBusy}
           error={isNew ? null : error}
           refetch={refetch}
           placeholder="Ask a health question…"

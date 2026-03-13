@@ -73,8 +73,7 @@ export default function ReportDetailScreen() {
     }
   };
 
-  if (isLoading) return <LoadingSpinner />;
-  if (!report) return null;
+  if (!report) return <LoadingSpinner />;
 
   const result = report.analysis_result;
 

@@ -1,4 +1,4 @@
-import { View, Text, Pressable } from 'react-native';
+import { View, Text, Pressable, ActivityIndicator } from 'react-native';
 import { Icon } from '@/components/Icon';
 import { useRouter } from 'expo-router';
 import Animated, { FadeIn, FadeInUp } from 'react-native-reanimated';
@@ -15,6 +15,16 @@ export function NoProfileGuard({ children }: Props) {
   const Colors = useColors();
   const router = useRouter();
   const activeProfile = useProfileStore((s) => s.activeProfile);
+  const hydrated = useProfileStore((s) => s._hydrated);
+
+  // Wait for AsyncStorage to rehydrate before deciding — avoids flash of guard
+  if (!hydrated) {
+    return (
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: Colors.background }}>
+        <ActivityIndicator size="small" color={Colors.textMuted} />
+      </View>
+    );
+  }
 
   if (!activeProfile) {
     return (

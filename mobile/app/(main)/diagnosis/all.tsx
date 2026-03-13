@@ -40,7 +40,7 @@ export default function AllSessionsScreen() {
 
   const sessions = data?.items ?? [];
 
-  if (isLoading) return <LoadingSpinner />;
+  if (!data) return <LoadingSpinner />;
 
   return (
     <NoProfileGuard>

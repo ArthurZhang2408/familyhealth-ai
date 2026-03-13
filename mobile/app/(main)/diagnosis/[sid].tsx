@@ -252,7 +252,7 @@ function DiagnosisScreenInner() {
           onAttach={conv.handleAttach}
           pendingAttachment={conv.pendingAttachment}
           onRemoveAttachment={() => conv.clearAttachment()}
-          isLoading={!!activeSid && isLoading && !conv.isBusy}
+          isLoading={!!activeSid && !session && !error && !conv.isBusy}
           error={isNew ? null : error}
           refetch={refetch}
           errorIcon="stethoscope"
