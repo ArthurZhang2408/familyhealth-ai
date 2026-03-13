@@ -79,64 +79,64 @@ export function ConversationView({
 
   if (error && allMessages.length === 0) {
     return (
-        <View
+      <View
+        style={{
+          flex: 1,
+          backgroundColor: Colors.background,
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: Spacing.xl,
+        }}
+      >
+        <Icon name={errorIcon} size={32} color={Colors.textMuted} />
+        <Text
           style={{
-            flex: 1,
-            backgroundColor: Colors.background,
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: Spacing.xl,
+            fontSize: FontSize.md,
+            color: Colors.textSecondary,
+            textAlign: 'center',
+            marginTop: Spacing.md,
           }}
         >
-          <Icon name={errorIcon} size={32} color={Colors.textMuted} />
-          <Text
-            style={{
-              fontSize: FontSize.md,
-              color: Colors.textSecondary,
-              textAlign: 'center',
-              marginTop: Spacing.md,
-            }}
-          >
-            {errorTitle}
-          </Text>
+          {errorTitle}
+        </Text>
+        <Text
+          style={{
+            fontSize: FontSize.sm,
+            color: Colors.textMuted,
+            textAlign: 'center',
+            marginTop: Spacing.xs,
+          }}
+        >
+          Check your connection and try again
+        </Text>
+        <Pressable
+          onPress={() => refetch?.()}
+          style={({ pressed }) => ({
+            marginTop: Spacing.lg,
+            backgroundColor: Colors.primary,
+            borderRadius: BorderRadius.md,
+            borderCurve: 'continuous',
+            paddingHorizontal: Spacing.lg,
+            paddingVertical: Spacing.sm,
+            opacity: pressed ? 0.85 : 1,
+          })}
+        >
           <Text
             style={{
               fontSize: FontSize.sm,
-              color: Colors.textMuted,
-              textAlign: 'center',
-              marginTop: Spacing.xs,
+              fontWeight: FontWeight.semibold,
+              color: Colors.textInverse,
             }}
           >
-            Check your connection and try again
+            Retry
           </Text>
-          <Pressable
-            onPress={() => refetch?.()}
-            style={({ pressed }) => ({
-              marginTop: Spacing.lg,
-              backgroundColor: Colors.primary,
-              borderRadius: BorderRadius.md,
-              borderCurve: 'continuous',
-              paddingHorizontal: Spacing.lg,
-              paddingVertical: Spacing.sm,
-              opacity: pressed ? 0.85 : 1,
-            })}
-          >
-            <Text
-              style={{
-                fontSize: FontSize.sm,
-                fontWeight: FontWeight.semibold,
-                color: Colors.textInverse,
-              }}
-            >
-              Retry
-            </Text>
-          </Pressable>
-        </View>
+        </Pressable>
+      </View>
     );
   }
 
   return (
-      <KeyboardAvoidingView
+    <KeyboardAvoidingView
         style={{ flex: 1, backgroundColor: Colors.background }}
         behavior={process.env.EXPO_OS === 'ios' ? 'padding' : undefined}
         keyboardVerticalOffset={90}
@@ -232,7 +232,7 @@ export function ConversationView({
           onRemoveAttachment={onRemoveAttachment}
           placeholder={placeholder}
         />
-      </KeyboardAvoidingView>
+    </KeyboardAvoidingView>
   );
 }
 
