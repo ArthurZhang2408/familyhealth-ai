@@ -2,7 +2,6 @@ import { useMemo } from 'react';
 import { View, Text, Pressable, Alert, ScrollView } from 'react-native';
 import { useLocalSearchParams, Stack } from 'expo-router';
 import { LoadingSpinner } from '@/components/LoadingSpinner';
-import { NoProfileGuard } from '@/components/NoProfileGuard';
 import { useProfileStore } from '@/stores/profile';
 import { useReport } from '@/hooks/useReports';
 import { reportsApi } from '@/services/api';
@@ -78,7 +77,7 @@ export default function ReportDetailScreen() {
   const result = report.analysis_result;
 
   return (
-    <NoProfileGuard>
+    <>
       <Stack.Screen options={{ title: report.original_filename }} />
       <ScrollView
         contentInsetAdjustmentBehavior="automatic"
@@ -229,6 +228,6 @@ export default function ReportDetailScreen() {
           </Text>
         )}
       </ScrollView>
-    </NoProfileGuard>
+    </>
   );
 }

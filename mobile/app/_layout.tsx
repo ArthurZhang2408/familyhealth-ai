@@ -74,19 +74,6 @@ export default function RootLayout() {
             }}
           />
           <Stack.Screen
-            name="profile-picker"
-            options={{
-              presentation: 'formSheet',
-              sheetGrabberVisible: true,
-              sheetAllowedDetents: [0.6, 0.85],
-              headerShown: true,
-              headerTitle: 'Select Profile',
-              headerStyle: { backgroundColor: Colors.surface },
-              headerTintColor: Colors.text,
-              headerShadowVisible: false,
-            }}
-          />
-          <Stack.Screen
             name="profile/new"
             options={{
               presentation: 'modal',

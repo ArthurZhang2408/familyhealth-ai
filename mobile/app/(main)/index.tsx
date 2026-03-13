@@ -1,12 +1,13 @@
 import { useState } from 'react';
-import { View, Text, KeyboardAvoidingView, Alert } from 'react-native';
+import { View, Text, Pressable, KeyboardAvoidingView, ActivityIndicator } from 'react-native';
 import { useRouter, Stack } from 'expo-router';
 import Animated, { FadeIn, FadeInUp } from 'react-native-reanimated';
+import * as Haptics from 'expo-haptics';
 import { Icon } from '@/components/Icon';
-import { NoProfileGuard } from '@/components/NoProfileGuard';
 import { ChatInput } from '@/components/ChatInput';
 import { ModeToggle, type ConversationMode } from '@/components/ModeToggle';
 import { useProfileStore } from '@/stores/profile';
+import { useProfiles } from '@/hooks/useProfiles';
 import { useAttachMenu, type Attachment } from '@/hooks/useAttachMenu';
 import { useColors } from '@/hooks/useColors';
 import { Spacing, FontSize, FontWeight, BorderRadius } from '@/constants/theme';
@@ -16,6 +17,8 @@ export default function NewConversationScreen() {
   const Colors = useColors();
   const router = useRouter();
   const activeProfile = useProfileStore((s) => s.activeProfile);
+  const hydrated = useProfileStore((s) => s._hydrated);
+  const { data: profilesData } = useProfiles();
   const pid = activeProfile?.id ?? '';
 
   const [input, setInput] = useState('');
@@ -46,8 +49,97 @@ export default function NewConversationScreen() {
     }
   };
 
+  // New account — no profiles exist yet
+  if (!activeProfile) {
+    // Still loading (hydration or API)
+    if (!hydrated || !profilesData) {
+      return (
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: Colors.background }}>
+          <ActivityIndicator size="small" color={Colors.textMuted} />
+        </View>
+      );
+    }
+    // Genuinely no profiles — welcome state
+    if (profilesData.items.length === 0) {
+      return (
+        <>
+          <Stack.Screen options={{}} />
+          <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: Spacing.xl, backgroundColor: Colors.background }}>
+            <Animated.View entering={FadeIn.duration(500)} style={{ alignItems: 'center' }}>
+              <View
+                style={{
+                  width: 72,
+                  height: 72,
+                  borderRadius: BorderRadius.xl,
+                  borderCurve: 'continuous',
+                  backgroundColor: Colors.primary + '10',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginBottom: Spacing.lg,
+                }}
+              >
+                <Icon name="heart-clipboard" size={36} color={Colors.primary} />
+              </View>
+            </Animated.View>
+            <Animated.Text
+              entering={FadeInUp.delay(120).duration(350)}
+              style={{
+                fontSize: FontSize.xxl,
+                fontWeight: FontWeight.bold,
+                color: Colors.text,
+                textAlign: 'center',
+              }}
+            >
+              Welcome
+            </Animated.Text>
+            <Animated.Text
+              entering={FadeInUp.delay(240).duration(350)}
+              style={{
+                fontSize: FontSize.md,
+                color: Colors.textSecondary,
+                textAlign: 'center',
+                marginTop: Spacing.sm,
+                lineHeight: 22,
+                maxWidth: 280,
+              }}
+            >
+              Your AI health companion for the whole family. Create a profile to get started.
+            </Animated.Text>
+            <Animated.View entering={FadeInUp.delay(400).duration(350)}>
+              <Pressable
+                onPress={() => {
+                  if (process.env.EXPO_OS === 'ios') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  router.push('/profile/new');
+                }}
+                style={({ pressed }) => ({
+                  marginTop: Spacing.xl,
+                  backgroundColor: Colors.primary,
+                  borderRadius: BorderRadius.md,
+                  borderCurve: 'continuous',
+                  paddingHorizontal: Spacing.xl,
+                  paddingVertical: Spacing.md,
+                  opacity: pressed ? 0.85 : 1,
+                })}
+              >
+                <Text style={{ fontSize: FontSize.md, fontWeight: FontWeight.semibold, color: Colors.textInverse }}>
+                  Get started
+                </Text>
+              </Pressable>
+            </Animated.View>
+          </View>
+        </>
+      );
+    }
+    // Profiles exist but auto-select hasn't fired yet — brief loading
+    return (
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: Colors.background }}>
+        <ActivityIndicator size="small" color={Colors.textMuted} />
+      </View>
+    );
+  }
+
   return (
-    <NoProfileGuard>
+    <>
       <Stack.Screen
         options={{
           headerRight: () => (
@@ -123,6 +215,6 @@ export default function NewConversationScreen() {
           }
         />
       </KeyboardAvoidingView>
-    </NoProfileGuard>
+    </>
   );
 }

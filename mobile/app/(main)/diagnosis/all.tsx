@@ -6,7 +6,6 @@ import * as Haptics from 'expo-haptics';
 import { Icon } from '@/components/Icon';
 import { HeaderIconButton } from '@/components/HeaderIconButton';
 import { LoadingSpinner } from '@/components/LoadingSpinner';
-import { NoProfileGuard } from '@/components/NoProfileGuard';
 import { useProfileStore } from '@/stores/profile';
 import { useDiagnosisSessions } from '@/hooks/useDiagnosis';
 import { useColors } from '@/hooks/useColors';
@@ -43,7 +42,7 @@ export default function AllSessionsScreen() {
   if (!data) return <LoadingSpinner />;
 
   return (
-    <NoProfileGuard>
+    <>
       <Stack.Screen
         options={{
           title: 'Sessions',
@@ -109,6 +108,6 @@ export default function AllSessionsScreen() {
           )}
         </ScrollView>
       </Animated.View>
-    </NoProfileGuard>
+    </>
   );
 }

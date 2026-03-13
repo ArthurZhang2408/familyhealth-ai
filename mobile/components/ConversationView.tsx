@@ -6,7 +6,6 @@ import { ChatInput } from '@/components/ChatInput';
 import { AgentSteps } from '@/components/AgentSteps';
 import { LoadingSpinner } from '@/components/LoadingSpinner';
 import { Icon, type IconName } from '@/components/Icon';
-import { NoProfileGuard } from '@/components/NoProfileGuard';
 import { useColors } from '@/hooks/useColors';
 import { Spacing, FontSize, FontWeight, BorderRadius } from '@/constants/theme';
 import type { LocalMessage } from '@/hooks/useConversation';
@@ -80,7 +79,6 @@ export function ConversationView({
 
   if (error && allMessages.length === 0) {
     return (
-      <NoProfileGuard>
         <View
           style={{
             flex: 1,
@@ -134,12 +132,10 @@ export function ConversationView({
             </Text>
           </Pressable>
         </View>
-      </NoProfileGuard>
     );
   }
 
   return (
-    <NoProfileGuard>
       <KeyboardAvoidingView
         style={{ flex: 1, backgroundColor: Colors.background }}
         behavior={process.env.EXPO_OS === 'ios' ? 'padding' : undefined}
@@ -237,7 +233,6 @@ export function ConversationView({
           placeholder={placeholder}
         />
       </KeyboardAvoidingView>
-    </NoProfileGuard>
   );
 }
 
