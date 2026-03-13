@@ -17,8 +17,7 @@
     ],
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.familyhealth.ai",
-      "usesAppleSignIn": true
+      "bundleIdentifier": "com.familyhealth.ai"
     },
     "android": {
       "adaptiveIcon": {
@@ -37,7 +36,8 @@
       [
         "expo-apple-authentication"
       ],
-      "expo-web-browser"
+      "expo-web-browser",
+      "expo-dev-client"
     ],
     "experiments": {
       "typedRoutes": true

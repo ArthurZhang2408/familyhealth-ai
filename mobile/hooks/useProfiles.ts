@@ -1,11 +1,14 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { profilesApi } from '@/services/api';
+import { useAuth } from '@/hooks/useAuth';
 import type { ProfileCreate, ProfileUpdate } from '@/types/api';
 
 export function useProfiles() {
+  const { isAuthenticated } = useAuth();
   return useQuery({
     queryKey: ['profiles'],
     queryFn: () => profilesApi.list(),
+    enabled: isAuthenticated,
   });
 }
 
