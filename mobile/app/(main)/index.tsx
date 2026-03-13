@@ -64,7 +64,8 @@ export default function NewConversationScreen() {
       return (
         <>
           <Stack.Screen options={{}} />
-          <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: Spacing.xl, backgroundColor: Colors.background }}>
+          <View style={{ flex: 1, alignItems: 'center', backgroundColor: Colors.background, padding: Spacing.xl }}>
+            <View style={{ flex: 1 }} />
             <Animated.View entering={FadeIn.duration(500)} style={{ alignItems: 'center' }}>
               <View
                 style={{
@@ -126,6 +127,7 @@ export default function NewConversationScreen() {
                 </Text>
               </Pressable>
             </Animated.View>
+            <View style={{ flex: 2 }} />
           </View>
         </>
       );
@@ -155,7 +157,8 @@ export default function NewConversationScreen() {
         behavior={process.env.EXPO_OS === 'ios' ? 'padding' : undefined}
         keyboardVerticalOffset={90}
       >
-        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: Spacing.xl }}>
+        <View style={{ flex: 1, alignItems: 'center', padding: Spacing.xl }}>
+          <View style={{ flex: 1 }} />
           <Animated.View entering={FadeIn.duration(400)} style={{ alignItems: 'center' }}>
             <View
               style={{
@@ -175,7 +178,7 @@ export default function NewConversationScreen() {
           <Animated.Text
             entering={FadeInUp.delay(100).duration(300)}
             style={{
-              fontSize: FontSize.xl,
+              fontSize: FontSize.xxl,
               fontWeight: FontWeight.bold,
               color: Colors.text,
               textAlign: 'center',
@@ -198,6 +201,7 @@ export default function NewConversationScreen() {
               ? 'Ask any health question about medications, conditions, or test results.'
               : 'Describe symptoms for a structured AI-assisted assessment.'}
           </Animated.Text>
+          <View style={{ flex: 2 }} />
         </View>
 
         <ChatInput
