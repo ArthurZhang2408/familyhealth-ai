@@ -17,15 +17,16 @@
     ],
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.familyhealth.ai",
-      "usesAppleSignIn": true
+      "bundleIdentifier": "com.salk.ai",
+      "usesAppleSignIn": true,
+      "appleTeamId": "35K685A8L4"
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#f0f9ff"
       },
-      "package": "com.familyhealth.ai"
+      "package": "com.salk.ai"
     },
     "web": {
       "bundler": "metro",
