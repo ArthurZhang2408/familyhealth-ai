@@ -17,7 +17,8 @@
     ],
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.familyhealth.ai"
+      "bundleIdentifier": "com.familyhealth.ai",
+      "usesAppleSignIn": true
     },
     "android": {
       "adaptiveIcon": {
