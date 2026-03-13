@@ -2,7 +2,6 @@ import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import { supabase } from './supabase';
-import { useProfileStore } from '@/stores/profile';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -59,7 +58,6 @@ export async function signInWithApple() {
 }
 
 export async function signOut() {
-  useProfileStore.getState().setActiveProfile(null);
   const { error } = await supabase.auth.signOut();
   if (error) throw error;
 }

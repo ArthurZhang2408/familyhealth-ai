@@ -52,7 +52,7 @@ AI-powered diagnosis, medical report analysis, and health chat.
 
 ## Commands
 - `cd backend && uvicorn app.main:app --reload --port 8010` — run backend
-- `cd mobile && npx expo start` — run mobile (Expo Go)
+- `cd mobile && npx expo start` — run mobile (dev build on device; `npx expo run:ios` for first native build)
 - `cd backend && pytest` — run backend tests
 - `cd backend && black . && ruff check .` — lint backend
 - `cd mobile && npx tsc --noEmit` — type check mobile
@@ -97,6 +97,7 @@ The diagnosis agent uses hypothesis-driven reasoning with structured Q&A:
 - **LLM tracing & debugging**: ✅ Done (PR #27). `llm_traces` table, request ID middleware, debug API, persistent file logging, client-side logger with auto-report, SSE lifecycle logging
 - **Topic generation fix**: ✅ Done (PR #27). Thinking models consumed entire `max_tokens` on reasoning. Fixed via per-instance QwenProvider param routing, higher token budgets, reasoning field fallback extraction
 - **Profile switch 404 fix**: ✅ Done (PR #27). Synchronous `pidChanged` guard in chat/diagnosis screens prevents stale queries when Drawer keeps screens mounted
+- **Dev build migration**: ✅ Done (PR #28). Migrated from Expo Go to local dev builds (`expo-dev-client`). Auth guards on all query hooks. Profile cleared on user change to prevent cross-account stale data
 
 ### Debugging & Logging Infrastructure (PR #27)
 - **Server logs**: `logs/familyhealth.log` (RotatingFileHandler, 10MB, 5 backups). Every log line includes `request_id` for correlation
