@@ -15,10 +15,16 @@ export default function MainLayout() {
   const { data } = useProfiles();
 
   useEffect(() => {
-    if (!data?.items || data.items.length === 0) return;
+    if (!data?.items) return;
+
+    // All profiles deleted — clear stale selection
+    if (data.items.length === 0) {
+      if (activeProfile) setActiveProfile(null);
+      return;
+    }
 
     // If no active profile, or the persisted profile doesn't belong to this account
-    // (stale from a previous sign-in), auto-select the first profile.
+    // (stale from a previous sign-in or deleted), auto-select the first profile.
     const belongsToAccount = activeProfile && data.items.some((p) => p.id === activeProfile.id);
     if (!belongsToAccount) {
       setActiveProfile(data.items[0]);
