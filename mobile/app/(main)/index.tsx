@@ -69,17 +69,17 @@ export default function NewConversationScreen() {
             <Animated.View entering={FadeIn.duration(500)} style={{ alignItems: 'center' }}>
               <View
                 style={{
-                  width: 72,
-                  height: 72,
-                  borderRadius: BorderRadius.xl,
+                  width: 56,
+                  height: 56,
+                  borderRadius: BorderRadius.lg,
                   borderCurve: 'continuous',
-                  backgroundColor: Colors.primary + '10',
+                  backgroundColor: Colors.primary + '12',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  marginBottom: Spacing.lg,
+                  marginBottom: Spacing.md,
                 }}
               >
-                <Icon name="heart-clipboard" size={36} color={Colors.primary} />
+                <Icon name="heart-clipboard" size={28} color={Colors.primary} />
               </View>
             </Animated.View>
             <Animated.Text
