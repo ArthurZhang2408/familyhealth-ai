@@ -1,20 +1,23 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { diagnosisApi } from '@/services/api';
+import { useAuth } from '@/hooks/useAuth';
 import type { Attachment } from '@/hooks/useAttachMenu';
 
 export function useDiagnosisSessions(pid: string) {
+  const { isAuthenticated } = useAuth();
   return useQuery({
     queryKey: ['diagnosis', pid],
     queryFn: () => diagnosisApi.list(pid),
-    enabled: !!pid,
+    enabled: isAuthenticated && !!pid,
   });
 }
 
 export function useDiagnosisSession(pid: string, sid: string) {
+  const { isAuthenticated } = useAuth();
   return useQuery({
     queryKey: ['diagnosis', pid, sid],
     queryFn: () => diagnosisApi.get(pid, sid),
-    enabled: !!pid && !!sid,
+    enabled: isAuthenticated && !!pid && !!sid,
   });
 }
 

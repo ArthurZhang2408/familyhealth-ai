@@ -13,10 +13,11 @@ export function useProfiles() {
 }
 
 export function useProfile(pid: string) {
+  const { isAuthenticated } = useAuth();
   return useQuery({
     queryKey: ['profiles', pid],
     queryFn: () => profilesApi.get(pid),
-    enabled: !!pid,
+    enabled: isAuthenticated && !!pid,
   });
 }
 

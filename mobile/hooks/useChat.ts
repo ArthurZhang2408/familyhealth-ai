@@ -1,20 +1,23 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { chatApi } from '@/services/api';
+import { useAuth } from '@/hooks/useAuth';
 import type { Attachment } from '@/hooks/useAttachMenu';
 
 export function useChatConversations(pid: string) {
+  const { isAuthenticated } = useAuth();
   return useQuery({
     queryKey: ['chat', pid],
     queryFn: () => chatApi.list(pid),
-    enabled: !!pid,
+    enabled: isAuthenticated && !!pid,
   });
 }
 
 export function useChatConversation(pid: string, cid: string) {
+  const { isAuthenticated } = useAuth();
   return useQuery({
     queryKey: ['chat', pid, cid],
     queryFn: () => chatApi.get(pid, cid),
-    enabled: !!pid && !!cid,
+    enabled: isAuthenticated && !!pid && !!cid,
   });
 }
 
