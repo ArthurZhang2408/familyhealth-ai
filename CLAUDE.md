@@ -35,7 +35,7 @@ AI-powered diagnosis, medical report analysis, and health chat.
 - **Profile selector**: Inline dropdown from `ProfilePill` (not a formSheet). Scale-from-pill animation. Long-press context menu for edit/delete. Completeness ring (SVG) on profile avatars
 - **Dark mode**: `useColors()` hook returns light/dark palette based on system setting. `useShadow()` for theme-aware shadows. Bidirectional type safety in `colors.ts`
 - **Styling**: Inline styles + theme constants (`Spacing`, `FontSize`, `BorderRadius`). NO NativeWind/Tailwind
-- **State**: Zustand (auth, active profile with AsyncStorage persistence) + React Query (server data)
+- **State**: Zustand (auth, active profile with AsyncStorage persistence + `_hydrated` flag) + React Query (server data). All `useQuery` hooks guarded with `enabled: isAuthenticated && ...`. Profile store clears on user change via `onAuthStateChange`
 - **Icons**: `@expo/vector-icons` via centralized `components/Icon.tsx` with exported `IconName` type
 - **Attachments**: `useAttachMenu()` hook for Camera/Photos/Files action sheet. Validates file type on select (rejects GIF etc.). HEIC auto-converted to JPEG. Images compressed/resized (max 1536px) before upload. `pendingAttachment` state pattern on screens
 - **Message parts**: Messages persist `content_parts` JSONB (text, image, tool_call, tool_result, agent_steps, memory_context, thinking, structured_input). `ChatBubble` renders rich parts via `components/message-parts/` sub-components. Falls back to plain `content` text when no parts
@@ -129,3 +129,5 @@ The diagnosis agent uses hypothesis-driven reasoning with structured Q&A:
 - ALWAYS use `HeaderIconButton` for header buttons, never inline Pressable with hardcoded sizes
 - ALWAYS use `useHeaderScale()` for header sizing, never static `Header` constants
 - Chat/diagnosis endpoints use `Form()` + `File()` (multipart), NOT `json` body — tests must use `data=` not `json=`
+- ALWAYS use `!data` (not `isLoading`) to gate loading states — React Query's `isLoading` is false when queries are disabled, causing empty state flashes
+- ALWAYS check `useProfileStore._hydrated` before showing empty/guard states that depend on `activeProfile` — Zustand persist hydration is async
