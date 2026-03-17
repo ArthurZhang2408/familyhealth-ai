@@ -76,6 +76,8 @@ function ChatScreenInner() {
   // Set from the stream's status event so the query can fetch real data
   // even while the URL still shows 'new'.
   const [activeCid, setActiveCid] = useState<string | null>(isNew ? null : cid);
+  const activeCidRef = useRef(activeCid);
+  activeCidRef.current = activeCid;
   const didAutoSend = useRef(false);
 
   // Sync activeCid when cid changes via navigation (e.g., sidebar tap)
@@ -103,12 +105,34 @@ function ChatScreenInner() {
     pidChanged ? '' : (activeCid ?? ''),
   );
 
+  // Retry-poll: when the stream fails while backgrounded, the backend
+  // may still be generating. Poll until the assistant response appears.
+  const retryPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const clearRetryPoll = useCallback(() => {
+    if (retryPollRef.current) {
+      clearInterval(retryPollRef.current);
+      retryPollRef.current = null;
+    }
+  }, []);
+
+  // Clean up poll on unmount
+  useEffect(() => clearRetryPoll, [clearRetryPoll]);
+
   const serverMessages: LocalMessage[] = (conversation?.messages ?? []).map((m) => ({
     id: m.id,
     role: m.role,
     content: m.content,
     contentParts: m.content_parts,
   }));
+
+  // Stop retry-poll once the server returns the assistant response
+  const lastServerRole = serverMessages.length > 0 ? serverMessages[serverMessages.length - 1].role : null;
+  useEffect(() => {
+    if (lastServerRole === 'assistant' && retryPollRef.current) {
+      clearRetryPoll();
+    }
+  }, [lastServerRole, clearRetryPoll]);
 
   const streamSendFn = useCallback(
     (text: string, onEvent: (event: StreamEvent) => void, files?: Attachment[]) => {
@@ -121,6 +145,9 @@ function ChatScreenInner() {
           event.conversation_id
         ) {
           setActiveCid(event.conversation_id);
+          // Sync ref immediately — React won't re-render while backgrounded,
+          // but onSendComplete needs the latest value from the ref.
+          activeCidRef.current = event.conversation_id;
           // Invalidate the conversation list immediately so the sidebar
           // shows the new session while the agent is still responding.
           qc.invalidateQueries({ queryKey: ['chat', pid] });
@@ -134,7 +161,11 @@ function ChatScreenInner() {
 
   const onSendComplete = useCallback(
     (done?: { conversation_id?: string }) => {
-      const realId = done?.conversation_id ?? activeCid;
+      // Clear any poll from a previous failed send
+      clearRetryPoll();
+      // Read from ref to get the latest activeCid — the closure may have
+      // captured a stale value from before the status event set it.
+      const realId = done?.conversation_id ?? activeCidRef.current;
       // Now that the stream is finished, update the URL to the real ID.
       if (realId && cid !== realId) {
         router.navigate(`/(main)/chat/${realId}` as never);
@@ -142,12 +173,26 @@ function ChatScreenInner() {
       if (realId) {
         qc.invalidateQueries({ queryKey: ['chat', pid, realId] });
       }
+
+      // If stream failed (no done event), the backend is likely still
+      // processing. Poll every 3s until the assistant response appears
+      // (max 30s). This covers both backgrounded disconnects and any
+      // other stream interruption where the server continues.
+      if (!done && realId) {
+        let attempts = 0;
+        retryPollRef.current = setInterval(() => {
+          attempts++;
+          qc.invalidateQueries({ queryKey: ['chat', pid, realId] });
+          if (attempts >= 10) clearRetryPoll();
+        }, 3000);
+      }
+
       // Re-fetch conversation list so the sidebar picks up the
       // auto-generated topic (written server-side after the DONE event).
       // Delay slightly to give the server time to commit the topic.
       setTimeout(() => qc.invalidateQueries({ queryKey: ['chat', pid] }), 3000);
     },
-    [qc, pid, cid, activeCid, router],
+    [qc, pid, cid, router, clearRetryPoll],
   );
 
   const conv = useConversation({

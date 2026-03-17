@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
-import { Alert, FlatList } from 'react-native';
+import { Alert, AppState, FlatList } from 'react-native';
 import { useAttachMenu, type Attachment } from '@/hooks/useAttachMenu';
 import { logger } from '@/services/logger';
 import type { StreamEvent, AgentStep, MessagePart } from '@/types/api';
@@ -51,6 +51,7 @@ export function useConversation({ serverMessages, streamSendFn, dedupMode, onSen
   const [pendingAttachment, setPendingAttachment] = useState<Attachment | null>(null);
   const [isSending, setIsSending] = useState(false);
   const [sendErrorCount, setSendErrorCount] = useState(0);
+  const [awaitingServer, setAwaitingServer] = useState(false);
   const [streamingContent, setStreamingContent] = useState('');
   const [thinkingContent, setThinkingContent] = useState('');
   const [agentSteps, setAgentSteps] = useState<AgentStep[]>([]);
@@ -62,6 +63,19 @@ export function useConversation({ serverMessages, streamSendFn, dedupMode, onSen
   const activeAbortRef = useRef<(() => void) | null>(null);
   const structuredQuestionsRef = useRef<MessagePart[]>([]);
   const assessmentRef = useRef<MessagePart | null>(null);
+  /** Set to true when app goes to background while a stream is active.
+   *  Checked in the catch block — more reliable than reading AppState
+   *  at error time, since iOS resumes JS only after returning to foreground. */
+  const backgroundedWhileSendingRef = useRef(false);
+
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state !== 'active' && isSendingRef.current) {
+        backgroundedWhileSendingRef.current = true;
+      }
+    });
+    return () => sub.remove();
+  }, []);
 
   const handleAttach = useAttachMenu((attachment) => setPendingAttachment(attachment));
 
@@ -73,8 +87,28 @@ export function useConversation({ serverMessages, streamSendFn, dedupMode, onSen
 
     if (dedupMode === 'id') {
       const serverIds = new Set(serverMessages.map((m) => m.id));
+      // Last server user message content — used for fallback dedup.
+      // Only match the LAST one to avoid false positives when the user
+      // sends the same text multiple times (e.g. "Yes").
+      const lastServerUser = [...serverMessages].reverse().find((m) => m.role === 'user');
+      const lastServerUserContent = lastServerUser?.content;
       setPendingMessages((prev) => {
-        const next = prev.filter((m) => !serverIds.has(m.id));
+        // Primary: remove by matching server ID (normal success path)
+        let next = prev.filter((m) => !serverIds.has(m.id));
+        // Fallback: remove the pending user message if its content matches
+        // the latest server user message. Handles error-path messages that
+        // have temporary Date.now() IDs (e.g. stream interrupted by
+        // app backgrounding — server persisted but IDs don't match).
+        if (next.length > 0 && lastServerUserContent) {
+          const idx = next.findIndex(
+            (m) => m.role === 'user' && m.content === lastServerUserContent,
+          );
+          if (idx >= 0) {
+            // Remove matched user message and any orphaned assistant
+            // messages after it (stale partials from interrupted streams).
+            next = next.slice(0, idx);
+          }
+        }
         return next.length === prev.length ? prev : next;
       });
     } else {
@@ -84,6 +118,19 @@ export function useConversation({ serverMessages, streamSendFn, dedupMode, onSen
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [serverIdKey, dedupMode]);
+
+  // Clear "awaiting server" once the server's latest message is an assistant
+  // response — meaning the backend finished and persisted the result.
+  useEffect(() => {
+    if (!awaitingServer) return;
+    const last = serverMessages[serverMessages.length - 1];
+    if (last?.role === 'assistant') {
+      logger.info('stream', 'Server response arrived, clearing awaitingServer');
+      setAwaitingServer(false);
+    }
+  // serverIdKey is derived from serverMessages — when it changes, new data arrived.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [awaitingServer, serverIdKey]);
 
   const allMessages = useMemo(() => {
     // Hide user messages that are structured responses (selection shown on the question UI instead)
@@ -270,24 +317,40 @@ export function useConversation({ serverMessages, streamSendFn, dedupMode, onSen
           return [...updated, aiMsg];
         });
       } catch (err) {
-        setSendErrorCount((c) => c + 1);
         const errMsg = err instanceof Error ? err.message : 'Unknown error';
-        logger.error('stream', 'Send failed', { error: errMsg, had_partial: !!streamingContentRef.current });
+        const aborted = errMsg === 'Stream aborted';
+        // "Stream interrupted" = XHR had a 200 connection that got killed
+        // (iOS backgrounding). More reliable than AppState timing alone.
+        const interrupted = errMsg === 'Stream interrupted';
+        const backgrounded = backgroundedWhileSendingRef.current || interrupted;
+        logger.error('stream', 'Send failed', { error: errMsg, had_partial: !!streamingContentRef.current, backgrounded, aborted, interrupted });
         // Auto-report to server for correlation with server-side logs
-        logger.reportToServer({ last: 20 });
-        const partial = streamingContentRef.current;
-        if (partial) {
-          // Stream interrupted after some content — preserve what we got
-          setPendingMessages((prev) => [
-            ...prev,
-            { id: (Date.now() + 1).toString(), role: 'assistant', content: partial },
-          ]);
+        if (!aborted) logger.reportToServer({ last: 20 });
+
+        if (backgrounded || aborted) {
+          // Backgrounded: backend keeps processing, React Query refetches
+          // on foreground return via focusManager.
+          // Aborted: user navigated away, component is unmounting — backend
+          // still completes and persists. No UI needed.
+          logger.info('stream', `Suppressing error UI — ${aborted ? 'stream aborted (navigation)' : 'app backgrounded'}`);
+          // Show typing indicator while we poll for the server's response
+          if (!aborted) setAwaitingServer(true);
         } else {
-          // No content received — show user-friendly error
-          const message = err instanceof Error ? err.message : 'Something went wrong';
-          Alert.alert('Could not send', message);
-          // Remove the pending user message since nothing happened
-          setPendingMessages((prev) => prev.filter((m) => m.id !== userMsg.id));
+          setSendErrorCount((c) => c + 1);
+          const partial = streamingContentRef.current;
+          if (partial) {
+            // Stream interrupted after some content — preserve what we got
+            setPendingMessages((prev) => [
+              ...prev,
+              { id: (Date.now() + 1).toString(), role: 'assistant', content: partial },
+            ]);
+          } else {
+            // No content received — show user-friendly error
+            const message = err instanceof Error ? err.message : 'Something went wrong';
+            Alert.alert('Could not send', message);
+            // Remove the pending user message since nothing happened
+            setPendingMessages((prev) => prev.filter((m) => m.id !== userMsg.id));
+          }
         }
       } finally {
         setIsSending(false);
@@ -301,6 +364,7 @@ export function useConversation({ serverMessages, streamSendFn, dedupMode, onSen
         assessmentRef.current = null;
         isSendingRef.current = false;
         activeAbortRef.current = null;
+        backgroundedWhileSendingRef.current = false;
         onSendComplete?.(doneEvent);
       }
 
@@ -347,7 +411,7 @@ export function useConversation({ serverMessages, streamSendFn, dedupMode, onSen
     pendingAttachment,
     handleAttach,
     clearAttachment: useCallback(() => setPendingAttachment(null), []),
-    isBusy: isSending,
+    isBusy: isSending || awaitingServer,
     flatListRef,
     streamingContent,
     thinkingContent,

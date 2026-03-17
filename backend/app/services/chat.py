@@ -369,12 +369,33 @@ class ChatService:
             accumulator.record_event(mem_event)
             yield mem_event
 
-        # 4. Build conversation messages
+        # 4. Build conversation messages (MUST happen before step 5 —
+        # _build_conversation_messages loads history from DB and appends
+        # the new user message. If the early persist ran first, the message
+        # would appear twice in the LLM context.)
         messages = await self._build_conversation_messages(
             conversation.id, content, image_parts=image_parts
         )
 
-        # 5. Stream response via AgentCore
+        # 5. Persist user message early so it's visible to GET refetches
+        # even if the client disconnects mid-stream (app backgrounded).
+        image_urls = (
+            await upload_images_for_parts(image_parts, profile.id) if image_parts else None
+        )
+        user_parts = build_user_parts(content, image_urls)
+        user_msg = ChatMessage(
+            conversation_id=conversation.id,
+            role="user",
+            content=content,
+            content_parts=user_parts,
+        )
+        user_msg.created_at = datetime.now(timezone.utc)
+        self._db.add(user_msg)
+        conversation.updated_at = func.now()
+        await self._db.commit()
+        await self._db.refresh(user_msg)
+
+        # 6. Stream response via AgentCore
         agent_session = AgentSession(
             profile_id=profile.id,
             system_prompt=ctx.system_prompt,
@@ -397,39 +418,25 @@ class ChatService:
                 accumulator.record_event(event)
                 yield event
 
-        # 6. Safety validation
+        # 7. Safety validation
         violations = validate_response(full_content)
         full_content = sanitize_response(full_content, violations)
 
-        # 7. Build rich content parts and persist
-        image_urls = (
-            await upload_images_for_parts(image_parts, profile.id) if image_parts else None
-        )
-        user_parts = build_user_parts(content, image_urls)
+        # 8. Persist assistant message
         assistant_parts = build_assistant_parts(full_content, accumulator, ctx)
-
-        user_msg = ChatMessage(
-            conversation_id=conversation.id,
-            role="user",
-            content=content,
-            content_parts=user_parts,
-        )
         assistant_msg = ChatMessage(
             conversation_id=conversation.id,
             role="assistant",
             content=full_content,
             content_parts=assistant_parts,
         )
-        now = datetime.now(timezone.utc)
-        user_msg.created_at = now
-        assistant_msg.created_at = now + timedelta(milliseconds=1)
-        self._db.add_all([user_msg, assistant_msg])
+        assistant_msg.created_at = user_msg.created_at + timedelta(milliseconds=1)
+        self._db.add(assistant_msg)
         conversation.updated_at = func.now()
         await self._db.commit()
-        await self._db.refresh(user_msg)
         await self._db.refresh(assistant_msg)
 
-        # 8. Yield DONE immediately — client resolves on this event.
+        # 9. Yield DONE immediately — client resolves on this event.
         yield AgentEvent(
             type=AgentEventType.DONE,
             data={
@@ -441,7 +448,7 @@ class ChatService:
             },
         )
 
-        # 9. Best-effort topic generation (runs after DONE, client doesn't wait)
+        # 10. Best-effort topic generation (runs after DONE, client doesn't wait)
         if is_new_conversation and not topic:
             await self._auto_generate_topic(conversation, content)
 

@@ -285,31 +285,43 @@ function streamMultipartRequest(
 
       xhr.onload = () => {
         if (!resolved) {
-          let detail: string;
           const status = xhr!.status;
-          if (status !== 200) {
-            detail = `HTTP ${status}`;
+          if (status === 200) {
+            // Connection was working (200) but closed before DONE event —
+            // same as onerror with status 200 (iOS backgrounding).
+            logger.error('stream', `INTERRUPTED ${path}`, {
+              duration_ms: Date.now() - streamStart,
+              status,
+              events: eventsReceived,
+              last_event: lastEventType || null,
+              rid,
+            });
+            reject(new Error('Stream interrupted'));
+          } else {
+            let detail = `HTTP ${status}`;
             try {
               const body = JSON.parse(xhr!.responseText);
               detail = body.detail || detail;
             } catch { /* ignore parse failure */ }
-          } else {
-            detail = 'Connection closed unexpectedly. Please try again.';
+            logger.error('stream', `CLOSED ${path}`, {
+              duration_ms: Date.now() - streamStart,
+              status,
+              events: eventsReceived,
+              last_event: lastEventType || null,
+              rid,
+              error: detail,
+            });
+            reject(new Error(detail));
           }
-          logger.error('stream', `CLOSED ${path}`, {
-            duration_ms: Date.now() - streamStart,
-            status,
-            events: eventsReceived,
-            last_event: lastEventType || null,
-            rid,
-            error: detail,
-          });
-          reject(new Error(detail));
         }
       };
       xhr.onerror = () => {
         if (!resolved) {
-          logger.error('stream', `NETWORK_ERROR ${path}`, {
+          // xhr.status === 200 means the connection was established and working,
+          // then got killed (iOS backgrounding). status === 0 means a real
+          // network failure (never connected or DNS failure).
+          const wasConnected = xhr!.status === 200;
+          logger.error('stream', `${wasConnected ? 'INTERRUPTED' : 'NETWORK_ERROR'} ${path}`, {
             duration_ms: Date.now() - streamStart,
             xhr_status: xhr!.status,
             xhr_state: xhr!.readyState,
@@ -317,7 +329,7 @@ function streamMultipartRequest(
             last_event: lastEventType || null,
             rid,
           });
-          reject(new Error('Stream connection failed'));
+          reject(new Error(wasConnected ? 'Stream interrupted' : 'Stream connection failed'));
         }
       };
       xhr.onabort = () => {
