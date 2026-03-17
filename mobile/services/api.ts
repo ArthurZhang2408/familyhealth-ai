@@ -285,26 +285,34 @@ function streamMultipartRequest(
 
       xhr.onload = () => {
         if (!resolved) {
-          let detail: string;
           const status = xhr!.status;
-          if (status !== 200) {
-            detail = `HTTP ${status}`;
+          if (status === 200) {
+            // Connection was working (200) but closed before DONE event —
+            // same as onerror with status 200 (iOS backgrounding).
+            logger.error('stream', `INTERRUPTED ${path}`, {
+              duration_ms: Date.now() - streamStart,
+              status,
+              events: eventsReceived,
+              last_event: lastEventType || null,
+              rid,
+            });
+            reject(new Error('Stream interrupted'));
+          } else {
+            let detail = `HTTP ${status}`;
             try {
               const body = JSON.parse(xhr!.responseText);
               detail = body.detail || detail;
             } catch { /* ignore parse failure */ }
-          } else {
-            detail = 'Connection closed unexpectedly. Please try again.';
+            logger.error('stream', `CLOSED ${path}`, {
+              duration_ms: Date.now() - streamStart,
+              status,
+              events: eventsReceived,
+              last_event: lastEventType || null,
+              rid,
+              error: detail,
+            });
+            reject(new Error(detail));
           }
-          logger.error('stream', `CLOSED ${path}`, {
-            duration_ms: Date.now() - streamStart,
-            status,
-            events: eventsReceived,
-            last_event: lastEventType || null,
-            rid,
-            error: detail,
-          });
-          reject(new Error(detail));
         }
       };
       xhr.onerror = () => {

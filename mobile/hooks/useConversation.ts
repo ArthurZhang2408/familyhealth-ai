@@ -87,24 +87,26 @@ export function useConversation({ serverMessages, streamSendFn, dedupMode, onSen
 
     if (dedupMode === 'id') {
       const serverIds = new Set(serverMessages.map((m) => m.id));
-      const serverUserContent = new Set(
-        serverMessages.filter((m) => m.role === 'user').map((m) => m.content),
-      );
+      // Last server user message content — used for fallback dedup.
+      // Only match the LAST one to avoid false positives when the user
+      // sends the same text multiple times (e.g. "Yes").
+      const lastServerUser = [...serverMessages].reverse().find((m) => m.role === 'user');
+      const lastServerUserContent = lastServerUser?.content;
       setPendingMessages((prev) => {
         // Primary: remove by matching server ID (normal success path)
         let next = prev.filter((m) => !serverIds.has(m.id));
-        // Fallback: remove pending user messages whose content already
-        // exists in server messages. Handles error-path messages that
+        // Fallback: remove the pending user message if its content matches
+        // the latest server user message. Handles error-path messages that
         // have temporary Date.now() IDs (e.g. stream interrupted by
         // app backgrounding — server persisted but IDs don't match).
-        if (next.length > 0) {
-          next = next.filter(
-            (m) => !(m.role === 'user' && serverUserContent.has(m.content)),
+        if (next.length > 0 && lastServerUserContent) {
+          const idx = next.findIndex(
+            (m) => m.role === 'user' && m.content === lastServerUserContent,
           );
-          // If no pending user messages remain, clear orphaned assistant
-          // messages too (stale partials from interrupted streams).
-          if (!next.some((m) => m.role === 'user')) {
-            next = [];
+          if (idx >= 0) {
+            // Remove matched user message and any orphaned assistant
+            // messages after it (stale partials from interrupted streams).
+            next = next.slice(0, idx);
           }
         }
         return next.length === prev.length ? prev : next;
@@ -126,6 +128,8 @@ export function useConversation({ serverMessages, streamSendFn, dedupMode, onSen
       logger.info('stream', 'Server response arrived, clearing awaitingServer');
       setAwaitingServer(false);
     }
+  // serverIdKey is derived from serverMessages — when it changes, new data arrived.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [awaitingServer, serverIdKey]);
 
   const allMessages = useMemo(() => {

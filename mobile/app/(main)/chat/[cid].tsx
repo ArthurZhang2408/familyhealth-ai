@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AppState, useWindowDimensions } from 'react-native';
+import { useWindowDimensions } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Stack } from 'expo-router';
 import { useQueryClient } from '@tanstack/react-query';
@@ -161,6 +161,8 @@ function ChatScreenInner() {
 
   const onSendComplete = useCallback(
     (done?: { conversation_id?: string }) => {
+      // Clear any poll from a previous failed send
+      clearRetryPoll();
       // Read from ref to get the latest activeCid — the closure may have
       // captured a stale value from before the status event set it.
       const realId = done?.conversation_id ?? activeCidRef.current;

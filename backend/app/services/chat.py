@@ -369,7 +369,10 @@ class ChatService:
             accumulator.record_event(mem_event)
             yield mem_event
 
-        # 4. Build conversation messages
+        # 4. Build conversation messages (MUST happen before step 5 —
+        # _build_conversation_messages loads history from DB and appends
+        # the new user message. If the early persist ran first, the message
+        # would appear twice in the LLM context.)
         messages = await self._build_conversation_messages(
             conversation.id, content, image_parts=image_parts
         )
