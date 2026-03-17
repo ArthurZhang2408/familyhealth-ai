@@ -16,6 +16,7 @@ def build_memory_search_tool(memory_service: MemoryService) -> ToolDefinition:
         profile_id: str,
         categories: list[str] | None = None,
         limit: int = 10,
+        **_kwargs: object,
     ) -> dict:
         try:
             pid = UUID(profile_id)

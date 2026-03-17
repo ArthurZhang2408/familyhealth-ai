@@ -468,12 +468,13 @@ async def test_report_analysis_uses_lab_categories() -> None:
     builder = ContextBuilder(memory_service)
     await builder.build(mock_db, PROFILE_ID, "blood test results", "report_analysis")
 
-    _, kwargs = mock_mem0.search.call_args
-    assert kwargs["limit"] == 10
-    categories = kwargs["filters"]["category"]["in"]
-    assert "lab_results" in categories
-    assert "vitals" in categories
-    assert "medications" in categories
+    # Multi-category search calls search once per category
+    assert mock_mem0.search.call_count == 4
+    searched_cats = [c[1]["filters"]["category"] for c in mock_mem0.search.call_args_list]
+    assert "lab_results" in searched_cats
+    assert "vitals" in searched_cats
+    assert "medications" in searched_cats
+    assert "medical_history" in searched_cats
 
 
 # ---------------------------------------------------------------------------

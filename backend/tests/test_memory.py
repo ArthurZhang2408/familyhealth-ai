@@ -7,7 +7,6 @@ import pytest
 from httpx import AsyncClient
 
 from app.services.memory import (
-    REPORT_EXTRACTION_PROMPT,
     MemoryService,
     build_conversation_window,
     build_mem0_config,
@@ -15,11 +14,26 @@ from app.services.memory import (
     truncate_to_token_budget,
 )
 from app.services.memory_extractor import (
-    CHAT_SYSTEM_PROMPT,
     assemble_system_prompt,
     enrich_messages_with_date,
     load_profile_context,
 )
+
+# Minimal template for testing assemble_system_prompt (the real chat prompt
+# lives in chat_prompts.py and uses a different template format).
+_TEST_TEMPLATE = """You are a friendly health assistant for {profile_name}.
+
+## MEDICAL DISCLAIMER
+You provide general health information, NOT medical diagnoses.
+
+## PATIENT PROFILE
+- Age: {age} | Sex: {sex}
+- Allergies: {allergies}
+- Medications: {medications}
+- Conditions: {conditions}
+
+## RELEVANT CONTEXT
+{episodic_memories}"""
 
 PROFILE_ID = uuid.uuid4()
 
@@ -131,12 +145,26 @@ async def test_search_forwards_threshold(
 
 
 @pytest.mark.asyncio
-async def test_search_with_category_filter(
+async def test_search_with_single_category_filter(
     memory_service: MemoryService, mock_mem0: MagicMock
 ) -> None:
-    await memory_service.search(PROFILE_ID, "meds", categories=["medications", "allergies"])
+    """Single category uses exact equality filter (pgvector compatible)."""
+    await memory_service.search(PROFILE_ID, "meds", categories=["medications"])
     _, kwargs = mock_mem0.search.call_args
-    assert kwargs["filters"] == {"category": {"in": ["medications", "allergies"]}}
+    assert kwargs["filters"] == {"category": "medications"}
+
+
+@pytest.mark.asyncio
+async def test_search_with_multi_category_filter(
+    memory_service: MemoryService, mock_mem0: MagicMock
+) -> None:
+    """Multiple categories search each separately and merge results."""
+    await memory_service.search(PROFILE_ID, "meds", categories=["medications", "allergies"])
+    # Should be called twice — once per category
+    assert mock_mem0.search.call_count == 2
+    calls = mock_mem0.search.call_args_list
+    assert calls[0][1]["filters"] == {"category": "medications"}
+    assert calls[1][1]["filters"] == {"category": "allergies"}
 
 
 # ── Unit tests: MemoryService.get_all ────────────────────────────────────────
@@ -257,36 +285,18 @@ async def test_delete_by_source_empty(memory_service: MemoryService, mock_mem0: 
 
 
 @pytest.mark.asyncio
-async def test_extract_from_diagnosis_source(
+async def test_add_raw_stores_with_correct_metadata(
     memory_service: MemoryService, mock_mem0: MagicMock
 ) -> None:
-    messages = [{"role": "user", "content": "I have chest pain"}]
-    await memory_service.extract_from_diagnosis(PROFILE_ID, messages, "session-1")
+    """add_raw (used by save_to_memory tool) stores with infer=False."""
+    mock_mem0.add.return_value = {"results": [{"id": "m1", "memory": "test", "event": "ADD"}]}
+    await memory_service.add_raw(
+        PROFILE_ID, "Takes metformin 500mg twice daily", category="medications", source="chat:c1"
+    )
     _, kwargs = mock_mem0.add.call_args
-    assert kwargs["metadata"]["source"] == "diagnosis:session-1"
-    assert kwargs["metadata"]["category"] == "diagnoses"
-
-
-@pytest.mark.asyncio
-async def test_extract_from_chat_source(
-    memory_service: MemoryService, mock_mem0: MagicMock
-) -> None:
-    messages = [{"role": "user", "content": "What should I eat?"}]
-    await memory_service.extract_from_chat(PROFILE_ID, messages)
-    _, kwargs = mock_mem0.add.call_args
-    assert kwargs["metadata"]["source"] == "chat"
-
-
-@pytest.mark.asyncio
-async def test_extract_from_report_uses_prompt(
-    memory_service: MemoryService, mock_mem0: MagicMock
-) -> None:
-    analysis = {"findings": [{"name": "hemoglobin", "value": 14.2}]}
-    await memory_service.extract_from_report(PROFILE_ID, analysis, "report-1")
-    _, kwargs = mock_mem0.add.call_args
-    assert kwargs["metadata"]["source"] == "report:report-1"
-    assert kwargs["metadata"]["category"] == "lab_results"
-    assert kwargs["prompt"] == REPORT_EXTRACTION_PROMPT
+    assert kwargs["metadata"]["source"] == "chat:c1"
+    assert kwargs["metadata"]["category"] == "medications"
+    assert kwargs["infer"] is False
 
 
 # ── Mem0 config tests ────────────────────────────────────────────────────────
@@ -352,7 +362,7 @@ def test_assemble_system_prompt_formats_correctly() -> None:
         {"memory": "Has type 2 diabetes", "metadata": {"category": "diagnoses"}},
         {"memory": "Takes metformin 500mg", "metadata": {"category": "medications"}},
     ]
-    prompt = assemble_system_prompt(CHAT_SYSTEM_PROMPT, ctx, memories, token_budget=500)
+    prompt = assemble_system_prompt(_TEST_TEMPLATE, ctx, memories, token_budget=500)
     assert "Mom" in prompt
     assert "60" in prompt
     assert "female" in prompt
@@ -371,7 +381,7 @@ def test_assemble_system_prompt_empty_memories() -> None:
         "current_medications": [],
         "medical_conditions": [],
     }
-    prompt = assemble_system_prompt(CHAT_SYSTEM_PROMPT, ctx, [], token_budget=500)
+    prompt = assemble_system_prompt(_TEST_TEMPLATE, ctx, [], token_budget=500)
     assert "No prior context." in prompt
     assert "Unknown" in prompt  # age and sex default to Unknown
 

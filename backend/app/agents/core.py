@@ -134,7 +134,10 @@ class AgentCore:
             session.messages.append({"role": "assistant", "content": response.content or ""})
 
             # Execute each tool call
-            injected = {"profile_id": str(session.profile_id)}
+            injected = {
+                "profile_id": str(session.profile_id),
+                "source": session.metadata.get("source", "unknown"),
+            }
             hit_terminal = False
             for tc_response in response.tool_calls:
                 tc = ToolCall(
@@ -356,7 +359,10 @@ class AgentCore:
             # Tool calls detected — execute them and continue
             session.messages.append({"role": "assistant", "content": text_buffer})
 
-            injected = {"profile_id": str(session.profile_id)}
+            injected = {
+                "profile_id": str(session.profile_id),
+                "source": session.metadata.get("source", "unknown"),
+            }
             hit_terminal = False
             for tc in tool_calls:
                 session.tool_calls_made.append(tc)

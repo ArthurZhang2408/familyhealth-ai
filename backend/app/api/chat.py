@@ -6,7 +6,6 @@ from uuid import UUID
 
 from fastapi import (
     APIRouter,
-    BackgroundTasks,
     Depends,
     File,
     Form,
@@ -64,7 +63,6 @@ def _build_service(
 
 @router.post("", response_model=ChatTurnResponse, status_code=201)
 async def send_message(
-    background_tasks: BackgroundTasks,
     content: str = Form(...),
     conversation_id: UUID | None = Form(None),
     topic: str | None = Form(None),
@@ -86,16 +84,8 @@ async def send_message(
         image_parts=image_parts or None,
     )
 
-    background_tasks.add_task(
-        memory_extractor.extract_and_store,
-        profile_id=profile.id,
-        messages=[
-            {"role": "user", "content": content},
-            {"role": "assistant", "content": turn_response.message.content},
-        ],
-        source=f"chat:{conversation.id}",
-        category="general",
-    )
+    # Memory extraction is now agent-driven via save_to_memory tool
+    # during the conversation — no post-hoc extraction needed.
 
     return turn_response
 
@@ -130,7 +120,6 @@ async def send_message_stream(
 
     async def _process():
         """Run the full pipeline with an independent db session."""
-        done_data = None
         async with async_session_factory() as task_db:
             try:
                 task_db.expire_on_commit = False
@@ -147,28 +136,14 @@ async def send_message_stream(
                     image_parts=image_parts or None,
                 ):
                     queue.put_nowait(event)
-                    if event.type == AgentEventType.DONE:
-                        done_data = event.data
             except Exception:
                 _stream_logger.exception("Stream processing failed")
                 queue.put_nowait(
                     AgentEvent(type=AgentEventType.ERROR, data={"message": "Processing failed"})
                 )
             finally:
-                # Memory extraction (best-effort)
-                if done_data and done_data.get("content"):
-                    try:
-                        await memory_extractor.extract_and_store(
-                            profile_id=profile_id,
-                            messages=[
-                                {"role": "user", "content": content},
-                                {"role": "assistant", "content": done_data["content"]},
-                            ],
-                            source=f"chat:{done_data.get('conversation_id', 'unknown')}",
-                            category="general",
-                        )
-                    except Exception:
-                        pass
+                # Memory extraction is now agent-driven via save_to_memory
+                # tool during the conversation — no post-hoc extraction.
                 queue.put_nowait(_SENTINEL)
 
     # Task owns its own db session — survives request/client lifecycle

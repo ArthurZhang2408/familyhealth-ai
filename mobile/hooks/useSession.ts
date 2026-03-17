@@ -8,7 +8,12 @@ export function useDeleteSession(type: SessionType, pid: string) {
   return useMutation({
     mutationFn: (id: string) =>
       type === 'chat' ? chatApi.delete(pid, id) : diagnosisApi.delete(pid, id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: [type, pid] }),
+    onSuccess: (_data, id) => {
+      // Remove the deleted conversation/session from cache so stale
+      // mounted screens (Drawer keeps them alive) don't refetch a 404.
+      qc.removeQueries({ queryKey: [type, pid, id] });
+      qc.invalidateQueries({ queryKey: [type, pid] });
+    },
   });
 }
 

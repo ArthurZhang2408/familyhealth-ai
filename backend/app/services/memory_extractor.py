@@ -13,29 +13,6 @@ logger = logging.getLogger(__name__)
 # Chat system prompt template
 # ---------------------------------------------------------------------------
 
-CHAT_SYSTEM_PROMPT = """You are a friendly health assistant for {profile_name}.
-
-## MEDICAL DISCLAIMER
-You provide general health information, NOT medical diagnoses. Always recommend consulting
-a healthcare professional for specific medical concerns.
-
-## PATIENT PROFILE
-- Age: {age} | Sex: {sex}
-- Allergies: {allergies}
-- Medications: {medications}
-- Conditions: {conditions}
-
-## RELEVANT CONTEXT
-{episodic_memories}
-
-## INSTRUCTIONS
-- Answer health questions conversationally and accurately.
-- Reference the patient's profile and history when relevant.
-- If the question involves symptoms that could indicate a serious condition,
-  recommend using the Diagnosis feature for a structured assessment.
-- Be concise. Don't lecture unless asked for detail."""
-
-
 # ---------------------------------------------------------------------------
 # Helper functions
 # ---------------------------------------------------------------------------
@@ -165,27 +142,16 @@ def assemble_system_prompt(
 
 
 class MemoryExtractor:
-    """Orchestrates post-interaction memory extraction and storage."""
+    """Orchestrates post-interaction memory storage.
+
+    Memory *extraction* is now agent-driven via the ``save_to_memory`` tool —
+    the agent decides what facts to persist during the conversation. This class
+    retains ``store_narrative()`` for the diagnosis pipeline's hard post-assessment
+    narrative storage.
+    """
 
     def __init__(self, memory_service: MemoryService) -> None:
         self._memory = memory_service
-
-    async def extract_and_store(
-        self,
-        profile_id: UUID,
-        messages: list[dict],
-        source: str,
-        category: str | None = None,
-    ) -> dict | None:
-        """Run memory extraction via Mem0's internal LLM (infer=True)."""
-        try:
-            enriched = enrich_messages_with_date(messages)
-            result = await self._memory.add(profile_id, enriched, category=category, source=source)
-            logger.info("Memory extraction for profile %s completed", profile_id)
-            return result
-        except Exception:
-            logger.exception("Memory extraction failed for profile %s", profile_id)
-            return None
 
     async def store_narrative(
         self,

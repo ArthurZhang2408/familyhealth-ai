@@ -11,7 +11,7 @@ from app.services.memory_extractor import load_profile_context
 def build_profile_lookup_tool(db_session_factory) -> ToolDefinition:
     """Create a ToolDefinition that loads a patient's structured profile."""
 
-    async def _handler(profile_id: str) -> dict:
+    async def _handler(profile_id: str, **_kwargs: object) -> dict:
         from app.models.profile import Profile
 
         try:

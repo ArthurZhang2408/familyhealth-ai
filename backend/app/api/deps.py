@@ -144,11 +144,13 @@ def get_agent_core():
         from app.agents.tools.present_assessment import build_present_assessment_tool
         from app.agents.tools.present_question import build_present_question_tool
         from app.agents.tools.profile_lookup import build_profile_lookup_tool
+        from app.agents.tools.save_memory import build_save_memory_tool
         from app.agents.tools.web_search import build_web_search_tool
         from app.core.database import async_session_factory
 
         registry = ToolRegistry()
         registry.register(build_memory_search_tool(get_memory_service()))
+        registry.register(build_save_memory_tool(get_memory_service(), async_session_factory))
         registry.register(build_present_question_tool())
         registry.register(build_present_assessment_tool())
         registry.register(build_profile_lookup_tool(async_session_factory))
