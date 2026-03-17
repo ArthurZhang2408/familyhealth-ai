@@ -10,7 +10,7 @@ AI-powered diagnosis, medical report analysis, and health chat.
 - **Database**: PostgreSQL 16 + pgvector extension
 - **Memory Layer**: Mem0 (self-hosted, open source)
 - **LLM Routing**: Env-configurable via `LLM_ROUTE_*` vars. Defaults: Cerebras for all text tasks when available, Gemini for report analysis, Qwen as fallback. Auto-fallback on provider failure.
-- **LLM - Cerebras**: `gpt-oss-120b` — default for chat, diagnosis, extraction, summarization
+- **LLM - Cerebras**: `gpt-oss-120b` — default for chat, diagnosis, summarization
 - **LLM - Gemini**: `gemini-2.5-flash` — report analysis, multimodal (auto-routed when images present)
 - **LLM - Qwen**: `qwen3.5:397b` via Ollama Cloud — fallback provider
 - **Embeddings**: Google Gemini (`models/gemini-embedding-001`, 768 dims) — reuses Gemini API key
@@ -26,8 +26,8 @@ AI-powered diagnosis, medical report analysis, and health chat.
 - Memory layer sits between app logic and LLM — every interaction:
   1. Loads structured profile into system prompt
   2. Agent retrieves episodic memory on demand via `search_patient_memory` tool (diagnosis) or auto-injected (chat/reports)
-  3. Runs conversation
-  4. Post-interaction: extracts facts → stores episodic memory
+  3. Runs conversation — agent saves notable patient facts via `save_to_memory` tool
+  4. Diagnosis additionally stores a consolidated narrative on assessment delivery via hard pipeline
 
 ## Frontend Architecture
 - **Navigation**: Drawer sidebar (Claude/ChatGPT-style), no bottom tabs
@@ -65,7 +65,7 @@ The diagnosis agent uses hypothesis-driven reasoning with structured Q&A:
 - Conversation history enrichment: user messages prepend question context (`_enrich_content`); assistant messages NOT enriched (models mimic any text placed there)
 - User responses include rejected options ("Does NOT have: fever, vomiting") to prevent re-asking
 - Red flag pre-check strips negated symptoms ("Does NOT have:", "Not selected:") before keyword scanning
-- Memory retrieval is agent-driven: `search_patient_memory` tool called on turn 1 (chief complaint) and later when clinically relevant. No auto-injection into system prompt. `ContextBuilder` called with `skip_memories=True` for diagnosis
+- Memory is fully agent-driven: `search_patient_memory` tool for retrieval (turn 1 + when clinically relevant), `save_to_memory` tool for persisting patient-stated facts. No auto-injection into system prompt. `ContextBuilder` called with `skip_memories=True` for diagnosis
 - Assessment delivered via `present_assessment` terminal tool → `AssessmentPart` in `content_parts` → `DiagnosisReportView` card-based native UI
 - `present_assessment` provides structured data (conditions, medications, self_care, tests, warnings, follow_up, sources) — eliminates separate `_extract_state()` LLM call on assessment turns
 - `_format_assessment_text()` generates markdown fallback for the `content` column (backward compat, search)
@@ -75,7 +75,7 @@ The diagnosis agent uses hypothesis-driven reasoning with structured Q&A:
 ### Agent Web Search
 - `web_search` tool with `search_type` parameter: `"general"` (DuckDuckGo primary, Tavily fallback), `"academic"` (PubMed), `"drug"` (DuckDuckGo/Tavily with drug domain whitelist)
 - Domain whitelists: medical (Mayo Clinic, CDC, NIH, etc.), drug (FDA, Drugs.com, RxList)
-- System prompts instruct numbered citation format (no inline links — they break mobile markdown)
+- System prompts instruct numbered citation format with sources listed at the end (no inline markdown links — they break mobile markdown rendering)
 - Agents can search freely throughout conversation, not just before assessment
 - PubMed auto-retries with keyword extraction for long queries
 
@@ -86,15 +86,27 @@ The diagnosis agent uses hypothesis-driven reasoning with structured Q&A:
 - Live "Reasoning..." card during streaming, persisted collapsible `ThinkingPart` in message history
 - Thinking tokens excluded from conversation history and text buffer
 
+### Memory System (PR #30)
+- **Architecture**: Agent-driven — both chat and diagnosis agents have `save_to_memory` and `search_patient_memory` tools. No post-hoc extraction pipeline. The main LLM (not a separate extraction model) decides what to persist
+- **Storage**: Mem0 with pgvector backend (`health_memories` table in `mem0_db`). `add_raw(infer=False)` for all saves — bypasses Mem0's internal LLM entirely
+- **Agent tools**: `save_to_memory` (write facts), `search_patient_memory` (read/search). Both injected with `profile_id` and `source` via `AgentSession.metadata`
+- **Dedup**: Agent is prompted to search before saving. No embedding-based dedup (Gemini embeddings can't distinguish paraphrases from opposites)
+- **Source prefixes**: `chat:{conv_id}`, `diagnosis:{session_id}:agent` (agent saves), `diagnosis:{session_id}:narrative` (hard pipeline)
+- **Diagnosis hard pipeline**: `_store_session_narrative()` fires on assessment delivery. LLM summarizes user-reported facts into bullet points. Delete-then-add upsert per source. This is complementary to agent saves, not replaced by them
+- **Chat**: Memory saving is purely agent-driven. System prompt instructs when to save and when not to
+- **Category filter**: Mem0 pgvector only supports exact equality (`payload->>key = value`), not operator-style (`{"in": [...]}`). `MemoryService.search()` handles multi-category by searching each separately and merging by score
+- **Audit trail**: `save_to_memory` handler records `memory_traces` via its own db session. Both chat and diagnosis saves are traced
+- **Prompts**: `chat_prompts.py` (real chat prompt), `diagnosis_prompts.py` (diagnosis prompt). `memory_extractor.py` only has `MemoryExtractor.store_narrative()` — no prompts
+
 ### Planned — next phases
 - **Unified session abstraction**: ✅ Done (PR #21)
 - **Structured assessment rendering**: ✅ Done (PR #23)
-- **Consolidated session memories**: ✅ Done (PR #24)
+- **Consolidated session memories**: ✅ Done (PR #24, reworked PR #30). Diagnosis uses hard pipeline narrative on assessment delivery + agent-driven `save_to_memory` during Q&A. Chat uses agent-driven only
 - **Profile onboarding**: ✅ Done (PR #25, expanded PR #26). 5-step creation flow (identity, basics, body & lifestyle, meds & allergies, conditions + surgical history + family history), edit/delete, dropdown selector, completeness ring
 - **Profile field alignment**: ✅ Done (PR #26). API returns frontend-friendly names via Pydantic `validation_alias`. Accepts both old and new names on input
 - **Chat bug fixes**: ✅ Done (PR #26). `datetime` shadow import, DONE content override, diagnosis-only agent nudge, Drawer param caching
 - **Stream background resilience**: ✅ Done (PR #29). Backend persists user message before LLM call. Client distinguishes background kills (XHR status 200 → "Stream interrupted") from real failures. Suppresses error UI for backgrounded/aborted streams. Typing indicator + retry polling while awaiting server response. Content-based dedup fallback for pending messages with temporary IDs
-- **Agent-driven memory system**: ✅ Done. Replaced chat's broken post-hoc nemotron extraction pipeline with agent-driven `save_to_memory` tool. Both chat and diagnosis agents decide what to persist during conversation using the main LLM. Diagnosis keeps its hard pipeline narrative (`_store_session_narrative()`) on assessment delivery. Source prefixes: `chat:{id}`, `diagnosis:{id}:agent`, `diagnosis:{id}:narrative`. Solves all 10 memory extraction bugs (hallucination, feedback loop, source overwrite, etc.). Remaining: legacy garbage memories from old pipeline need cleanup
+- **Agent-driven memory system**: ✅ Done (PR #30). Replaced chat's broken post-hoc nemotron extraction pipeline with agent-driven `save_to_memory` tool. Both chat and diagnosis agents decide what to persist during conversation using the main LLM. Diagnosis keeps its hard pipeline narrative (`_store_session_narrative()`) on assessment delivery. Source prefixes: `chat:{id}`, `diagnosis:{id}:agent`, `diagnosis:{id}:narrative`. Fixed Mem0 pgvector category filter (was silently broken). Agent searches before saving to prevent duplicates. Fixed chat citation format (no inline links). Solves all 10 memory extraction bugs
 - **LLM tracing & debugging**: ✅ Done (PR #27). `llm_traces` table, request ID middleware, debug API, persistent file logging, client-side logger with auto-report, SSE lifecycle logging
 - **Topic generation fix**: ✅ Done (PR #27). Thinking models consumed entire `max_tokens` on reasoning. Fixed via per-instance QwenProvider param routing, higher token budgets, reasoning field fallback extraction
 - **Profile switch 404 fix**: ✅ Done (PR #27). Synchronous `pidChanged` guard in chat/diagnosis screens prevents stale queries when Drawer keeps screens mounted
