@@ -475,6 +475,7 @@ class DiagnosisService:
                 profile_id=profile.id,
                 system_prompt=system_prompt,
                 messages=messages,
+                metadata={"source": f"diagnosis:{session.id}:agent"},
             )
 
             conversation_text = ""
@@ -754,7 +755,7 @@ class DiagnosisService:
             extraction_result = await self._mem_extractor.store_narrative(
                 profile_id=profile.id,
                 narrative=narrative,
-                source=f"diagnosis:{session.id}",
+                source=f"diagnosis:{session.id}:narrative",
             )
             await record_extraction(
                 self._db,
@@ -851,6 +852,7 @@ class DiagnosisService:
             profile_id=profile.id,
             system_prompt=system_prompt,
             messages=messages,
+            metadata={"source": f"diagnosis:{session.id}:agent"},
         )
         agent_result = await self._agent.run(agent_session, DIAGNOSIS_AGENT)
         conversation_text = agent_result.content.strip()

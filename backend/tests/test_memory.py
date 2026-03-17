@@ -257,24 +257,18 @@ async def test_delete_by_source_empty(memory_service: MemoryService, mock_mem0: 
 
 
 @pytest.mark.asyncio
-async def test_extract_from_diagnosis_source(
+async def test_add_raw_stores_with_correct_metadata(
     memory_service: MemoryService, mock_mem0: MagicMock
 ) -> None:
-    messages = [{"role": "user", "content": "I have chest pain"}]
-    await memory_service.extract_from_diagnosis(PROFILE_ID, messages, "session-1")
+    """add_raw (used by save_to_memory tool) stores with infer=False."""
+    mock_mem0.add.return_value = {"results": [{"id": "m1", "memory": "test", "event": "ADD"}]}
+    await memory_service.add_raw(
+        PROFILE_ID, "Takes metformin 500mg twice daily", category="medications", source="chat:c1"
+    )
     _, kwargs = mock_mem0.add.call_args
-    assert kwargs["metadata"]["source"] == "diagnosis:session-1"
-    assert kwargs["metadata"]["category"] == "diagnoses"
-
-
-@pytest.mark.asyncio
-async def test_extract_from_chat_source(
-    memory_service: MemoryService, mock_mem0: MagicMock
-) -> None:
-    messages = [{"role": "user", "content": "What should I eat?"}]
-    await memory_service.extract_from_chat(PROFILE_ID, messages)
-    _, kwargs = mock_mem0.add.call_args
-    assert kwargs["metadata"]["source"] == "chat"
+    assert kwargs["metadata"]["source"] == "chat:c1"
+    assert kwargs["metadata"]["category"] == "medications"
+    assert kwargs["infer"] is False
 
 
 @pytest.mark.asyncio

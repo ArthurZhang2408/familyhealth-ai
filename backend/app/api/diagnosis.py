@@ -463,10 +463,16 @@ async def delete_session(
     chief_complaint = session.chief_complaint
     await db.delete(session)
 
-    # Delete memories extracted from this session (best-effort)
+    # Delete memories extracted from this session (best-effort).
+    # Agent saves use :agent suffix, narrative uses :narrative suffix.
     memories_deleted = 0
     try:
-        memories_deleted = await memory_service.delete_by_source(profile.id, f"diagnosis:{sid}")
+        memories_deleted += await memory_service.delete_by_source(
+            profile.id, f"diagnosis:{sid}:narrative"
+        )
+        memories_deleted += await memory_service.delete_by_source(
+            profile.id, f"diagnosis:{sid}:agent"
+        )
     except Exception:
         _diag_stream_logger.warning(
             "Failed to delete memories for diagnosis %s, session deleted anyway", sid

@@ -163,6 +163,7 @@ class ChatService:
             profile_id=profile.id,
             system_prompt=ctx.system_prompt,
             messages=messages,
+            metadata={"source": f"chat:{conversation.id}"},
         )
         agent_result = await self._agent.run(agent_session, CHAT_AGENT)
         response_text = agent_result.content.strip()
@@ -400,6 +401,7 @@ class ChatService:
             profile_id=profile.id,
             system_prompt=ctx.system_prompt,
             messages=messages,
+            metadata={"source": f"chat:{conversation.id}"},
         )
 
         full_content = ""

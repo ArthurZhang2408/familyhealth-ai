@@ -302,7 +302,7 @@ def _extract_date(mem: dict) -> str | None:
             from datetime import datetime
 
             dt = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
-            return dt.strftime("%b %Y")
+            return dt.strftime("%b %-d, %Y")
         except (ValueError, AttributeError):
             pass
     return None

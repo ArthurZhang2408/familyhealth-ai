@@ -19,88 +19,6 @@ logger = logging.getLogger(__name__)
 # Prompts
 # ---------------------------------------------------------------------------
 
-FACT_EXTRACTION_PROMPT = """You are a medical information extraction system. Your job is to
-extract discrete, factual health information from a conversation between a user and a health
-assistant.
-
-Extract ONLY concrete health facts. Each fact should be:
-- Self-contained (understandable without the conversation context)
-- Specific (include dosages, dates, values, severity when mentioned)
-- Attributed with temporal status (current vs. historical)
-- One fact per item (don't combine multiple facts)
-
-CATEGORIES to tag each fact with:
-- medical_history: past diagnoses, surgeries, hospitalizations
-- medications: current and past medications with dosage/frequency
-- allergies: drug allergies, food allergies, environmental allergies
-- diagnoses: new diagnoses from this or recent interactions
-- symptoms: reported symptoms with duration, frequency, severity
-- lifestyle: diet, exercise, sleep, smoking, alcohol
-- mental_health: mood, stress, anxiety, sleep issues
-- lab_results: test values with units, reference ranges, dates
-- vitals: blood pressure, heart rate, weight, temperature
-- procedures: surgeries, treatments, therapies
-
-DO extract:
-- "Started metformin 500mg twice daily in January 2026"
-- "Blood pressure measured at 140/90 on 2026-02-15"
-- "Allergic to penicillin — causes hives and throat swelling"
-- "Father had heart attack at age 55"
-- "Reports morning headaches for the past 2 weeks, severity 6/10"
-
-DO NOT extract:
-- Greetings, pleasantries, or conversational filler
-- The AI's reasoning or diagnostic process
-- Questions the AI asked (only extract the user's answers)
-- Speculative statements ("might be", "could indicate")
-- Generic health advice given by the AI
-- Warning signs or red flags listed in assessments (e.g., "seek immediate care for vomiting blood")
-- Generic recommendations from assessments (e.g., "check back in 2-3 days", "stay hydrated")
-- OTC medication suggestions from the AI (only extract medications the user is actually taking)
-
-Input conversation:
-{input}
-
-Return a JSON object:
-{{"facts": ["fact 1", "fact 2", ...]}}
-
-If no extractable health facts exist, return: {{"facts": []}}"""
-
-UPDATE_MEMORY_PROMPT = """You are a medical memory management system. You must decide how to
-handle a new health fact relative to existing stored memories.
-
-EXISTING MEMORIES:
-{existing_memories}
-
-NEW FACT:
-{memory}
-
-For the new fact, decide ONE action:
-
-- "ADD": The fact is genuinely new information not covered by any existing memory.
-- "UPDATE": The fact updates, corrects, or supersedes an existing memory. Return the
-  updated_memory_id of the memory being replaced, and provide the merged/updated text.
-  IMPORTANT: When a medication, condition, or status changes, the UPDATE should reflect
-  the CURRENT state. Preserve the historical context by noting what changed.
-  Example: Old="Takes metformin 500mg 2x daily" + New="Increased metformin to 1000mg"
-  → Updated="Takes metformin 1000mg 2x daily (increased from 500mg)"
-- "DELETE": The fact explicitly negates an existing memory (e.g., "No longer allergic to X"
-  after allergy desensitization). Return the memory_id to delete.
-- "NONE": The fact is already fully captured by an existing memory (exact duplicate or
-  semantically identical). No action needed.
-
-TEMPORAL RULES:
-- A fact about a CURRENT state ("is taking", "currently has") should UPDATE any
-  contradicting fact about the same subject.
-- A fact about a PAST state ("was taking", "used to have") should be ADDED as new
-  historical context, NOT used to update a current-state memory.
-- If unclear whether current or historical, default to ADD.
-
-Return JSON:
-{{"type": "ADD" | "UPDATE" | "DELETE" | "NONE",
-  "updated_memory_id": "..." | null,
-  "memory": "updated text" | null}}"""
-
 REPORT_EXTRACTION_PROMPT = """You are extracting structured health facts from a medical
 report analysis. The input is a JSON analysis of a lab report, blood test, or medical image.
 
@@ -179,8 +97,6 @@ def build_mem0_config(settings: Settings) -> dict:
                 "maxconn": 10,
             },
         },
-        "custom_fact_extraction_prompt": FACT_EXTRACTION_PROMPT,
-        "custom_update_memory_prompt": UPDATE_MEMORY_PROMPT,
     }
 
 
@@ -301,18 +217,49 @@ class MemoryService:
         threshold: float = 0.1,
     ) -> list[dict]:
         """Search memories by semantic similarity."""
-        filters = None
-        if categories:
-            filters = {"category": {"in": categories}}
-        result = await asyncio.to_thread(
-            self._mem0.search,
-            query,
-            user_id=str(profile_id),
-            limit=limit,
-            filters=filters,
-            threshold=threshold,
-        )
-        return result.get("results", [])
+        # Mem0's pgvector backend only supports exact equality filters
+        # (payload->>key = value), not operator-style ({"in": [...]}).
+        # For multiple categories, run separate searches and merge.
+        if categories and len(categories) == 1:
+            filters = {"category": categories[0]}
+            result = await asyncio.to_thread(
+                self._mem0.search,
+                query,
+                user_id=str(profile_id),
+                limit=limit,
+                filters=filters,
+                threshold=threshold,
+            )
+            return result.get("results", [])
+        elif categories:
+            # Multiple categories: search each and merge by score
+            all_results: dict[str, dict] = {}
+            for cat in categories:
+                result = await asyncio.to_thread(
+                    self._mem0.search,
+                    query,
+                    user_id=str(profile_id),
+                    limit=limit,
+                    filters={"category": cat},
+                    threshold=threshold,
+                )
+                for r in result.get("results", []):
+                    rid = r.get("id", "")
+                    existing_score = all_results.get(rid, {}).get("score", 999)
+                    if rid not in all_results or r.get("score", 0) < existing_score:
+                        all_results[rid] = r
+            # Sort by score (lower = more similar in Mem0's distance metric)
+            merged = sorted(all_results.values(), key=lambda r: r.get("score", 999))
+            return merged[:limit]
+        else:
+            result = await asyncio.to_thread(
+                self._mem0.search,
+                query,
+                user_id=str(profile_id),
+                limit=limit,
+                threshold=threshold,
+            )
+            return result.get("results", [])
 
     async def get_all(
         self,
@@ -374,17 +321,6 @@ class MemoryService:
             deleted += 1
         return deleted
 
-    async def extract_from_diagnosis(
-        self, profile_id: UUID, messages: list[dict], session_id: str
-    ) -> dict:
-        """Extract and store memories from a diagnosis session."""
-        return await self.add(
-            profile_id,
-            messages,
-            category="diagnoses",
-            source=f"diagnosis:{session_id}",
-        )
-
     async def extract_from_report(self, profile_id: UUID, analysis: dict, report_id: str) -> dict:
         """Extract and store memories from a medical report analysis."""
         content = self._format_report_for_extraction(analysis)
@@ -398,10 +334,6 @@ class MemoryService:
             },
             prompt=REPORT_EXTRACTION_PROMPT,
         )
-
-    async def extract_from_chat(self, profile_id: UUID, messages: list[dict]) -> dict:
-        """Extract and store memories from a chat conversation."""
-        return await self.add(profile_id, messages, source="chat")
 
     @staticmethod
     def _format_report_for_extraction(analysis: dict) -> str:
