@@ -465,6 +465,7 @@ async def delete_session(
 
     # Delete memories extracted from this session (best-effort).
     # Agent saves use :agent suffix, narrative uses :narrative suffix.
+    # Also clean up legacy format (no suffix) from pre-agent-driven sessions.
     memories_deleted = 0
     try:
         memories_deleted += await memory_service.delete_by_source(
@@ -472,6 +473,9 @@ async def delete_session(
         )
         memories_deleted += await memory_service.delete_by_source(
             profile.id, f"diagnosis:{sid}:agent"
+        )
+        memories_deleted += await memory_service.delete_by_source(
+            profile.id, f"diagnosis:{sid}"
         )
     except Exception:
         _diag_stream_logger.warning(

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 from enum import StrEnum
 from typing import TYPE_CHECKING
@@ -14,28 +13,6 @@ if TYPE_CHECKING:
     from app.core.config import Settings
 
 logger = logging.getLogger(__name__)
-
-# ---------------------------------------------------------------------------
-# Prompts
-# ---------------------------------------------------------------------------
-
-REPORT_EXTRACTION_PROMPT = """You are extracting structured health facts from a medical
-report analysis. The input is a JSON analysis of a lab report, blood test, or medical image.
-
-Extract each finding as a standalone fact including:
-- The measurement name and value with units
-- Whether the value is normal, elevated, low, or critical
-- The reference range if available
-- The date of the test if available
-
-Format each fact for long-term storage — it should be understandable months from now
-without the original report.
-
-Input:
-{input}
-
-Return: {{"facts": ["fact 1", "fact 2", ...]}}"""
-
 
 # ---------------------------------------------------------------------------
 # MemoryCategory
@@ -321,20 +298,3 @@ class MemoryService:
             deleted += 1
         return deleted
 
-    async def extract_from_report(self, profile_id: UUID, analysis: dict, report_id: str) -> dict:
-        """Extract and store memories from a medical report analysis."""
-        content = self._format_report_for_extraction(analysis)
-        return await asyncio.to_thread(
-            self._mem0.add,
-            content,
-            user_id=str(profile_id),
-            metadata={
-                "category": "lab_results",
-                "source": f"report:{report_id}",
-            },
-            prompt=REPORT_EXTRACTION_PROMPT,
-        )
-
-    @staticmethod
-    def _format_report_for_extraction(analysis: dict) -> str:
-        return json.dumps(analysis, indent=2, default=str)

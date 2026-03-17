@@ -977,11 +977,12 @@ class TestDeleteSession:
         resp3 = await client.get(f"/api/v1/profiles/{pid}/diagnosis/{session_id}")
         assert resp3.status_code == 404
 
-        # Verify memory service was called for both source prefixes
+        # Verify memory service was called for all source prefixes (incl. legacy)
         calls = mock_mem_svc.delete_by_source.call_args_list
-        assert len(calls) == 2
+        assert len(calls) == 3
         assert calls[0] == ((uuid.UUID(str(pid)), f"diagnosis:{session_id}:narrative"), )
         assert calls[1] == ((uuid.UUID(str(pid)), f"diagnosis:{session_id}:agent"), )
+        assert calls[2] == ((uuid.UUID(str(pid)), f"diagnosis:{session_id}"), )
 
         app.dependency_overrides.pop(get_memory_service, None)
 
