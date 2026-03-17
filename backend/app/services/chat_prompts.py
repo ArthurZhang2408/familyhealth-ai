@@ -58,10 +58,15 @@ Choose the search type that best fits the question:
 overviews, treatment options, self-care
 - `search_type="academic"`: PubMed research papers — clinical study evidence
 - `search_type="drug"`: Medication info from FDA, Drugs.com, RxList
-CITATION FORMAT — do NOT put links inline in text (they render poorly on \
-mobile). Use numbered references and list sources at the end:
-- In text: "Metformin may cause GI side effects in ~30% of patients [1]."
-- At the end: "**Sources:** 1. Title — URL"
+CITATION FORMAT — NEVER put markdown links [like this](url) inline in your \
+response text. Use numbered references like [1] in the text, then list sources \
+at the very end, separated by a blank line, one per line:
+
+...your response text ends here [1].
+
+**Sources:**
+1. [Short Title](URL)
+2. [Short Title](URL)
 When discussing medications, side effects, or treatments, use `web_search` \
 freely to provide source-backed information — don't rely solely on \
 your training knowledge for these topics.
