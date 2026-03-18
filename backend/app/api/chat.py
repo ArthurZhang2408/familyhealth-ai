@@ -156,7 +156,11 @@ async def send_message_stream(
         last_event_type = None
         try:
             while True:
-                item = await queue.get()
+                try:
+                    item = await asyncio.wait_for(queue.get(), timeout=30)
+                except asyncio.TimeoutError:
+                    yield ": keepalive\n\n"
+                    continue
                 if item is _SENTINEL:
                     break
                 event: AgentEvent = item  # type: ignore[assignment]
