@@ -395,9 +395,11 @@ class AgentCore:
                     },
                 )
 
-                # Check if this tool is terminal (stops the agent loop)
+                # Check if this tool is terminal (stops the agent loop).
+                # Only honour terminal flag on success — errors are fed
+                # back so the LLM can retry with correct arguments.
                 tool_def = self._tools.get(tc.name)
-                if tool_def and tool_def.terminal:
+                if tool_def and tool_def.terminal and not result.is_error:
                     hit_terminal = True
                     break
 
