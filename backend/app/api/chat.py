@@ -1,7 +1,5 @@
 import asyncio
-import json
 import logging
-import time
 from uuid import UUID
 
 from fastapi import (
@@ -26,6 +24,7 @@ from app.api.deps import (
     get_memory_service,
     get_verified_profile,
 )
+from app.api.stream_helpers import sse_response
 from app.api.upload_helpers import read_image_parts
 from app.core.database import async_session_factory, get_db
 from app.models.chat import ChatConversation
@@ -149,51 +148,7 @@ async def send_message_stream(
     # Task owns its own db session — survives request/client lifecycle
     asyncio.create_task(_process())
 
-    async def event_generator():
-        stream_start = time.monotonic()
-        events_sent = 0
-        client_disconnected = False
-        last_event_type = None
-        try:
-            while True:
-                try:
-                    item = await asyncio.wait_for(queue.get(), timeout=30)
-                except asyncio.TimeoutError:
-                    yield ": keepalive\n\n"
-                    continue
-                if item is _SENTINEL:
-                    break
-                event: AgentEvent = item  # type: ignore[assignment]
-                last_event_type = event.type.value
-                payload = {"type": event.type.value, **event.data}
-                yield f"data: {json.dumps(payload)}\n\n"
-                events_sent += 1
-        except asyncio.CancelledError:
-            client_disconnected = True
-        finally:
-            elapsed = int((time.monotonic() - stream_start) * 1000)
-            if client_disconnected:
-                _stream_logger.warning(
-                    "SSE client disconnected after %dms (%d events sent, last=%s)",
-                    elapsed,
-                    events_sent,
-                    last_event_type,
-                )
-            else:
-                _stream_logger.info(
-                    "SSE stream completed in %dms (%d events sent)",
-                    elapsed,
-                    events_sent,
-                )
-
-    return StreamingResponse(
-        event_generator(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-        },
-    )
+    return sse_response(queue, _SENTINEL, _stream_logger)
 
 
 @router.get("", response_model=PaginatedResponse[ChatConversationResponse])
