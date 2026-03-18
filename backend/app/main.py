@@ -32,18 +32,19 @@ def _setup_logging() -> None:
     for handler in root.handlers:
         handler.setFormatter(formatter)
 
-    # Add rotating file handler
-    log_dir = settings.log_dir
-    os.makedirs(log_dir, exist_ok=True)
-    file_handler = RotatingFileHandler(
-        os.path.join(log_dir, "familyhealth.log"),
-        maxBytes=10 * 1024 * 1024,  # 10 MB
-        backupCount=5,
-        encoding="utf-8",
-    )
-    file_handler.setLevel(level)
-    file_handler.setFormatter(formatter)
-    root.addHandler(file_handler)
+    # Add rotating file handler (local/dev only — Railway containers are ephemeral)
+    if settings.app_env != "production":
+        log_dir = settings.log_dir
+        os.makedirs(log_dir, exist_ok=True)
+        file_handler = RotatingFileHandler(
+            os.path.join(log_dir, "familyhealth.log"),
+            maxBytes=10 * 1024 * 1024,  # 10 MB
+            backupCount=5,
+            encoding="utf-8",
+        )
+        file_handler.setLevel(level)
+        file_handler.setFormatter(formatter)
+        root.addHandler(file_handler)
 
 
 _setup_logging()
