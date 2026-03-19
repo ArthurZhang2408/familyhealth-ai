@@ -1,5 +1,4 @@
 import logging
-import sys
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -26,6 +25,7 @@ class Settings(BaseSettings):
     gemini_diagnosis_model: str = "gemini-2.5-flash"
     gemini_report_model: str = "gemini-2.5-flash"
     gemini_flash_model: str = "gemini-2.5-flash-lite"
+    gemini_flash_lite_new_model: str = "gemini-3.1-flash-lite-preview"
 
     # LLM — Qwen via Ollama Cloud (dev/fallback)
     qwen_api_key: str = ""
@@ -101,8 +101,9 @@ class Settings(BaseSettings):
         if not self.allowed_origins:
             missing.append("ALLOWED_ORIGINS")
         if missing:
-            logger.critical("Production startup blocked — missing required config: %s", missing)
-            sys.exit(1)
+            raise RuntimeError(
+                f"Production startup blocked — missing required config: {missing}"
+            )
 
 
 settings = Settings()

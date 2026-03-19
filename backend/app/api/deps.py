@@ -116,48 +116,37 @@ def get_llm_router() -> LLMRouter:
         # Models: gemini-3-flash-preview (10K RPD) > gemini-2.5-flash (10K RPD)
         #       > gemini-3.1-flash-lite-preview (150K RPD) > gemini-2.5-flash-lite (unlimited RPD)
         _G = "gemini"
-        _DIAG_MODEL = settings.gemini_diagnosis_model  # e.g. gemini-3-flash-preview
-        _REPORT_MODEL = settings.gemini_report_model  # e.g. gemini-2.5-flash
-        _FLASH = settings.gemini_report_model  # stable flash (same as report default)
-        _FLASH_LITE_NEW = "gemini-3.1-flash-lite-preview"
-        _FLASH_LITE = settings.gemini_flash_model  # e.g. gemini-2.5-flash-lite
+        _DIAG = settings.gemini_diagnosis_model  # e.g. gemini-3-flash-preview
+        _REPORT = settings.gemini_report_model  # e.g. gemini-2.5-flash
+        _LITE_NEW = settings.gemini_flash_lite_new_model  # e.g. gemini-3.1-flash-lite-preview
+        _LITE = settings.gemini_flash_model  # e.g. gemini-2.5-flash-lite
+
+        # Shared chain: cheapest first, upgrade if rate-limited
+        _cheap_chain = [
+            RouteOption(_G, _LITE),
+            RouteOption(_G, _LITE_NEW),
+            RouteOption(_G, _REPORT),
+        ]
 
         fallback_chains: dict[LLMTask, list[RouteOption]] = {
             # High-stakes: best model first, degrade through cheaper ones
             LLMTask.DIAGNOSIS: [
-                RouteOption(_G, _DIAG_MODEL),
-                RouteOption(_G, _FLASH),
-                RouteOption(_G, _FLASH_LITE_NEW),
-                RouteOption(_G, _FLASH_LITE),
+                RouteOption(_G, _DIAG),
+                RouteOption(_G, _REPORT),
+                RouteOption(_G, _LITE_NEW),
+                RouteOption(_G, _LITE),
             ],
             LLMTask.REPORT_ANALYSIS: [
-                RouteOption(_G, _REPORT_MODEL),
-                RouteOption(_G, _DIAG_MODEL),
-                RouteOption(_G, _FLASH_LITE_NEW),
-                RouteOption(_G, _FLASH_LITE),
+                RouteOption(_G, _REPORT),
+                RouteOption(_G, _DIAG),
+                RouteOption(_G, _LITE_NEW),
+                RouteOption(_G, _LITE),
             ],
-            # Medium-stakes: start with flash-lite, upgrade if needed
-            LLMTask.CHAT: [
-                RouteOption(_G, _FLASH_LITE),
-                RouteOption(_G, _FLASH_LITE_NEW),
-                RouteOption(_G, _FLASH),
-            ],
-            LLMTask.SUMMARIZATION: [
-                RouteOption(_G, _FLASH_LITE),
-                RouteOption(_G, _FLASH_LITE_NEW),
-                RouteOption(_G, _FLASH),
-            ],
-            LLMTask.FACT_EXTRACTION: [
-                RouteOption(_G, _FLASH_LITE),
-                RouteOption(_G, _FLASH_LITE_NEW),
-                RouteOption(_G, _FLASH),
-            ],
-            # Low-stakes: cheapest first
-            LLMTask.TOPIC_GENERATION: [
-                RouteOption(_G, _FLASH_LITE),
-                RouteOption(_G, _FLASH_LITE_NEW),
-                RouteOption(_G, _FLASH),
-            ],
+            # All other tasks: cheapest first
+            LLMTask.CHAT: _cheap_chain,
+            LLMTask.SUMMARIZATION: _cheap_chain,
+            LLMTask.FACT_EXTRACTION: _cheap_chain,
+            LLMTask.TOPIC_GENERATION: _cheap_chain,
         }
 
         _llm_router = LLMRouter(
