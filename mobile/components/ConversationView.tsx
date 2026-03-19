@@ -304,6 +304,9 @@ function ErrorBanner({ error, onDismiss }: { error: SendError; onDismiss?: () =>
   const [countdown, setCountdown] = useState(error.retryAfter ?? 0);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  const onDismissRef = useRef(onDismiss);
+  onDismissRef.current = onDismiss;
+
   useEffect(() => {
     if (!error.retryAfter) return;
     setCountdown(error.retryAfter);
@@ -311,21 +314,25 @@ function ErrorBanner({ error, onDismiss }: { error: SendError; onDismiss?: () =>
       setCountdown((c) => {
         if (c <= 1) {
           if (intervalRef.current) clearInterval(intervalRef.current);
-          onDismiss?.();
           return 0;
         }
         return c - 1;
       });
     }, 1000);
     return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
-  }, [error.retryAfter, onDismiss]);
+  }, [error.retryAfter]);
+
+  // Dismiss when countdown reaches 0
+  useEffect(() => {
+    if (countdown === 0 && error.retryAfter) onDismissRef.current?.();
+  }, [countdown, error.retryAfter]);
 
   // Auto-dismiss non-countdown errors after 5s
   useEffect(() => {
     if (error.retryAfter) return;
-    const t = setTimeout(() => onDismiss?.(), 5000);
+    const t = setTimeout(() => onDismissRef.current?.(), 5000);
     return () => clearTimeout(t);
-  }, [error.retryAfter, onDismiss]);
+  }, [error.retryAfter]);
 
   const handleDismiss = useCallback(() => {
     if (intervalRef.current) clearInterval(intervalRef.current);
