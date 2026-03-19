@@ -118,9 +118,9 @@ def get_llm_router() -> LLMRouter:
         _G = "gemini"
         _DIAG_MODEL = settings.gemini_diagnosis_model  # e.g. gemini-3-flash-preview
         _REPORT_MODEL = settings.gemini_report_model  # e.g. gemini-2.5-flash
-        _FLASH = "gemini-2.5-flash"
+        _FLASH = settings.gemini_report_model  # stable flash (same as report default)
         _FLASH_LITE_NEW = "gemini-3.1-flash-lite-preview"
-        _FLASH_LITE = "gemini-2.5-flash-lite"
+        _FLASH_LITE = settings.gemini_flash_model  # e.g. gemini-2.5-flash-lite
 
         fallback_chains: dict[LLMTask, list[RouteOption]] = {
             # High-stakes: best model first, degrade through cheaper ones

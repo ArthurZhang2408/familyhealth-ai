@@ -91,6 +91,7 @@ async def _purge_old_traces() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger.info("FamilyHealth AI backend starting up (env=%s)", settings.app_env)
+    settings.validate_prod_secrets()
     await _purge_old_traces()
     yield
     await engine.dispose()

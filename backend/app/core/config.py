@@ -106,4 +106,3 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
-settings.validate_prod_secrets()

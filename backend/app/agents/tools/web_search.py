@@ -88,7 +88,7 @@ def build_web_search_tool(
 
         logger.info("DDG + LangSearch both returned 0 results, trying Tavily")
 
-        # 3. Tavily (1,000/mo — good quality, native domain filtering)
+        # 2. Tavily (1,000/mo — good quality, native domain filtering)
         if tavily:
             results = await tavily.search(
                 query, max_results=max_results, allowed_domains=domains
@@ -98,8 +98,7 @@ def build_web_search_tool(
                 return results
             logger.info("Tavily returned 0 results, trying Serper")
 
-        # 4. Serper (7,500 total non-renewable — last resort)
-        #    Over-fetches 10 results, filters to medical domains
+        # 3. Serper (7,500 total non-renewable — last resort)
         if serper and serper.available:
             results = await serper.search(
                 query, max_results=max_results, allowed_domains=domains
