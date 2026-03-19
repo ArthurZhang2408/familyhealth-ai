@@ -571,7 +571,7 @@ class ChatService:
         try:
             prompt = TOPIC_EXTRACTION_PROMPT.format(message=first_message)
             request = LLMRequest(
-                task=LLMTask.SUMMARIZATION,
+                task=LLMTask.TOPIC_GENERATION,
                 system_prompt="You generate short topic labels for conversations.",
                 messages=[LLMMessage(role="user", content=prompt)],
                 temperature=0.3,

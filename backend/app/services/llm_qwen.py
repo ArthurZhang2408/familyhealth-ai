@@ -169,7 +169,7 @@ class QwenProvider(LLMProvider):
         messages = self._build_messages(request)
 
         kwargs: dict = {
-            "model": self._model,
+            "model": request.model or self._model,
             "messages": messages,
             "temperature": request.temperature,
         }
@@ -240,7 +240,7 @@ class QwenProvider(LLMProvider):
         messages = self._build_messages(request)
 
         kwargs: dict = {
-            "model": self._model,
+            "model": request.model or self._model,
             "messages": messages,
             "temperature": request.temperature,
             "stream": True,

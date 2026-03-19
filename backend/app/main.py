@@ -6,12 +6,24 @@ from logging.handlers import RotatingFileHandler
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 
 from app.api import action_log, auth, chat, debug, diagnosis, memory, profiles, reports
 from app.core.config import settings
 from app.core.database import engine
 from app.core.exceptions import AppError, app_error_handler
 from app.core.middleware import RequestIDFilter, RequestIDFormatter, RequestLoggingMiddleware
+from app.core.rate_limit import limiter
+
+if settings.sentry_dsn:
+    import sentry_sdk
+
+    sentry_sdk.init(
+        dsn=settings.sentry_dsn,
+        environment=settings.app_env,
+        traces_sample_rate=0.1,  # 10% of requests get performance tracing
+    )
 
 
 def _setup_logging() -> None:
@@ -50,9 +62,36 @@ _setup_logging()
 logger = logging.getLogger(__name__)
 
 
+async def _purge_old_traces() -> None:
+    """Delete LLM traces older than the configured retention period."""
+    from datetime import datetime, timedelta, timezone
+
+    from sqlalchemy import text
+
+    from app.core.database import async_session_factory
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=settings.llm_trace_retention_days)
+    try:
+        async with async_session_factory() as session:
+            result = await session.execute(
+                text("DELETE FROM llm_traces WHERE created_at < :cutoff"),
+                {"cutoff": cutoff},
+            )
+            await session.commit()
+            if result.rowcount:
+                logger.info(
+                    "Purged %d LLM traces older than %d days",
+                    result.rowcount,
+                    settings.llm_trace_retention_days,
+                )
+    except Exception:
+        logger.warning("LLM trace purge failed", exc_info=True)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger.info("FamilyHealth AI backend starting up (env=%s)", settings.app_env)
+    await _purge_old_traces()
     yield
     await engine.dispose()
     logger.info("FamilyHealth AI backend shut down")
@@ -68,9 +107,11 @@ app = FastAPI(
 origins = (
     ["*"]
     if settings.app_env == "development"
-    else settings.allowed_origins.split(",") if settings.allowed_origins else []
+    else [o.strip() for o in settings.allowed_origins.split(",") if o.strip()]
 )
 
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_exception_handler(AppError, app_error_handler)
 
 app.add_middleware(RequestLoggingMiddleware)

@@ -46,12 +46,28 @@ async def test_llm_router_routes_diagnosis_to_gemini() -> None:
 
 
 @pytest.mark.asyncio
-async def test_llm_router_routes_chat_to_qwen() -> None:
+async def test_llm_router_routes_chat_to_gemini_by_default() -> None:
+    gemini = AsyncMock(spec=LLMProvider)
+    gemini.generate.return_value = LLMResponse(content="hi", model="gemini-2.5-flash-lite", usage={})
+    qwen = AsyncMock(spec=LLMProvider)
+
+    router = _make_router(gemini=gemini, qwen=qwen)
+    await router.route(_make_request(LLMTask.CHAT))
+
+    gemini.generate.assert_awaited_once()
+    qwen.generate.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_llm_router_env_override_routes_chat_to_qwen() -> None:
     gemini = AsyncMock(spec=LLMProvider)
     qwen = AsyncMock(spec=LLMProvider)
     qwen.generate.return_value = LLMResponse(content="hi", model="qwen3.5:397b", usage={})
 
-    router = _make_router(gemini=gemini, qwen=qwen)
+    router = LLMRouter(
+        {"gemini": gemini, "qwen": qwen},
+        route_overrides={LLMTask.CHAT: "qwen"},
+    )
     await router.route(_make_request(LLMTask.CHAT))
 
     qwen.generate.assert_awaited_once()
@@ -110,7 +126,7 @@ def test_gemini_provider_model_selection() -> None:
     assert provider._select_model(LLMTask.DIAGNOSIS) == "gemini-2.5-flash"
     assert provider._select_model(LLMTask.REPORT_ANALYSIS) == "gemini-2.5-flash"
     assert provider._select_model(LLMTask.CHAT) == "gemini-2.5-flash-lite"
-    assert provider._select_model(LLMTask.MEMORY_EXTRACTION) == "gemini-2.5-flash-lite"
+    assert provider._select_model(LLMTask.TOPIC_GENERATION) == "gemini-2.5-flash-lite"
 
 
 # ── QwenProvider tests ──────────────────────────────────────────────────────

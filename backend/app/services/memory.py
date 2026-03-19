@@ -38,15 +38,19 @@ class MemoryCategory(StrEnum):
 
 
 def build_mem0_config(settings: Settings) -> dict:
-    """Build the full Mem0 configuration dict from application settings."""
+    """Build the full Mem0 configuration dict from application settings.
+
+    Note: The ``llm`` block is required by Mem0 at init time, but never
+    actually invoked — all saves use ``infer=False``.  We point it at Gemini
+    so it doesn't need a separate API key.
+    """
     return {
         "version": "v1.1",
         "llm": {
-            "provider": "openai",
+            "provider": "gemini",
             "config": {
-                "model": settings.mem0_model,
-                "api_key": settings.qwen_api_key,
-                "openai_base_url": settings.qwen_base_url,
+                "model": settings.gemini_flash_model,
+                "api_key": settings.gemini_api_key,
                 "temperature": 0.1,
                 "max_tokens": 2000,
             },
