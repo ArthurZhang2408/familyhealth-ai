@@ -1,9 +1,15 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
-import { Alert, AppState, FlatList } from 'react-native';
+import { AppState, FlatList } from 'react-native';
 import { useAttachMenu, type Attachment } from '@/hooks/useAttachMenu';
 import { logger } from '@/services/logger';
 import type { StreamEvent, AgentStep, MessagePart } from '@/types/api';
+import { RateLimitError } from '@/services/api';
 import type { StreamHandle } from '@/services/api';
+
+export interface SendError {
+  message: string;
+  retryAfter?: number;
+}
 
 export interface LocalMessage {
   id: string;
@@ -28,6 +34,7 @@ function toolMessage(name: string): string {
   return `${TOOL_LABELS[name] ?? `Using ${name.replace(/_/g, ' ')}`}...`;
 }
 
+
 export type StreamSendFn = (
   text: string,
   onEvent: (event: StreamEvent) => void,
@@ -51,6 +58,7 @@ export function useConversation({ serverMessages, streamSendFn, dedupMode, onSen
   const [pendingAttachment, setPendingAttachment] = useState<Attachment | null>(null);
   const [isSending, setIsSending] = useState(false);
   const [sendErrorCount, setSendErrorCount] = useState(0);
+  const [sendError, setSendError] = useState<SendError | null>(null);
   const [awaitingServer, setAwaitingServer] = useState(false);
   const [streamingContent, setStreamingContent] = useState('');
   const [thinkingContent, setThinkingContent] = useState('');
@@ -261,6 +269,7 @@ export function useConversation({ serverMessages, streamSendFn, dedupMode, onSen
       setPendingMessages((prev) => [...prev, userMsg]);
 
       setIsSending(true);
+      setSendError(null);
       setStreamingContent('');
       streamingContentRef.current = '';
       agentStepsRef.current = [];
@@ -345,10 +354,12 @@ export function useConversation({ serverMessages, streamSendFn, dedupMode, onSen
               { id: (Date.now() + 1).toString(), role: 'assistant', content: partial },
             ]);
           } else {
-            // No content received — show user-friendly error
-            const message = err instanceof Error ? err.message : 'Something went wrong';
-            Alert.alert('Could not send', message);
-            // Remove the pending user message since nothing happened
+            // No content received — show error banner above input, remove pending user message
+            const retryAfter = err instanceof RateLimitError ? err.retryAfter : undefined;
+            const message = err instanceof RateLimitError
+              ? 'You\u2019re sending messages too quickly'
+              : err instanceof Error ? err.message : 'Something went wrong';
+            setSendError({ message, retryAfter });
             setPendingMessages((prev) => prev.filter((m) => m.id !== userMsg.id));
           }
         }
@@ -418,5 +429,7 @@ export function useConversation({ serverMessages, streamSendFn, dedupMode, onSen
     agentSteps,
     isStreaming,
     sendErrorCount,
+    sendError,
+    clearSendError: useCallback(() => setSendError(null), []),
   };
 }

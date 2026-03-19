@@ -255,14 +255,27 @@ function MultiSelect({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const completedSelection = effectiveSelected as string[] | null;
 
+  const isNoneValue = useCallback((v: string) => {
+    const opt = options.find((o) => o.value === v);
+    return opt ? opt.label.toLowerCase().includes('none of') || opt.value.toLowerCase().includes('none') : false;
+  }, [options]);
+
   const toggle = useCallback((value: string) => {
     setSelected((prev) => {
+      if (isNoneValue(value)) {
+        // Toggling "None" — deselect everything else
+        return prev.has(value) ? new Set() : new Set([value]);
+      }
+      // Toggling a regular option — remove "None" if it was selected
       const next = new Set(prev);
+      for (const v of prev) {
+        if (isNoneValue(v)) next.delete(v);
+      }
       if (next.has(value)) next.delete(value);
       else next.add(value);
       return next;
     });
-  }, []);
+  }, [isNoneValue]);
 
   const handleSubmit = useHapticPress(
     useCallback(() => {

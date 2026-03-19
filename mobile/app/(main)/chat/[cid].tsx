@@ -245,6 +245,7 @@ function ChatScreenInner() {
           error={isNew ? null : error}
           refetch={refetch}
           placeholder="Ask a health question…"
+          onDismissError={conv.clearSendError}
         />
       </Animated.View>
     </>

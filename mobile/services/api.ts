@@ -32,7 +32,20 @@ function extractErrorMessage(error: Record<string, unknown>, status: number): st
   if (Array.isArray(detail)) {
     return detail.map((d: { msg?: string }) => d.msg ?? JSON.stringify(d)).join('; ');
   }
+  // slowapi returns { "error": "Rate limit exceeded: ..." }
+  if (typeof error.error === 'string') return error.error;
   return `HTTP ${status}`;
+}
+
+/** Thrown when the server returns HTTP 429. */
+export class RateLimitError extends Error {
+  /** Seconds until the client can retry, from the Retry-After header. */
+  retryAfter: number | undefined;
+  constructor(message: string, retryAfter?: number) {
+    super(message);
+    this.name = 'RateLimitError';
+    this.retryAfter = retryAfter;
+  }
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -51,6 +64,10 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
       const error = await response.json().catch(() => ({ detail: 'Request failed' }));
       const msg = extractErrorMessage(error, response.status);
       logger.error('api', `${method} ${path} ${status}`, { duration_ms: Date.now() - start, rid, error: msg });
+      if (response.status === 429) {
+        const retryAfter = parseInt(response.headers.get('Retry-After') ?? '', 10) || undefined;
+        throw new RateLimitError(msg, retryAfter);
+      }
       throw new Error(msg);
     }
     logger.info('api', `${method} ${path} ${status}`, { duration_ms: Date.now() - start, rid });
@@ -301,7 +318,7 @@ function streamMultipartRequest(
             let detail = `HTTP ${status}`;
             try {
               const body = JSON.parse(xhr!.responseText);
-              detail = body.detail || detail;
+              detail = body.detail || body.error || detail;
             } catch { /* ignore parse failure */ }
             logger.error('stream', `CLOSED ${path}`, {
               duration_ms: Date.now() - streamStart,
@@ -311,7 +328,12 @@ function streamMultipartRequest(
               rid,
               error: detail,
             });
-            reject(new Error(detail));
+            if (status === 429) {
+              const retryAfter = parseInt(xhr!.getResponseHeader('Retry-After') ?? '', 10) || undefined;
+              reject(new RateLimitError(detail, retryAfter));
+            } else {
+              reject(new Error(detail));
+            }
           }
         }
       };

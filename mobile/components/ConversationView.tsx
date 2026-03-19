@@ -1,6 +1,6 @@
-import { RefObject, useEffect } from 'react';
+import { RefObject, useEffect, useCallback, useRef, useState } from 'react';
 import { View, Text, Pressable, FlatList, KeyboardAvoidingView } from 'react-native';
-import Animated, { FadeIn, FadeInUp } from 'react-native-reanimated';
+import Animated, { FadeIn, FadeInUp, FadeOut } from 'react-native-reanimated';
 import { ChatBubble, TypingIndicator } from '@/components/ChatBubble';
 import { ChatInput } from '@/components/ChatInput';
 import { AgentSteps } from '@/components/AgentSteps';
@@ -8,7 +8,7 @@ import { LoadingSpinner } from '@/components/LoadingSpinner';
 import { Icon, type IconName } from '@/components/Icon';
 import { useColors } from '@/hooks/useColors';
 import { Spacing, FontSize, FontWeight, BorderRadius } from '@/constants/theme';
-import type { LocalMessage } from '@/hooks/useConversation';
+import type { LocalMessage, SendError } from '@/hooks/useConversation';
 import type { AgentStep } from '@/types/api';
 import type { Attachment } from '@/hooks/useAttachMenu';
 
@@ -37,6 +37,10 @@ interface ConversationViewProps {
   onStructuredResponse?: (content: string, structuredResponse: Record<string, unknown>) => void;
   /** Incremented on each send error — used to reset StructuredInputView selection. */
   sendErrorCount?: number;
+  /** Active send error to display as a banner above the input. */
+  sendError?: SendError | null;
+  /** Called when the user dismisses the error banner. */
+  onDismissError?: () => void;
 }
 
 export function ConversationView({
@@ -63,6 +67,8 @@ export function ConversationView({
   isStreaming = false,
   onStructuredResponse,
   sendErrorCount = 0,
+  sendError,
+  onDismissError,
 }: ConversationViewProps) {
   const Colors = useColors();
 
@@ -222,6 +228,10 @@ export function ConversationView({
           }}
         />
 
+        {sendError && (
+          <ErrorBanner error={sendError} onDismiss={onDismissError} />
+        )}
+
         <ChatInput
           value={input}
           onChangeText={onChangeText}
@@ -284,6 +294,88 @@ function LiveThinkingCard({ content, Colors }: { content: string; Colors: Return
           {content}
         </Text>
       </View>
+    </Animated.View>
+  );
+}
+
+/** Inline error banner above the input — auto-dismisses, or tap to dismiss. */
+function ErrorBanner({ error, onDismiss }: { error: SendError; onDismiss?: () => void }) {
+  const Colors = useColors();
+  const [countdown, setCountdown] = useState(error.retryAfter ?? 0);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    if (!error.retryAfter) return;
+    setCountdown(error.retryAfter);
+    intervalRef.current = setInterval(() => {
+      setCountdown((c) => {
+        if (c <= 1) {
+          if (intervalRef.current) clearInterval(intervalRef.current);
+          onDismiss?.();
+          return 0;
+        }
+        return c - 1;
+      });
+    }, 1000);
+    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
+  }, [error.retryAfter, onDismiss]);
+
+  // Auto-dismiss non-countdown errors after 5s
+  useEffect(() => {
+    if (error.retryAfter) return;
+    const t = setTimeout(() => onDismiss?.(), 5000);
+    return () => clearTimeout(t);
+  }, [error.retryAfter, onDismiss]);
+
+  const handleDismiss = useCallback(() => {
+    if (intervalRef.current) clearInterval(intervalRef.current);
+    onDismiss?.();
+  }, [onDismiss]);
+
+  return (
+    <Animated.View
+      entering={FadeIn.duration(200)}
+      exiting={FadeOut.duration(150)}
+      style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginHorizontal: Spacing.md,
+        marginBottom: Spacing.sm,
+        paddingHorizontal: Spacing.md,
+        paddingVertical: Spacing.sm,
+        backgroundColor: Colors.errorLight,
+        borderRadius: BorderRadius.lg,
+        borderCurve: 'continuous',
+        gap: Spacing.sm,
+      }}
+    >
+      <Icon name="alert-circle" size={20} color={Colors.error} />
+      <View style={{ flex: 1 }}>
+        <Text
+          style={{
+            fontSize: FontSize.sm,
+            color: Colors.error,
+            fontWeight: FontWeight.semibold,
+          }}
+        >
+          {error.message}
+        </Text>
+        {countdown > 0 && (
+          <Text
+            style={{
+              fontSize: FontSize.xs,
+              color: Colors.error,
+              marginTop: 2,
+              opacity: 0.8,
+            }}
+          >
+            Try again in {countdown}s
+          </Text>
+        )}
+      </View>
+      <Pressable onPress={handleDismiss} hitSlop={8}>
+        <Icon name="close" size={16} color={Colors.error} />
+      </Pressable>
     </Animated.View>
   );
 }
