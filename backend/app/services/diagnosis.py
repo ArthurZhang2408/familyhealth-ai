@@ -1265,7 +1265,7 @@ class DiagnosisService:
                 f"Chief complaint: {chief_complaint}"
             )
             request = LLMRequest(
-                task=LLMTask.SUMMARIZATION,
+                task=LLMTask.TOPIC_GENERATION,
                 system_prompt="You generate short topic labels for medical sessions.",
                 messages=[LLMMessage(role="user", content=prompt)],
                 temperature=0.3,

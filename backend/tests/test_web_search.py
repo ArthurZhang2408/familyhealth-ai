@@ -58,7 +58,7 @@ async def test_tavily_search_success():
 
     assert len(results) == 2
     assert results[0].title == "Metformin Side Effects - Mayo Clinic"
-    assert results[0].source == "www.mayoclinic.org"
+    assert results[0].source == "mayoclinic.org"
     assert results[0].published_date == "2025-01-15"
     assert results[1].url == "https://medlineplus.gov/druginfo/meds/a696005.html"
 
@@ -117,7 +117,7 @@ async def test_tavily_passes_domain_filter():
         mock_client.__aexit__ = AsyncMock(return_value=False)
         mock_client_cls.return_value = mock_client
 
-        await provider.search("test", include_domains=["mayoclinic.org", "cdc.gov"])
+        await provider.search("test", allowed_domains=["mayoclinic.org", "cdc.gov"])
 
         call_args = mock_client.post.call_args
         payload = call_args.kwargs.get("json") or call_args[1].get("json")

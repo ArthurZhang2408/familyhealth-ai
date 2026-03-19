@@ -9,8 +9,11 @@ from fastapi import (
     Form,
     HTTPException,
     Query,
+    Request,
     UploadFile,
 )
+
+from app.core.rate_limit import limiter
 from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -95,7 +98,9 @@ _SENTINEL = object()  # marks end of queue
 
 
 @router.post("/stream")
+@limiter.limit("20/minute")
 async def send_message_stream(
+    request: Request,
     content: str = Form(...),
     conversation_id: UUID | None = Form(None),
     topic: str | None = Form(None),

@@ -13,7 +13,7 @@ from app.core.exceptions import AppError
 from app.core.security import CurrentAccount, get_current_account
 from app.models.profile import Profile
 from app.services.context_builder import ContextBuilder
-from app.services.llm import LLMProvider, LLMRouter
+from app.services.llm import LLMProvider, LLMRouter, RouteOption
 from app.services.memory import MemoryService
 from app.services.memory_extractor import MemoryExtractor
 
@@ -103,7 +103,7 @@ def get_llm_router() -> LLMRouter:
             (LLMTask.CHAT, "llm_route_chat"),
             (LLMTask.DIAGNOSIS, "llm_route_diagnosis"),
             (LLMTask.REPORT_ANALYSIS, "llm_route_report_analysis"),
-            (LLMTask.MEMORY_EXTRACTION, "llm_route_memory_extraction"),
+            (LLMTask.TOPIC_GENERATION, "llm_route_topic_generation"),
             (LLMTask.SUMMARIZATION, "llm_route_summarization"),
             (LLMTask.FACT_EXTRACTION, "llm_route_fact_extraction"),
         ):
@@ -111,7 +111,49 @@ def get_llm_router() -> LLMRouter:
             if val:
                 route_overrides[task] = val
 
-        _llm_router = LLMRouter(providers, route_overrides=route_overrides)
+        # -- Fallback chains: ordered (provider, model) to try per task ------
+        # Degrades from highest-capability to cheapest/highest-rate-limit.
+        # Models: gemini-3-flash-preview (10K RPD) > gemini-2.5-flash (10K RPD)
+        #       > gemini-3.1-flash-lite-preview (150K RPD) > gemini-2.5-flash-lite (unlimited RPD)
+        _G = "gemini"
+        _DIAG = settings.gemini_diagnosis_model  # e.g. gemini-3-flash-preview
+        _REPORT = settings.gemini_report_model  # e.g. gemini-2.5-flash
+        _LITE_NEW = settings.gemini_flash_lite_new_model  # e.g. gemini-3.1-flash-lite-preview
+        _LITE = settings.gemini_flash_model  # e.g. gemini-2.5-flash-lite
+
+        # Shared chain: cheapest first, upgrade if rate-limited
+        _cheap_chain = [
+            RouteOption(_G, _LITE),
+            RouteOption(_G, _LITE_NEW),
+            RouteOption(_G, _REPORT),
+        ]
+
+        fallback_chains: dict[LLMTask, list[RouteOption]] = {
+            # High-stakes: best model first, degrade through cheaper ones
+            LLMTask.DIAGNOSIS: [
+                RouteOption(_G, _DIAG),
+                RouteOption(_G, _REPORT),
+                RouteOption(_G, _LITE_NEW),
+                RouteOption(_G, _LITE),
+            ],
+            LLMTask.REPORT_ANALYSIS: [
+                RouteOption(_G, _REPORT),
+                RouteOption(_G, _DIAG),
+                RouteOption(_G, _LITE_NEW),
+                RouteOption(_G, _LITE),
+            ],
+            # All other tasks: cheapest first
+            LLMTask.CHAT: _cheap_chain,
+            LLMTask.SUMMARIZATION: _cheap_chain,
+            LLMTask.FACT_EXTRACTION: _cheap_chain,
+            LLMTask.TOPIC_GENERATION: _cheap_chain,
+        }
+
+        _llm_router = LLMRouter(
+            providers,
+            route_overrides=route_overrides,
+            fallback_chains=fallback_chains,
+        )
         logger.info("LLM router initialised (%s)", ", ".join(providers))
     return _llm_router
 
@@ -154,7 +196,13 @@ def get_agent_core():
         registry.register(build_present_question_tool())
         registry.register(build_present_assessment_tool())
         registry.register(build_profile_lookup_tool(async_session_factory))
-        registry.register(build_web_search_tool(tavily_api_key=settings.tavily_api_key))
+        serper_keys = [k.strip() for k in settings.serper_api_keys.split(",") if k.strip()]
+        langsearch_keys = [k.strip() for k in settings.langsearch_api_keys.split(",") if k.strip()]
+        registry.register(build_web_search_tool(
+            tavily_api_key=settings.tavily_api_key,
+            serper_api_keys=serper_keys or None,
+            langsearch_api_keys=langsearch_keys or None,
+        ))
 
         _agent_core = AgentCore(
             llm_router=get_llm_router(),

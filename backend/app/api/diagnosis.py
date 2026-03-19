@@ -10,8 +10,11 @@ from fastapi import (
     Form,
     HTTPException,
     Query,
+    Request,
     UploadFile,
 )
+
+from app.core.rate_limit import limiter
 from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -184,7 +187,9 @@ _DIAG_SENTINEL = object()
 
 
 @router.post("/stream")
+@limiter.limit("20/minute")
 async def stream_diagnosis(
+    request: Request,
     content: str = Form(...),
     session_id: UUID | None = Form(None),
     chief_complaint: str | None = Form(None),
@@ -251,7 +256,9 @@ async def stream_diagnosis(
 
 
 @router.post("/{sid}/messages/stream")
+@limiter.limit("20/minute")
 async def send_message_stream(
+    request: Request,
     sid: UUID,
     content: str = Form(...),
     files: list[UploadFile] = File(default=[]),

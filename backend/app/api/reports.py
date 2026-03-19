@@ -1,6 +1,8 @@
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, UploadFile
+
+from app.core.rate_limit import limiter
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -64,7 +66,9 @@ def _infer_file_type(filename: str | None) -> str:
 
 
 @router.post("/upload", response_model=ReportAnalysisResponse, status_code=201)
+@limiter.limit("5/minute")
 async def upload_report(
+    request: Request,
     file: UploadFile,
     background_tasks: BackgroundTasks,
     profile: Profile = Depends(get_verified_profile),

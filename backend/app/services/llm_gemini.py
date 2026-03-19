@@ -110,7 +110,7 @@ class GeminiProvider(LLMProvider):
 
     async def generate(self, request: LLMRequest) -> LLMResponse:
         has_images = any(m.image_parts for m in request.messages if m.image_parts)
-        model = self._select_model(request.task, has_images=has_images)
+        model = request.model or self._select_model(request.task, has_images=has_images)
 
         contents = [
             types.Content(
@@ -162,7 +162,7 @@ class GeminiProvider(LLMProvider):
 
     async def generate_stream(self, request: LLMRequest) -> AsyncIterator[StreamChunk]:
         has_images = any(m.image_parts for m in request.messages if m.image_parts)
-        model = self._select_model(request.task, has_images=has_images)
+        model = request.model or self._select_model(request.task, has_images=has_images)
 
         contents = [
             types.Content(

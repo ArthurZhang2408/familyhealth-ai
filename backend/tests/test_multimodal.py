@@ -278,8 +278,21 @@ class TestRouterAutoUpgrade:
         qwen.generate = AsyncMock(return_value=MagicMock(content="qwen response"))
         return LLMRouter(providers={"gemini": gemini, "qwen": qwen})
 
-    def test_text_only_chat_routes_to_qwen(self) -> None:
+    def test_text_only_chat_routes_to_gemini_by_default(self) -> None:
         router = self._make_router()
+        request = LLMRequest(
+            task=LLMTask.CHAT,
+            system_prompt="test",
+            messages=[LLMMessage(role="user", content="hello")],
+        )
+        provider = router._resolve(request)
+        assert provider == router._providers["gemini"]
+
+    def test_text_only_chat_routes_to_qwen_with_override(self) -> None:
+        router = LLMRouter(
+            providers={"gemini": AsyncMock(), "qwen": AsyncMock()},
+            route_overrides={LLMTask.CHAT: "qwen"},
+        )
         request = LLMRequest(
             task=LLMTask.CHAT,
             system_prompt="test",

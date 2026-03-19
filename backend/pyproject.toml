@@ -20,6 +20,8 @@ dependencies = [
     "google-genai>=1.0,<2",
     "openai>=1.0,<2",
     "tiktoken>=0.8,<1",
+    "slowapi>=0.1,<1",
+    "sentry-sdk[fastapi]>=2,<3",
 ]
 
 [project.optional-dependencies]
