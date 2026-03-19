@@ -373,7 +373,7 @@ function ErrorBanner({ error, onDismiss }: { error: SendError; onDismiss?: () =>
           </Text>
         )}
       </View>
-      <Pressable onPress={handleDismiss} hitSlop={8}>
+      <Pressable onPress={handleDismiss} hitSlop={{ top: 14, bottom: 14, left: 14, right: 14 }}>
         <Icon name="close" size={16} color={Colors.error} />
       </Pressable>
     </Animated.View>

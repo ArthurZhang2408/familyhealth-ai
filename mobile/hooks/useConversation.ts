@@ -34,7 +34,6 @@ function toolMessage(name: string): string {
   return `${TOOL_LABELS[name] ?? `Using ${name.replace(/_/g, ' ')}`}...`;
 }
 
-
 export type StreamSendFn = (
   text: string,
   onEvent: (event: StreamEvent) => void,
