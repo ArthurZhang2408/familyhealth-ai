@@ -218,7 +218,9 @@ class LLMRouter:
     ) -> None:
         self._providers = providers
         self._routing = self._build_routing(providers, route_overrides or {})
-        self._fallback_chains = fallback_chains or {}
+        self._fallback_chains = self._apply_overrides_to_chains(
+            fallback_chains or {}, route_overrides or {}, providers,
+        )
         self._rate_tracker = RateLimitTracker()
         logger.info("LLM routing: %s", {k.value: v for k, v in self._routing.items()})
         if self._fallback_chains:
@@ -227,6 +229,37 @@ class LLMRouter:
                 for k, v in self._fallback_chains.items()
             }
             logger.info("LLM fallback chains: %s", chains_summary)
+
+    @staticmethod
+    def _apply_overrides_to_chains(
+        chains: dict[LLMTask, list[RouteOption]],
+        overrides: dict[LLMTask, str],
+        providers: dict[str, LLMProvider],
+    ) -> dict[LLMTask, list[RouteOption]]:
+        """When a route override changes the provider for a task, drop that
+        task's chain so it falls through to legacy routing instead.
+
+        This ensures ``LLM_ROUTE_CHAT=cerebras`` actually routes to Cerebras
+        rather than being silently overridden by the Gemini-only fallback chain.
+        """
+        if not overrides:
+            return chains
+        result = dict(chains)
+        for task, provider_name in overrides.items():
+            if not provider_name or provider_name not in providers:
+                continue
+            if task in result:
+                # Check if the chain already starts with this provider
+                chain = result[task]
+                if chain and chain[0].provider == provider_name:
+                    continue  # override matches chain — no conflict
+                # Override differs from chain — drop chain, use legacy routing
+                del result[task]
+                logger.info(
+                    "Route override %s=%s differs from chain — using legacy routing",
+                    task.value, provider_name,
+                )
+        return result
 
     def _build_routing(
         self,

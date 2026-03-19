@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import time
 from typing import Any
 
 from app.agents.types import ToolDefinition
@@ -21,10 +20,6 @@ from app.services.web_search import (
 
 logger = logging.getLogger(__name__)
 
-# DuckDuckGo returns 0 results with a fast response (~400ms) when rate-limited,
-# vs ~1400ms for real results.  A genuine "no results" is rare for medical queries.
-_DDG_RATE_LIMIT_THRESHOLD_S = 1.0
-
 
 def build_web_search_tool(
     tavily_api_key: str = "",
@@ -34,10 +29,9 @@ def build_web_search_tool(
     """Create a ToolDefinition that searches the web for medical information.
 
     Fallback chain for general/drug searches:
-      1. DuckDuckGo (unlimited, free)
-      2. LangSearch (3,000/day across 3 keys)
-      3. Serper (7,500 total across 3 keys)
-      4. Tavily (1,000/mo)
+      1. LangSearch + DDG concurrent (merge + dedup by URL)
+      2. Tavily (1,000/mo, native domain filtering)
+      3. Serper (7,500 total, non-renewable — last resort)
     """
 
     ddg = DuckDuckGoSearchProvider()
@@ -61,13 +55,11 @@ def build_web_search_tool(
         max_results: int,
         domains: list[str],
     ) -> list[SearchResult]:
-        """Try providers in order, falling through on rate limits or empty results.
+        """Try providers, falling through on rate limits or empty results.
 
-        Chain: LangSearch → DuckDuckGo → Tavily → Serper
-        - LangSearch first: best snippets (AI summaries), 3,000/day renewable
-        - DDG second: unlimited, but rate-limits under load
-        - Tavily third: 1,000/mo, good quality with native domain filtering
-        - Serper last: 7,500 total (non-renewable), save for when others fail
+        1. LangSearch + DDG fire concurrently, results merged (dedup by URL)
+        2. Tavily (1,000/mo, native domain filtering)
+        3. Serper (7,500 total non-renewable — last resort)
         """
         # 1. LangSearch + DDG concurrently, aggregate and dedup by URL
         ddg_coro = ddg.search(query, max_results=max_results, allowed_domains=domains)
