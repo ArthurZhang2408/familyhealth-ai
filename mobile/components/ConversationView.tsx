@@ -1,4 +1,4 @@
-import { RefObject, useEffect, useCallback, useRef, useState } from 'react';
+import { RefObject, useEffect, useCallback, useMemo, useRef, useState } from 'react';
 import { View, Text, Pressable, FlatList } from 'react-native';
 import Animated, {
   SlideOutUp,
@@ -81,12 +81,14 @@ export function ConversationView({
 }: ConversationViewProps) {
   const Colors = useColors();
 
-  const lastAssistantIndex = allMessages.findLastIndex((m) => m.role === 'assistant');
+  // Inverted FlatList: data newest-first, list renders from the bottom.
+  const reversedMessages = useMemo(() => [...allMessages].reverse(), [allMessages]);
+  const lastAssistantId = allMessages.findLast((m) => m.role === 'assistant')?.id;
 
-  // Auto-scroll when streaming content updates
+  // Auto-scroll to bottom (offset 0 in inverted list) when streaming
   useEffect(() => {
     if (isStreaming || (isBusy && (agentSteps.length > 0 || thinkingContent.length > 0))) {
-      flatListRef.current?.scrollToEnd({ animated: true });
+      flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
     }
   }, [streamingContent, thinkingContent, agentSteps.length, isStreaming, isBusy, flatListRef]);
 
@@ -158,7 +160,8 @@ export function ConversationView({
       >
         <FlatList
           ref={flatListRef}
-          data={allMessages}
+          inverted
+          data={reversedMessages}
           keyExtractor={(m) => m.id}
           contentContainerStyle={{
             padding: Spacing.md,
@@ -167,8 +170,8 @@ export function ConversationView({
             justifyContent: allMessages.length === 0 ? 'center' : 'flex-start',
           }}
           contentInsetAdjustmentBehavior="automatic"
-          renderItem={({ item, index }) => {
-            const isLatestAssistant = item.role === 'assistant' && index === lastAssistantIndex;
+          renderItem={({ item }) => {
+            const isLatestAssistant = item.role === 'assistant' && item.id === lastAssistantId;
             return (
               <ChatBubble
                 content={item.content}
@@ -196,7 +199,7 @@ export function ConversationView({
               </View>
             ) : null
           }
-          ListFooterComponent={
+          ListHeaderComponent={
             allMessages.length > 0 || isBusy ? (
               <>
                 {/* Agent action steps */}
@@ -232,9 +235,6 @@ export function ConversationView({
               </>
             ) : null
           }
-          onLayout={() => {
-            if (allMessages.length > 0) flatListRef.current?.scrollToEnd({ animated: false });
-          }}
         />
 
         {sendError && (
