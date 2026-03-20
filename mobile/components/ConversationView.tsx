@@ -1,6 +1,14 @@
 import { RefObject, useEffect, useCallback, useRef, useState } from 'react';
-import { View, Text, Pressable, FlatList, KeyboardAvoidingView } from 'react-native';
-import Animated, { FadeIn, FadeInUp, FadeOut } from 'react-native-reanimated';
+import { View, Text, Pressable, FlatList } from 'react-native';
+import Animated, {
+  SlideOutUp,
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+  withSequence,
+  withDelay,
+} from 'react-native-reanimated';
+import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { ChatBubble, TypingIndicator } from '@/components/ChatBubble';
 import { ChatInput } from '@/components/ChatInput';
 import { AgentSteps } from '@/components/AgentSteps';
@@ -8,6 +16,7 @@ import { LoadingSpinner } from '@/components/LoadingSpinner';
 import { Icon, type IconName } from '@/components/Icon';
 import { useColors } from '@/hooks/useColors';
 import { Spacing, FontSize, FontWeight, BorderRadius } from '@/constants/theme';
+import { enterSlideUp, enterSlideDown, enterFade, Springs } from '@/constants/animations';
 import type { LocalMessage, SendError } from '@/hooks/useConversation';
 import type { AgentStep } from '@/types/api';
 import type { Attachment } from '@/hooks/useAttachMenu';
@@ -209,7 +218,7 @@ export function ConversationView({
                 {/* Disclaimer after response */}
                 {disclaimer && !isBusy && (
                   <Animated.Text
-                    entering={FadeIn.duration(300)}
+                    entering={enterFade(300)}
                     style={{
                       fontSize: FontSize.xs,
                       color: Colors.textMuted,
@@ -250,7 +259,7 @@ export function ConversationView({
 function LiveThinkingCard({ content, Colors }: { content: string; Colors: ReturnType<typeof useColors> }) {
   return (
     <Animated.View
-      entering={FadeInUp.duration(200)}
+      entering={enterSlideUp()}
       style={{
         borderWidth: 1,
         borderColor: Colors.border,
@@ -298,7 +307,7 @@ function LiveThinkingCard({ content, Colors }: { content: string; Colors: Return
   );
 }
 
-/** Inline error banner above the input — auto-dismisses, or tap to dismiss. */
+/** Inline error banner above the input — slide-down + shake entrance, slide-up dismiss. */
 function ErrorBanner({ error, onDismiss }: { error: SendError; onDismiss?: () => void }) {
   const Colors = useColors();
   const [countdown, setCountdown] = useState(error.retryAfter ?? 0);
@@ -306,6 +315,22 @@ function ErrorBanner({ error, onDismiss }: { error: SendError; onDismiss?: () =>
 
   const onDismissRef = useRef(onDismiss);
   onDismissRef.current = onDismiss;
+
+  // Shake animation on mount
+  const shakeX = useSharedValue(0);
+  useEffect(() => {
+    shakeX.value = withDelay(
+      300,
+      withSequence(
+        withSpring(3, Springs.snappy),
+        withSpring(-3, Springs.snappy),
+        withSpring(0, Springs.snappy),
+      ),
+    );
+  }, [shakeX]);
+  const shakeStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: shakeX.value }],
+  }));
 
   useEffect(() => {
     if (!error.retryAfter) return;
@@ -341,20 +366,23 @@ function ErrorBanner({ error, onDismiss }: { error: SendError; onDismiss?: () =>
 
   return (
     <Animated.View
-      entering={FadeIn.duration(200)}
-      exiting={FadeOut.duration(150)}
-      style={{
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginHorizontal: Spacing.md,
-        marginBottom: Spacing.sm,
-        paddingHorizontal: Spacing.md,
-        paddingVertical: Spacing.sm,
-        backgroundColor: Colors.errorLight,
-        borderRadius: BorderRadius.lg,
-        borderCurve: 'continuous',
-        gap: Spacing.sm,
-      }}
+      entering={enterSlideDown()}
+      exiting={SlideOutUp.springify().damping(20)}
+      style={[
+        shakeStyle,
+        {
+          flexDirection: 'row',
+          alignItems: 'center',
+          marginHorizontal: Spacing.md,
+          marginBottom: Spacing.sm,
+          paddingHorizontal: Spacing.md,
+          paddingVertical: Spacing.sm,
+          backgroundColor: Colors.errorLight,
+          borderRadius: BorderRadius.lg,
+          borderCurve: 'continuous',
+          gap: Spacing.sm,
+        },
+      ]}
     >
       <Icon name="alert-circle" size={20} color={Colors.error} />
       <View style={{ flex: 1 }}>

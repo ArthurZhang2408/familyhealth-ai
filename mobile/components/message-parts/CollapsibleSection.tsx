@@ -1,8 +1,17 @@
-import { useState, type ReactNode } from 'react';
+import { useState } from 'react';
 import { View, Text, Pressable } from 'react-native';
+import Animated, {
+  FadeIn,
+  FadeOut,
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+} from 'react-native-reanimated';
 import { useColors } from '@/hooks/useColors';
 import { Spacing, FontSize, FontWeight, BorderRadius } from '@/constants/theme';
 import { Icon, type IconName } from '@/components/Icon';
+import { Springs } from '@/constants/animations';
+import type { ReactNode } from 'react';
 
 export function CollapsibleSection({
   icon,
@@ -17,6 +26,17 @@ export function CollapsibleSection({
 }) {
   const Colors = useColors();
   const [expanded, setExpanded] = useState(defaultExpanded);
+  const rotation = useSharedValue(defaultExpanded ? 180 : 0);
+
+  const chevronStyle = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${rotation.value}deg` }],
+  }));
+
+  const toggle = () => {
+    const next = !expanded;
+    setExpanded(next);
+    rotation.value = withSpring(next ? 180 : 0, Springs.snappy);
+  };
 
   return (
     <View
@@ -30,7 +50,7 @@ export function CollapsibleSection({
       }}
     >
       <Pressable
-        onPress={() => setExpanded((p) => !p)}
+        onPress={toggle}
         style={{
           flexDirection: 'row',
           alignItems: 'center',
@@ -51,12 +71,18 @@ export function CollapsibleSection({
         >
           {label}
         </Text>
-        <Icon name={expanded ? 'chevron-up' : 'chevron-down'} size={12} color={Colors.textMuted} />
+        <Animated.View style={chevronStyle}>
+          <Icon name="chevron-down" size={12} color={Colors.textMuted} />
+        </Animated.View>
       </Pressable>
       {expanded && (
-        <View style={{ padding: Spacing.sm, backgroundColor: Colors.surfaceSecondary }}>
+        <Animated.View
+          entering={FadeIn.duration(200)}
+          exiting={FadeOut.duration(150)}
+          style={{ padding: Spacing.sm, backgroundColor: Colors.surfaceSecondary }}
+        >
           {children}
-        </View>
+        </Animated.View>
       )}
     </View>
   );

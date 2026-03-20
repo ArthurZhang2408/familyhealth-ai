@@ -41,6 +41,7 @@ AI-powered diagnosis, medical report analysis, and health chat.
 - **Message parts**: Messages persist `content_parts` JSONB (text, image, tool_call, tool_result, agent_steps, memory_context, thinking, structured_input). `ChatBubble` renders rich parts via `components/message-parts/` sub-components. Falls back to plain `content` text when no parts
 - **Structured inputs**: `StructuredInputView` renders interactive questions (multiple_choice, scale, yes_no, multi_select). Interactive when unanswered on latest assistant message; completed state when answered. `onStructuredResponse` callback flows through `ConversationView` → `useConversation.doSend`
 - **Image caching**: `ImagePartView` uses `expo-image` with `cachePolicy="disk"` for persistent local caching
+- **Animation system**: Centralized `constants/animations.ts` with spring presets (`Springs.snappy/gentle/bouncy/heavy/interactive`), timing presets (`Timings.fadeIn/fadeOut/colorShift`), layout animation factories (`enterSlideUp/Down`, `enterFade/exitFade`, `enterBounce`, `staggerDelay`). `clampedSpring()` for 0-1 progress values. Reduced motion accessibility gate via `AccessibilityInfo` listener — spring factories degrade to fade-only. `useShimmer()` hook for skeleton loading pulse. `react-native-keyboard-controller` wraps app root (`KeyboardProvider`) for frame-synced keyboard animations
 - **Design system**: See `.interface-design/system.md` for full design system documentation
 - **Key constraint**: Use `ScrollView` not `FlatList` inside formSheet modals (Expo bug)
 
@@ -112,6 +113,7 @@ The diagnosis agent uses hypothesis-driven reasoning with structured Q&A:
 - **Profile switch 404 fix**: ✅ Done (PR #27). Synchronous `pidChanged` guard in chat/diagnosis screens prevents stale queries when Drawer keeps screens mounted
 - **Dev build migration & auth hardening**: ✅ Done (PR #28). Expo Go → dev builds (`expo-dev-client`), bundle ID `com.salk.ai`, Apple Sign In re-enabled (paid dev account). Auth guards on all query hooks, profile cleared on user change, `_hydrated` flag prevents empty-state flashes. Replaced `NoProfileGuard` + `profile-picker` with inline welcome screen. Layout clears active profile when all profiles deleted
 - **Frontend UX fixes**: ✅ Done (PR #34). 429 rate limit: `RateLimitError` + `ErrorBanner` above input with countdown (replaces `Alert.alert`). Strip `[Thinking: ...]` from LLM responses at render time. Multi-select "None of the above" deselects others. Profile edit syncs Zustand `activeProfile` immediately. Backend enables `Retry-After` header (delta-seconds) + CORS expose
+- **Spring animation system**: ✅ Done (PR #35). Centralized `constants/animations.ts` with 5 spring presets, 3 timing presets, layout animation factories. Migrated 15 components from hardcoded `withTiming` to spring presets. Micro-interactions: message long-press squeeze, option card scale pop, send button spring, typing dot pulse, error banner slide+shake, skeleton shimmer, collapsible section fade+chevron rotation, attachment slide-in/fade-out. `react-native-keyboard-controller` for frame-synced keyboard. ProfilePill uses clamped springs + double-tap guard. Reduced motion accessibility gate. Screen-to-screen navigation transitions NOT included (Expo Router Stack/Drawer defaults)
 
 ### Debugging & Logging Infrastructure (PR #27)
 - **Server logs**: `logs/familyhealth.log` (RotatingFileHandler, 10MB, 5 backups). Every log line includes `request_id` for correlation
@@ -145,3 +147,5 @@ The diagnosis agent uses hypothesis-driven reasoning with structured Q&A:
 - Chat/diagnosis endpoints use `Form()` + `File()` (multipart), NOT `json` body — tests must use `data=` not `json=`
 - ALWAYS use `!data` (not `isLoading`) to gate loading states — React Query's `isLoading` is false when queries are disabled, causing empty state flashes
 - ALWAYS check `useProfileStore._hydrated` before showing empty/guard states that depend on `activeProfile` — Zustand persist hydration is async
+- ALWAYS use `Springs`/`Timings` presets and layout factories from `constants/animations.ts` — never hardcode `withTiming` durations or `withSpring` configs inline
+- ALWAYS use `withSequence` when chaining spring animations on the same shared value — sequential assignments cancel the previous animation

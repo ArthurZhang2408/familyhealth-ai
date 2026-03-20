@@ -6,7 +6,8 @@ import { Icon, IconName } from '@/components/Icon';
 import { useRouter, usePathname } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { DrawerContentComponentProps } from '@react-navigation/drawer';
-import Animated, { FadeIn, FadeInDown, FadeInUp } from 'react-native-reanimated';
+import Animated from 'react-native-reanimated';
+import { enterSlideDown, enterSlideUp, enterFade, staggerDelay } from '@/constants/animations';
 import * as Haptics from 'expo-haptics';
 import { useProfileStore } from '@/stores/profile';
 import { useAuthStore } from '@/stores/auth';
@@ -201,7 +202,7 @@ export function SidebarContent({ navigation }: DrawerContentComponentProps) {
                 </Text>
               ) : (
                 conversations.slice(0, 10).map((c, i) => (
-                  <Animated.View key={c.id} entering={FadeInDown.delay(i * 30).duration(200)}>
+                  <Animated.View key={c.id} entering={enterSlideDown(staggerDelay(i))}>
                     <SidebarItem
                       title={c.topic || 'New conversation'}
                       active={pathname.includes(`/chat/${c.id}`)}
@@ -228,7 +229,7 @@ export function SidebarContent({ navigation }: DrawerContentComponentProps) {
                 </Text>
               ) : (
                 activeSessions.slice(0, 10).map((s, i) => (
-                  <Animated.View key={s.id} entering={FadeInDown.delay(i * 30).duration(200)}>
+                  <Animated.View key={s.id} entering={enterSlideDown(staggerDelay(i))}>
                     <SidebarItem
                       title={s.title || s.chief_complaint}
                       active={pathname.includes(`/diagnosis/${s.id}`)}
@@ -255,7 +256,7 @@ export function SidebarContent({ navigation }: DrawerContentComponentProps) {
                 </Text>
               ) : (
                 reports.slice(0, 20).map((r, i) => (
-                  <Animated.View key={r.id} entering={FadeInDown.delay(i * 30).duration(200)}>
+                  <Animated.View key={r.id} entering={enterSlideDown(staggerDelay(i))}>
                     <SidebarItem
                       title={r.original_filename}
                       active={pathname.includes(`/report/${r.id}`)}
@@ -338,13 +339,13 @@ function ContextMenuOverlay({
     <Modal transparent statusBarTranslucent animationType="none">
       <View style={StyleSheet.absoluteFill}>
         {/* Dim scrim */}
-        <Animated.View entering={FadeIn.duration(200)} style={StyleSheet.absoluteFill}>
+        <Animated.View entering={enterFade()} style={StyleSheet.absoluteFill}>
           <Pressable onPress={onDismiss} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)' }} />
         </Animated.View>
 
         {/* Highlighted item — floating card at measured position */}
         <Animated.View
-          entering={FadeIn.duration(200)}
+          entering={enterFade()}
           style={{
             position: 'absolute',
             top: menu.y,
@@ -376,7 +377,7 @@ function ContextMenuOverlay({
 
         {/* Menu card — iOS-style rounded blur card */}
         <Animated.View
-          entering={FadeInUp.duration(250).damping(20).stiffness(200)}
+          entering={enterSlideUp()}
           style={{
             position: 'absolute',
             top: menuTop,

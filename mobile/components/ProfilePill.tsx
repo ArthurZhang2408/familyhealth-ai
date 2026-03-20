@@ -12,14 +12,10 @@ import {
 import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import Animated, {
-  FadeIn,
-  FadeInUp,
   useSharedValue,
   useAnimatedStyle,
-  withTiming,
-  withDelay,
+  withSpring,
   runOnJS,
-  Easing,
 } from 'react-native-reanimated';
 import { BlurView } from 'expo-blur';
 import { Icon, type IconName } from '@/components/Icon';
@@ -30,6 +26,7 @@ import { useColors } from '@/hooks/useColors';
 import { useHeaderScale } from '@/hooks/useHeaderScale';
 import { FontWeight, Spacing, FontSize, BorderRadius } from '@/constants/theme';
 import { useShadow } from '@/hooks/useShadow';
+import { Springs, clampedSpring, enterSlideUp, enterFade } from '@/constants/animations';
 import type { Profile } from '@/types/api';
 import type { ColorPalette } from '@/constants/colors';
 
@@ -53,9 +50,6 @@ const MENU_RADIUS = 13;
 const MENU_WIDTH = 250;
 const MENU_GAP = 8;
 const HIGHLIGHT_RADIUS = 12;
-
-const ANIM_DURATION = 280;
-const EASING = Easing.bezier(0.2, 0.9, 0.3, 1);
 
 // ── ProfilePill ──────────────────────────────────────────────────────────────
 
@@ -128,19 +122,24 @@ export function ProfilePill() {
   }));
 
   const handlePillPress = useCallback(() => {
+    // Double-tap guard — prevent re-open while opening
+    if (progress.value > 0.1) return;
+
     if (process.env.EXPO_OS === 'ios') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     pillRef.current?.measureInWindow((x, y, w, h) => {
       setPillRect({ x, y, w, h });
       setOpen(true);
       progress.value = 0;
-      progress.value = withTiming(1, { duration: ANIM_DURATION, easing: EASING });
+      progress.value = withSpring(1, clampedSpring(Springs.heavy));
     });
   }, [progress]);
 
   const handleDismiss = useCallback(() => {
-    progress.value = withTiming(0, { duration: 180, easing: Easing.in(Easing.ease) }, () => {
-      runOnJS(setOpen)(false);
-      runOnJS(setMenu)(MENU_INITIAL);
+    progress.value = withSpring(0, clampedSpring(Springs.snappy), (finished) => {
+      if (finished) {
+        runOnJS(setOpen)(false);
+        runOnJS(setMenu)(MENU_INITIAL);
+      }
     });
   }, [progress]);
 
@@ -148,20 +147,22 @@ export function ProfilePill() {
     if (process.env.EXPO_OS === 'ios') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     const changed = profile.id !== activeProfile?.id;
     setActiveProfile(profile);
-    // Quick close animation
-    progress.value = withTiming(0, { duration: 150 }, () => {
-      runOnJS(setOpen)(false);
-      // Navigate to home when switching profiles so we don't stay on a
-      // stale conversation that belongs to the previous profile.
-      if (changed) runOnJS(router.navigate)('/(main)' as never);
+    // Quick close animation — dismiss + navigate in callback
+    progress.value = withSpring(0, clampedSpring(Springs.snappy), (finished) => {
+      if (finished) {
+        runOnJS(setOpen)(false);
+        if (changed) runOnJS(router.navigate)('/(main)' as never);
+      }
     });
   }, [setActiveProfile, progress, activeProfile, router]);
 
   const handleNavigate = useCallback((path: string) => {
     // Animate closed, then navigate
-    progress.value = withTiming(0, { duration: 150 }, () => {
-      runOnJS(setOpen)(false);
-      runOnJS(router.push)(path as never);
+    progress.value = withSpring(0, clampedSpring(Springs.snappy), (finished) => {
+      if (finished) {
+        runOnJS(setOpen)(false);
+        runOnJS(router.push)(path as never);
+      }
     });
   }, [progress, router]);
 
@@ -182,8 +183,8 @@ export function ProfilePill() {
         destructive: true,
         onPress: () => {
           setMenu(MENU_INITIAL);
-          progress.value = withTiming(0, { duration: 150 }, () => {
-            runOnJS(setOpen)(false);
+          progress.value = withSpring(0, clampedSpring(Springs.snappy), (finished) => {
+            if (finished) runOnJS(setOpen)(false);
           });
           timerRef.current = setTimeout(() => {
             Alert.alert(
@@ -346,14 +347,14 @@ function ContextMenuOverlay({
   return (
     <>
       {/* Darker scrim to make the highlighted card pop */}
-      <Animated.View entering={FadeIn.duration(150)} style={StyleSheet.absoluteFill}>
+      <Animated.View entering={enterFade()} style={StyleSheet.absoluteFill}>
         <Pressable onPress={onDismiss} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)' }} />
       </Animated.View>
 
       {/* Highlighted clone — render actual ProfileCard at measured position, elevated */}
       {menu.profile && (
         <Animated.View
-          entering={FadeIn.duration(200)}
+          entering={enterFade()}
           style={{
             position: 'absolute',
             top: menu.y,
@@ -375,7 +376,7 @@ function ContextMenuOverlay({
       )}
 
       <Animated.View
-        entering={FadeInUp.duration(250).damping(20).stiffness(200)}
+        entering={enterSlideUp()}
         style={{
           position: 'absolute',
           top: menuTop,

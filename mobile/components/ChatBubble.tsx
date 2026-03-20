@@ -1,10 +1,20 @@
-import React from 'react';
-import { View, Text } from 'react-native';
-import Animated, { FadeInUp } from 'react-native-reanimated';
+import React, { useEffect } from 'react';
+import { View, Text, Pressable } from 'react-native';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+  withRepeat,
+  withSequence,
+  withTiming,
+  withDelay,
+} from 'react-native-reanimated';
+import * as Haptics from 'expo-haptics';
 import Markdown from '@ronradtke/react-native-markdown-display';
 import { useColors } from '@/hooks/useColors';
 import { useMarkdownStyles } from '@/hooks/useMarkdownStyles';
 import { Spacing, FontSize, FontWeight, BorderRadius } from '@/constants/theme';
+import { enterSlideUp, Springs } from '@/constants/animations';
 import {
   AgentStepsPartView,
   MemoryContextPartView,
@@ -36,15 +46,32 @@ interface Props {
 export function ChatBubble({ content, contentParts, isUser, animate, onStructuredResponse, isLatestAssistant, sendErrorCount }: Props) {
   const Colors = useColors();
   const markdownStyles = useMarkdownStyles();
+  const scale = useSharedValue(1);
 
   const inner = isUser
     ? <UserBubble content={content} contentParts={contentParts} Colors={Colors} />
     : <AssistantBubble content={content} contentParts={contentParts} Colors={Colors} markdownStyles={markdownStyles} onStructuredResponse={onStructuredResponse} isLatestAssistant={isLatestAssistant} sendErrorCount={sendErrorCount} />;
 
+  // Long-press squeeze — only on static (non-entering, non-streaming) messages
+  const enableSqueeze = !animate;
+  const scaleStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }));
+
+  const handleLongPress = () => {
+    if (!enableSqueeze) return;
+    if (process.env.EXPO_OS === 'ios') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    scale.value = withSpring(0.97, Springs.snappy);
+  };
+  const handlePressOut = () => {
+    if (!enableSqueeze) return;
+    scale.value = withSpring(1, Springs.snappy);
+  };
+
   if (animate) {
     return (
       <Animated.View
-        entering={FadeInUp.duration(250).springify().damping(20)}
+        entering={enterSlideUp()}
         style={{ alignItems: isUser ? 'flex-end' : 'flex-start' }}
       >
         {inner}
@@ -53,9 +80,15 @@ export function ChatBubble({ content, contentParts, isUser, animate, onStructure
   }
 
   return (
-    <View style={{ alignItems: isUser ? 'flex-end' : 'flex-start' }}>
-      {inner}
-    </View>
+    <Pressable
+      onLongPress={handleLongPress}
+      onPressOut={handlePressOut}
+      delayLongPress={300}
+    >
+      <Animated.View style={[{ alignItems: isUser ? 'flex-end' : 'flex-start' }, scaleStyle]}>
+        {inner}
+      </Animated.View>
+    </Pressable>
   );
 }
 
@@ -146,12 +179,34 @@ function AssistantBubble({ content, contentParts, Colors, markdownStyles, onStru
   );
 }
 
-/** Animated dots shown while AI is thinking */
+/** Animated dots shown while AI is thinking — pulsing opacity with stagger */
 export function TypingIndicator() {
   const Colors = useColors();
+
+  const dot0 = useSharedValue(0.3);
+  const dot1 = useSharedValue(0.3);
+  const dot2 = useSharedValue(0.3);
+
+  useEffect(() => {
+    dot0.value = withRepeat(withSequence(withTiming(0.8, { duration: 400 }), withTiming(0.3, { duration: 400 })), -1, true);
+    dot1.value = withDelay(150, withRepeat(withSequence(withTiming(0.8, { duration: 400 }), withTiming(0.3, { duration: 400 })), -1, true));
+    dot2.value = withDelay(300, withRepeat(withSequence(withTiming(0.8, { duration: 400 }), withTiming(0.3, { duration: 400 })), -1, true));
+  }, [dot0, dot1, dot2]);
+
+  const style0 = useAnimatedStyle(() => ({ opacity: dot0.value }));
+  const style1 = useAnimatedStyle(() => ({ opacity: dot1.value }));
+  const style2 = useAnimatedStyle(() => ({ opacity: dot2.value }));
+
+  const dotBase = {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: Colors.textMuted,
+  };
+
   return (
     <Animated.View
-      entering={FadeInUp.duration(200)}
+      entering={enterSlideUp()}
       style={{ alignItems: 'flex-start' }}
     >
       <View
@@ -168,18 +223,9 @@ export function TypingIndicator() {
           gap: Spacing.xs,
         }}
       >
-        {[0, 1, 2].map((i) => (
-          <View
-            key={i}
-            style={{
-              width: 7,
-              height: 7,
-              borderRadius: 4,
-              backgroundColor: Colors.textMuted,
-              opacity: 0.4 + i * 0.2,
-            }}
-          />
-        ))}
+        <Animated.View style={[dotBase, style0]} />
+        <Animated.View style={[dotBase, style1]} />
+        <Animated.View style={[dotBase, style2]} />
       </View>
     </Animated.View>
   );

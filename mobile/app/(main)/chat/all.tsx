@@ -1,7 +1,8 @@
 import { useCallback } from 'react';
 import { View, Text, Pressable, ScrollView, useWindowDimensions } from 'react-native';
 import { useRouter, Stack, useFocusEffect } from 'expo-router';
-import Animated, { FadeInDown, useSharedValue, useAnimatedStyle, withTiming } from 'react-native-reanimated';
+import Animated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated';
+import { enterSlideDown, staggerDelay, Springs } from '@/constants/animations';
 import * as Haptics from 'expo-haptics';
 import { Icon } from '@/components/Icon';
 import { HeaderIconButton } from '@/components/HeaderIconButton';
@@ -33,7 +34,7 @@ export default function AllChatsScreen() {
       // If fromList is true, user just came back from a session opened from this list
       if (fromList) {
         slideX.value = -screenWidth;
-        slideX.value = withTiming(0, { duration: 250 });
+        slideX.value = withSpring(0, Springs.gentle);
       }
     }, [slideX, screenWidth, fromList]),
   );
@@ -66,7 +67,7 @@ export default function AllChatsScreen() {
             </View>
           ) : (
             conversations.map((c, i) => (
-              <Animated.View key={c.id} entering={FadeInDown.delay(i * 25).duration(200)}>
+              <Animated.View key={c.id} entering={enterSlideDown(staggerDelay(i))}>
                 <Pressable
                   onPress={() => {
                     if (process.env.EXPO_OS === 'ios') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
