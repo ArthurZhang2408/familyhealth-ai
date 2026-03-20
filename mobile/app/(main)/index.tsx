@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { View, Text, Pressable, KeyboardAvoidingView, ActivityIndicator } from 'react-native';
+import { View, Text, Pressable, Keyboard, KeyboardAvoidingView, ActivityIndicator } from 'react-native';
 import { useRouter, Stack } from 'expo-router';
 import Animated, { FadeIn, FadeInUp } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
@@ -157,7 +157,7 @@ export default function NewConversationScreen() {
         behavior={process.env.EXPO_OS === 'ios' ? 'padding' : undefined}
         keyboardVerticalOffset={90}
       >
-        <View style={{ flex: 1, alignItems: 'center', padding: Spacing.xl }}>
+        <Pressable style={{ flex: 1, alignItems: 'center', padding: Spacing.xl }} onPress={Keyboard.dismiss}>
           <View style={{ flex: 1 }} />
           <Animated.View entering={FadeIn.duration(400)} style={{ alignItems: 'center' }}>
             <View
@@ -202,7 +202,7 @@ export default function NewConversationScreen() {
               : 'Describe symptoms for a structured AI-assisted assessment.'}
           </Animated.Text>
           <View style={{ flex: 2 }} />
-        </View>
+        </Pressable>
 
         <ChatInput
           value={input}
