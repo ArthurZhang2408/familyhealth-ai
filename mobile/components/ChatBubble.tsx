@@ -15,6 +15,7 @@ import {
 } from '@/components/message-parts';
 import { DiagnosisReportView } from '@/components/message-parts/DiagnosisReportView';
 import type { MessagePart } from '@/types/api';
+import { stripThinkingTags } from '@/utils/stripThinking';
 
 class PartErrorBoundary extends React.Component<{ fallback: React.ReactNode; children: React.ReactNode }, { hasError: boolean }> {
   state = { hasError: false };
@@ -95,7 +96,7 @@ function AssistantBubble({ content, contentParts, Colors, markdownStyles, onStru
   if (!contentParts || contentParts.length === 0) {
     return (
       <View style={{ width: '100%', paddingVertical: Spacing.xs }}>
-        <Markdown style={markdownStyles}>{content}</Markdown>
+        <Markdown style={markdownStyles}>{stripThinkingTags(content)}</Markdown>
       </View>
     );
   }
@@ -110,7 +111,7 @@ function AssistantBubble({ content, contentParts, Colors, markdownStyles, onStru
   return (
     <PartErrorBoundary fallback={
       <View style={{ width: '100%', paddingVertical: Spacing.xs }}>
-        <Markdown style={markdownStyles}>{content}</Markdown>
+        <Markdown style={markdownStyles}>{stripThinkingTags(content)}</Markdown>
       </View>
     }>
       <View style={{ width: '100%', paddingVertical: Spacing.xs }}>
@@ -135,7 +136,7 @@ function AssistantBubble({ content, contentParts, Colors, markdownStyles, onStru
             case 'structured_input':
               return <StructuredInputView key={`si-${part.prompt}-${sendErrorCount}`} part={part} onResponse={onStructuredResponse} isLatest={!!isLatestAssistant} />;
             case 'text':
-              return <Markdown key={i} style={markdownStyles}>{part.text}</Markdown>;
+              return <Markdown key={i} style={markdownStyles}>{stripThinkingTags(part.text)}</Markdown>;
             default:
               return null;
           }

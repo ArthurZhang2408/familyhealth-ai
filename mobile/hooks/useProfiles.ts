@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { profilesApi } from '@/services/api';
 import { useAuth } from '@/hooks/useAuth';
+import { useProfileStore } from '@/stores/profile';
 import type { ProfileCreate, ProfileUpdate } from '@/types/api';
 
 export function useProfiles() {
@@ -31,11 +32,14 @@ export function useCreateProfile() {
 
 export function useUpdateProfile(pid: string) {
   const qc = useQueryClient();
+  const activeProfile = useProfileStore((s) => s.activeProfile);
+  const setActiveProfile = useProfileStore((s) => s.setActiveProfile);
   return useMutation({
     mutationFn: (body: ProfileUpdate) => profilesApi.update(pid, body),
-    onSuccess: () => {
+    onSuccess: (updated) => {
       qc.invalidateQueries({ queryKey: ['profiles', pid] });
       qc.invalidateQueries({ queryKey: ['profiles'] });
+      if (activeProfile?.id === pid) setActiveProfile(updated);
     },
   });
 }

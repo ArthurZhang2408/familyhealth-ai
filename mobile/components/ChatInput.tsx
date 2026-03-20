@@ -39,7 +39,7 @@ export function ChatInput({
       style={{
         paddingHorizontal: Spacing.md,
         paddingTop: Spacing.sm,
-        paddingBottom: Spacing.md,
+        paddingBottom: Spacing.xl,
         backgroundColor: Colors.background,
       }}
     >

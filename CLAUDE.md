@@ -111,6 +111,7 @@ The diagnosis agent uses hypothesis-driven reasoning with structured Q&A:
 - **Topic generation fix**: ✅ Done (PR #27). Thinking models consumed entire `max_tokens` on reasoning. Fixed via per-instance QwenProvider param routing, higher token budgets, reasoning field fallback extraction
 - **Profile switch 404 fix**: ✅ Done (PR #27). Synchronous `pidChanged` guard in chat/diagnosis screens prevents stale queries when Drawer keeps screens mounted
 - **Dev build migration & auth hardening**: ✅ Done (PR #28). Expo Go → dev builds (`expo-dev-client`), bundle ID `com.salk.ai`, Apple Sign In re-enabled (paid dev account). Auth guards on all query hooks, profile cleared on user change, `_hydrated` flag prevents empty-state flashes. Replaced `NoProfileGuard` + `profile-picker` with inline welcome screen. Layout clears active profile when all profiles deleted
+- **Frontend UX fixes**: ✅ Done (PR #34). 429 rate limit: `RateLimitError` + `ErrorBanner` above input with countdown (replaces `Alert.alert`). Strip `[Thinking: ...]` from LLM responses at render time. Multi-select "None of the above" deselects others. Profile edit syncs Zustand `activeProfile` immediately. Backend enables `Retry-After` header (delta-seconds) + CORS expose
 
 ### Debugging & Logging Infrastructure (PR #27)
 - **Server logs**: `logs/familyhealth.log` (RotatingFileHandler, 10MB, 5 backups). Every log line includes `request_id` for correlation

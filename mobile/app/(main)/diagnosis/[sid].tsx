@@ -259,6 +259,7 @@ function DiagnosisScreenInner() {
           errorTitle="Couldn't load session"
           placeholder="Describe your symptoms…"
           onStructuredResponse={conv.onStructuredResponse}
+          onDismissError={conv.clearSendError}
         />
       </Animated.View>
     </>
