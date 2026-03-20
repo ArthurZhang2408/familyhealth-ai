@@ -26,7 +26,7 @@ import { useColors } from '@/hooks/useColors';
 import { useHeaderScale } from '@/hooks/useHeaderScale';
 import { FontWeight, Spacing, FontSize, BorderRadius } from '@/constants/theme';
 import { useShadow } from '@/hooks/useShadow';
-import { Springs, Timings, clampedSpring, enterSlideUp, enterFade } from '@/constants/animations';
+import { Springs, clampedSpring, enterSlideUp, enterFade } from '@/constants/animations';
 import type { Profile } from '@/types/api';
 import type { ColorPalette } from '@/constants/colors';
 

@@ -4,6 +4,7 @@ import Animated, {
   useSharedValue,
   useAnimatedStyle,
   withSpring,
+  withSequence,
 } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { Icon } from '@/components/Icon';
@@ -49,8 +50,10 @@ export function ChatInput({
   const handleSendPress = () => {
     if (!canSend) return;
     if (process.env.EXPO_OS === 'ios') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    sendScale.value = withSpring(0.9, Springs.snappy);
-    sendScale.value = withSpring(1, Springs.snappy);
+    sendScale.value = withSequence(
+      withSpring(0.9, Springs.snappy),
+      withSpring(1, Springs.snappy),
+    );
     onSend();
     inputRef.current?.clear();
     inputRef.current?.blur();
