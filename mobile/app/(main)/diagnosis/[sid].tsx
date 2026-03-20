@@ -3,7 +3,8 @@ import { View, Text, useWindowDimensions } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Stack } from 'expo-router';
 import { useQueryClient } from '@tanstack/react-query';
-import Animated, { useSharedValue, useAnimatedStyle, withTiming } from 'react-native-reanimated';
+import Animated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated';
+import { Springs } from '@/constants/animations';
 import { ConversationView } from '@/components/ConversationView';
 import { HeaderIconButton } from '@/components/HeaderIconButton';
 import { useProfileStore } from '@/stores/profile';
@@ -56,7 +57,7 @@ function DiagnosisScreenInner() {
   useEffect(() => {
     if (fromList && !prevFromList.current) {
       slideX.value = screenWidth;
-      slideX.value = withTiming(0, { duration: 250 });
+      slideX.value = withSpring(0, Springs.gentle);
     } else if (!fromList) {
       slideX.value = 0;
     }

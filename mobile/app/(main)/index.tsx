@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { View, Text, Pressable, Keyboard, KeyboardAvoidingView, ActivityIndicator } from 'react-native';
+import { View, Text, Pressable, Keyboard, ActivityIndicator } from 'react-native';
 import { useRouter, Stack } from 'expo-router';
-import Animated, { FadeIn, FadeInUp } from 'react-native-reanimated';
+import Animated from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
+import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { Icon } from '@/components/Icon';
 import { ChatInput } from '@/components/ChatInput';
 import { ModeToggle, type ConversationMode } from '@/components/ModeToggle';
@@ -12,6 +13,7 @@ import { useAttachMenu, type Attachment } from '@/hooks/useAttachMenu';
 import { useColors } from '@/hooks/useColors';
 import { Spacing, FontSize, FontWeight, BorderRadius } from '@/constants/theme';
 import { setPendingSend } from '@/services/pendingSend';
+import { enterFade, enterSlideUp } from '@/constants/animations';
 
 export default function NewConversationScreen() {
   const Colors = useColors();
@@ -66,7 +68,7 @@ export default function NewConversationScreen() {
           <Stack.Screen options={{}} />
           <View style={{ flex: 1, alignItems: 'center', backgroundColor: Colors.background, padding: Spacing.xl }}>
             <View style={{ flex: 1 }} />
-            <Animated.View entering={FadeIn.duration(500)} style={{ alignItems: 'center' }}>
+            <Animated.View entering={enterFade()} style={{ alignItems: 'center' }}>
               <View
                 style={{
                   width: 56,
@@ -83,7 +85,7 @@ export default function NewConversationScreen() {
               </View>
             </Animated.View>
             <Animated.Text
-              entering={FadeInUp.delay(120).duration(350)}
+              entering={enterSlideUp(120)}
               style={{
                 fontSize: FontSize.xxl,
                 fontWeight: FontWeight.bold,
@@ -94,7 +96,7 @@ export default function NewConversationScreen() {
               Welcome
             </Animated.Text>
             <Animated.Text
-              entering={FadeInUp.delay(240).duration(350)}
+              entering={enterSlideUp(240)}
               style={{
                 fontSize: FontSize.md,
                 color: Colors.textSecondary,
@@ -106,7 +108,7 @@ export default function NewConversationScreen() {
             >
               Your AI health companion for the whole family. Create a profile to get started.
             </Animated.Text>
-            <Animated.View entering={FadeInUp.delay(400).duration(350)}>
+            <Animated.View entering={enterSlideUp(400)}>
               <Pressable
                 onPress={() => {
                   if (process.env.EXPO_OS === 'ios') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -159,7 +161,7 @@ export default function NewConversationScreen() {
       >
         <Pressable style={{ flex: 1, alignItems: 'center', padding: Spacing.xl }} onPress={Keyboard.dismiss}>
           <View style={{ flex: 1 }} />
-          <Animated.View entering={FadeIn.duration(400)} style={{ alignItems: 'center' }}>
+          <Animated.View entering={enterFade()} style={{ alignItems: 'center' }}>
             <View
               style={{
                 width: 56,
@@ -176,7 +178,7 @@ export default function NewConversationScreen() {
             </View>
           </Animated.View>
           <Animated.Text
-            entering={FadeInUp.delay(100).duration(300)}
+            entering={enterSlideUp(120)}
             style={{
               fontSize: FontSize.xxl,
               fontWeight: FontWeight.bold,
@@ -187,7 +189,7 @@ export default function NewConversationScreen() {
             {mode === 'chat' ? 'Health Chat' : 'AI Diagnosis'}
           </Animated.Text>
           <Animated.Text
-            entering={FadeInUp.delay(200).duration(300)}
+            entering={enterSlideUp(240)}
             style={{
               fontSize: FontSize.md,
               color: Colors.textSecondary,
