@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, useWindowDimensions } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { Stack } from 'expo-router';
 import { useQueryClient } from '@tanstack/react-query';
-import Animated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated';
-import { Springs } from '@/constants/animations';
+import Animated, { useSharedValue, useAnimatedStyle, withTiming, Easing } from 'react-native-reanimated';
 import { ConversationView } from '@/components/ConversationView';
 import { HeaderIconButton } from '@/components/HeaderIconButton';
 import { useProfileStore } from '@/stores/profile';
@@ -48,21 +47,26 @@ function DiagnosisScreenInner() {
 
   // Slide in from right when arriving from list
   const { width: screenWidth } = useWindowDimensions();
-  const slideX = useSharedValue(0);
+  // Initialize off-screen when arriving from list — prevents 1-frame flash
+  const slideX = useSharedValue(fromList ? screenWidth : 0);
   const slideStyle = useAnimatedStyle(() => ({
     flex: 1,
     transform: [{ translateX: slideX.value }],
   }));
-  const prevFromList = useRef(false);
-  useEffect(() => {
-    if (fromList && !prevFromList.current) {
-      slideX.value = screenWidth;
-      slideX.value = withSpring(0, Springs.gentle);
-    } else if (!fromList) {
-      slideX.value = 0;
-    }
-    prevFromList.current = fromList;
-  }, [fromList, slideX, screenWidth]);
+  useFocusEffect(
+    useCallback(() => {
+      if (fromList) {
+        slideX.value = screenWidth;
+        slideX.value = withTiming(0, { duration: 300, easing: Easing.out(Easing.cubic) });
+      } else {
+        slideX.value = 0;
+      }
+      // On blur: move back off-screen so next focus starts from the right
+      return () => {
+        if (fromList) slideX.value = screenWidth;
+      };
+    }, [fromList, slideX, screenWidth]),
+  );
 
   const handleBack = useCallback(() => {
     // fromList stays true — list page reads it for its slide-in animation
