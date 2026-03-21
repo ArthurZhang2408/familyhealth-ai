@@ -1,8 +1,8 @@
 import { useCallback } from 'react';
 import { View, Text, Pressable, ScrollView, useWindowDimensions } from 'react-native';
 import { useRouter, Stack, useFocusEffect } from 'expo-router';
-import Animated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated';
-import { enterSlideDown, staggerDelay, Springs } from '@/constants/animations';
+import Animated, { useSharedValue, useAnimatedStyle, withTiming, Easing } from 'react-native-reanimated';
+import { enterSlideDown, staggerDelay } from '@/constants/animations';
 import * as Haptics from 'expo-haptics';
 import { Icon } from '@/components/Icon';
 import { HeaderIconButton } from '@/components/HeaderIconButton';
@@ -24,18 +24,22 @@ export default function AllChatsScreen() {
   // Slide-in-from-left when returning from a session via back button
   const fromList = useNavSource((s) => s.fromList);
   const { width: screenWidth } = useWindowDimensions();
-  const slideX = useSharedValue(0);
+  const slideX = useSharedValue(fromList ? -screenWidth : 0);
   const slideStyle = useAnimatedStyle(() => ({
     flex: 1,
     transform: [{ translateX: slideX.value }],
   }));
   useFocusEffect(
     useCallback(() => {
-      // If fromList is true, user just came back from a session opened from this list
       if (fromList) {
         slideX.value = -screenWidth;
-        slideX.value = withSpring(0, Springs.gentle);
+        slideX.value = withTiming(0, { duration: 300, easing: Easing.out(Easing.cubic) });
+      } else {
+        slideX.value = 0;
       }
+      return () => {
+        if (fromList) slideX.value = -screenWidth;
+      };
     }, [slideX, screenWidth, fromList]),
   );
 

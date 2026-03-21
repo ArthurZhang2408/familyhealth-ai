@@ -47,6 +47,9 @@ export function ChatInput({
     transform: [{ scale: sendScale.value }],
   }));
 
+  // Flag: send is pending, waiting for auto-correct to commit via onEndEditing
+  const pendingSendRef = useRef(false);
+
   const handleSendPress = () => {
     if (!canSend) return;
     if (process.env.EXPO_OS === 'ios') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -54,9 +57,24 @@ export function ChatInput({
       withSpring(0.9, Springs.snappy),
       withSpring(1, Springs.snappy),
     );
-    onSend();
-    inputRef.current?.clear();
-    inputRef.current?.blur();
+    // Blur to accept pending iOS auto-correct. The actual send happens in
+    // onEndEditing after iOS commits the corrected text.
+    // If input is already blurred (keyboard dismissed), send directly —
+    // .blur() is a no-op on unfocused input and onEndEditing won't fire.
+    if (!inputRef.current?.isFocused()) {
+      onSend();
+      return;
+    }
+    pendingSendRef.current = true;
+    inputRef.current.blur();
+  };
+
+  const handleEndEditing = (e: { nativeEvent: { text: string } }) => {
+    if (!pendingSendRef.current) return;
+    pendingSendRef.current = false;
+    // Push the final (auto-corrected) text to parent state, then send next tick
+    onChangeText(e.nativeEvent.text);
+    setTimeout(() => onSend(), 0);
   };
 
   return (
@@ -149,6 +167,7 @@ export function ChatInput({
           ref={inputRef}
           value={value}
           onChangeText={onChangeText}
+          onEndEditing={handleEndEditing}
           placeholder={hasAttachment ? 'Add a message (optional)…' : placeholder}
           placeholderTextColor={Colors.textMuted}
           multiline

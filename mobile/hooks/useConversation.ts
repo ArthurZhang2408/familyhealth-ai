@@ -378,7 +378,7 @@ export function useConversation({ serverMessages, streamSendFn, dedupMode, onSen
         onSendComplete?.(doneEvent);
       }
 
-      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
+      setTimeout(() => flatListRef.current?.scrollToOffset({ offset: 0, animated: true }), 100);
     },
     [streamSendFn, handleStreamEvent, onSendComplete],
   );
