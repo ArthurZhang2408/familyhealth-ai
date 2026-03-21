@@ -10,9 +10,14 @@ interface NavSourceState {
   /** true when navigating from a list page (all chats / all sessions) */
   fromList: boolean;
   setFromList: (value: boolean) => void;
+  /** pre-select mode on the new conversation screen ('chat' | 'diagnosis') */
+  pendingMode: 'chat' | 'diagnosis' | null;
+  setPendingMode: (value: 'chat' | 'diagnosis' | null) => void;
 }
 
 export const useNavSource = create<NavSourceState>((set) => ({
   fromList: false,
   setFromList: (value) => set({ fromList: value }),
+  pendingMode: null,
+  setPendingMode: (value) => set({ pendingMode: value }),
 }));
