@@ -12,9 +12,11 @@ import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { ChatBubble, TypingIndicator } from '@/components/ChatBubble';
 import { ChatInput } from '@/components/ChatInput';
 import { AgentSteps } from '@/components/AgentSteps';
+import { LiveStreamingStatus } from '@/components/LiveStreamingStatus';
 import { LoadingSpinner } from '@/components/LoadingSpinner';
 import { Icon, type IconName } from '@/components/Icon';
 import { useColors } from '@/hooks/useColors';
+import { isDevMode } from '@/constants/config';
 import { Spacing, FontSize, FontWeight, BorderRadius } from '@/constants/theme';
 import { enterSlideUp, enterSlideDown, enterFade, Springs } from '@/constants/animations';
 import type { LocalMessage, SendError } from '@/hooks/useConversation';
@@ -43,6 +45,8 @@ interface ConversationViewProps {
   thinkingContent?: string;
   agentSteps?: AgentStep[];
   isStreaming?: boolean;
+  sendStartTime?: number | null;
+  mode?: 'chat' | 'diagnosis';
   onStructuredResponse?: (content: string, structuredResponse: Record<string, unknown>) => void;
   /** Incremented on each send error — used to reset StructuredInputView selection. */
   sendErrorCount?: number;
@@ -74,6 +78,8 @@ export function ConversationView({
   thinkingContent = '',
   agentSteps = [],
   isStreaming = false,
+  sendStartTime = null,
+  mode = 'chat',
   onStructuredResponse,
   sendErrorCount = 0,
   sendError,
@@ -202,21 +208,34 @@ export function ConversationView({
           ListHeaderComponent={
             allMessages.length > 0 || isBusy ? (
               <>
-                {/* Agent action steps */}
-                {agentSteps.length > 0 && <AgentSteps steps={agentSteps} />}
-
-                {/* Live thinking — reuses Reasoning card style */}
-                {isBusy && thinkingContent.length > 0 && streamingContent.length === 0 && (
-                  <LiveThinkingCard content={thinkingContent} Colors={Colors} />
+                {isDevMode ? (
+                  <>
+                    {/* Dev mode: detailed agent steps */}
+                    {agentSteps.length > 0 && <AgentSteps steps={agentSteps} />}
+                    {isBusy && thinkingContent.length > 0 && streamingContent.length === 0 && (
+                      <LiveThinkingCard content={thinkingContent} Colors={Colors} />
+                    )}
+                    {isBusy && !isStreaming && thinkingContent.length === 0 && <TypingIndicator />}
+                  </>
+                ) : (
+                  /* Prod mode: polished streaming status */
+                  isBusy && !isStreaming && (
+                    <LiveStreamingStatus
+                      isBusy={isBusy}
+                      isStreaming={isStreaming}
+                      agentSteps={agentSteps}
+                      thinkingContent={thinkingContent}
+                      streamingContent={streamingContent}
+                      sendStartTime={sendStartTime}
+                      mode={mode}
+                    />
+                  )
                 )}
 
-                {/* Streaming AI response */}
+                {/* Streaming AI response (both modes) */}
                 {isStreaming && streamingContent.length > 0 && (
                   <ChatBubble content={streamingContent} isUser={false} />
                 )}
-
-                {/* Typing indicator when busy but not yet streaming */}
-                {isBusy && !isStreaming && thinkingContent.length === 0 && <TypingIndicator />}
 
                 {/* Disclaimer after response */}
                 {disclaimer && !isBusy && (

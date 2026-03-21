@@ -263,6 +263,7 @@ function DiagnosisScreenInner() {
           errorIcon="stethoscope"
           errorTitle="Couldn't load session"
           placeholder="Describe your symptoms…"
+          mode="diagnosis"
           onStructuredResponse={conv.onStructuredResponse}
           onDismissError={conv.clearSendError}
         />

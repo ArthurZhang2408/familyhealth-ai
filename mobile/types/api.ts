@@ -235,7 +235,7 @@ export type MessagePart =
   | { type: 'tool_result'; call_id: string; name: string; output: Record<string, unknown>; is_error?: boolean; summary?: string }
   | { type: 'agent_steps'; steps: Array<{ id: string; message: string; tool?: string; details?: string[] }> }
   | { type: 'memory_context'; memories: Array<{ text: string; date?: string }>; count: number }
-  | { type: 'thinking'; text: string }
+  | { type: 'thinking'; text: string; duration_ms?: number }
   | { type: 'structured_input'; input_type: string; prompt: string; options?: Array<Record<string, unknown>>; range?: Record<string, unknown>; selected?: unknown }
   | { type: 'assessment'; conditions: AssessmentCondition[]; self_care: AssessmentAction[]; medications: AssessmentMedication[]; tests: AssessmentTest[]; warnings: string[]; follow_up?: string; sources?: AssessmentSource[] };
 

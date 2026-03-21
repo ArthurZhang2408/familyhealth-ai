@@ -22,8 +22,10 @@ import {
   ToolCallPartView,
   ImagePartView,
   ThinkingPartView,
+  ProdAgentSummary,
 } from '@/components/message-parts';
 import { DiagnosisReportView } from '@/components/message-parts/DiagnosisReportView';
+import { isDevMode } from '@/constants/config';
 import type { MessagePart } from '@/types/api';
 import { stripThinkingTags } from '@/utils/stripThinking';
 
@@ -148,7 +150,13 @@ function AssistantBubble({ content, contentParts, Colors, markdownStyles, onStru
       </View>
     }>
       <View style={{ width: '100%', paddingVertical: Spacing.xs }}>
+        {!isDevMode && <ProdAgentSummary parts={contentParts} />}
         {contentParts.map((part, i) => {
+          // Prod mode: skip dev-facing parts (ProdAgentSummary handles them as pills)
+          if (!isDevMode) {
+            if (part.type === 'thinking' || part.type === 'agent_steps' || part.type === 'memory_context') return null;
+            if (part.type === 'tool_call' || part.type === 'tool_result') return null;
+          }
           switch (part.type) {
             case 'thinking':
               return <ThinkingPartView key={i} part={part} />;
@@ -159,7 +167,6 @@ function AssistantBubble({ content, contentParts, Colors, markdownStyles, onStru
             case 'assessment':
               return <DiagnosisReportView key={i} part={part} />;
             case 'tool_call':
-              // Skip tools that have dedicated UI (structured input, agent steps, assessment)
               if (part.name === 'present_question' || part.name === 'present_assessment' || part.name === 'search_patient_memory') return null;
               return <ToolCallPartView key={i} call={part} result={toolResults.get(part.id)} />;
             case 'tool_result':

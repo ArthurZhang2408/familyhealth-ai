@@ -77,6 +77,7 @@ class MemoryContextPart(BaseModel):
 class ThinkingPart(BaseModel):
     type: Literal["thinking"] = "thinking"
     text: str
+    duration_ms: int | None = None
 
 
 class StructuredInputPart(BaseModel):
