@@ -62,6 +62,7 @@ export function useConversation({ serverMessages, streamSendFn, dedupMode, onSen
   const [streamingContent, setStreamingContent] = useState('');
   const [thinkingContent, setThinkingContent] = useState('');
   const [agentSteps, setAgentSteps] = useState<AgentStep[]>([]);
+  const [sendStartTime, setSendStartTime] = useState<number | null>(null);
   const flatListRef = useRef<FlatList>(null);
   const isSendingRef = useRef(false);
   const streamingContentRef = useRef('');
@@ -268,6 +269,7 @@ export function useConversation({ serverMessages, streamSendFn, dedupMode, onSen
       setPendingMessages((prev) => [...prev, userMsg]);
 
       setIsSending(true);
+      setSendStartTime(Date.now());
       setSendError(null);
       setStreamingContent('');
       streamingContentRef.current = '';
@@ -364,6 +366,7 @@ export function useConversation({ serverMessages, streamSendFn, dedupMode, onSen
         }
       } finally {
         setIsSending(false);
+        setSendStartTime(null);
         setStreamingContent('');
         streamingContentRef.current = '';
         setThinkingContent('');
@@ -427,6 +430,7 @@ export function useConversation({ serverMessages, streamSendFn, dedupMode, onSen
     thinkingContent,
     agentSteps,
     isStreaming,
+    sendStartTime,
     sendErrorCount,
     sendError,
     clearSendError: useCallback(() => setSendError(null), []),

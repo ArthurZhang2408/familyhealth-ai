@@ -7,6 +7,7 @@ during agent execution and package them for message persistence.
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 from app.agents.types import AgentEvent, AgentEventType, ToolCall, ToolResult
@@ -46,6 +47,7 @@ class PartsAccumulator:
         self.tool_calls: list[ToolCallPart] = []
         self.tool_results: list[ToolResultPart] = []
         self.thinking_text: str = ""
+        self._thinking_start_ms: int | None = None
 
     def record_event(self, event: AgentEvent) -> None:
         """Record an agent event for later persistence."""
@@ -67,6 +69,8 @@ class PartsAccumulator:
                 )
             )
         elif event.type == AgentEventType.THINKING_DELTA:
+            if self._thinking_start_ms is None:
+                self._thinking_start_ms = time.monotonic_ns() // 1_000_000
             self.thinking_text += event.data.get("content", "")
         elif event.type == AgentEventType.TOOL_RESULT:
             self.tool_results.append(
@@ -78,6 +82,13 @@ class PartsAccumulator:
                     summary=event.data.get("summary"),
                 )
             )
+
+    @property
+    def thinking_duration_ms(self) -> int | None:
+        """Duration of thinking in milliseconds, computed at access time."""
+        if self._thinking_start_ms is None:
+            return None
+        return max(0, time.monotonic_ns() // 1_000_000 - self._thinking_start_ms)
 
 
 def build_user_parts(
@@ -158,7 +169,10 @@ def build_assistant_parts(
 
     # Thinking (from Gemini thinking mode) — after tools, before text
     if accumulator and accumulator.thinking_text:
-        parts.append(ThinkingPart(text=accumulator.thinking_text))
+        parts.append(ThinkingPart(
+            text=accumulator.thinking_text,
+            duration_ms=accumulator.thinking_duration_ms,
+        ))
 
     # Final text response — skip when assessment tool was called (assessment part replaces it)
     has_assessment = accumulator and any(
@@ -232,7 +246,7 @@ def _build_assessment_part(args: dict[str, Any]) -> AssessmentPart:
         self_care=self_care,
         medications=medications,
         tests=tests,
-        warnings=args.get("warnings", []),
+        warnings=[w if isinstance(w, str) else w.get("detail") or w.get("type") or str(w) for w in args.get("warnings", [])],
         follow_up=args.get("follow_up"),
         sources=sources,
     )
