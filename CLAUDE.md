@@ -43,6 +43,9 @@ AI-powered diagnosis, medical report analysis, and health chat.
 - **Image caching**: `ImagePartView` uses `expo-image` with `cachePolicy="disk"` for persistent local caching
 - **Animation system**: Centralized `constants/animations.ts` with spring presets (`Springs.snappy/gentle/bouncy/heavy/interactive`), timing presets (`Timings.fadeIn/fadeOut/colorShift`), layout animation factories (`enterSlideUp/Down`, `enterFade/exitFade`, `enterBounce`, `staggerDelay`). `clampedSpring()` for 0-1 progress values. Reduced motion accessibility gate via `AccessibilityInfo` listener — spring factories degrade to fade-only. `useShimmer()` hook for skeleton loading pulse. `react-native-keyboard-controller` wraps app root (`KeyboardProvider`) for frame-synced keyboard animations
 - **Design system**: See `.interface-design/system.md` for full design system documentation
+- **Chat FlatList**: `inverted={true}` with data reversed via `useMemo`. Conversations start at the bottom natively — no `scrollToEnd` hacks. `ListHeaderComponent` (not Footer) for streaming/typing content (header=bottom in inverted list). Streaming auto-scroll uses `scrollToOffset({ offset: 0 })`. Standard chat SDK pattern
+- **ChatInput send**: Uses `onEndEditing` to accept iOS auto-correct before dispatching. `pendingSendRef` flag gates the flow: blur → iOS commits correction → `onEndEditing` provides final text → send. Falls back to direct `onSend()` when input is already blurred (`isFocused()` check)
+- **List↔session slides**: `useFocusEffect` (not `useEffect`) triggers slide on every focus — Drawer keeps screens mounted. `useSharedValue(fromList ? screenWidth : 0)` initializes off-screen to prevent first-frame flash. Cleanup resets position on blur for repeat visits. `withTiming` + `Easing.out(cubic)` for ease-out curve matching sidebar feel
 - **Key constraint**: Use `ScrollView` not `FlatList` inside formSheet modals (Expo bug)
 
 ## Code Style
@@ -149,3 +152,6 @@ The diagnosis agent uses hypothesis-driven reasoning with structured Q&A:
 - ALWAYS check `useProfileStore._hydrated` before showing empty/guard states that depend on `activeProfile` — Zustand persist hydration is async
 - ALWAYS use `Springs`/`Timings` presets and layout factories from `constants/animations.ts` — never hardcode `withTiming` durations or `withSpring` configs inline
 - ALWAYS use `withSequence` when chaining spring animations on the same shared value — sequential assignments cancel the previous animation
+- NEVER use `scrollToEnd` on chat FlatLists — use `inverted={true}` pattern instead. For inverted lists, bottom = offset 0
+- NEVER use `useEffect` for focus-dependent animations in Drawer screens — use `useFocusEffect` (Drawer keeps screens mounted, `useEffect` deps don't re-trigger)
+- ChatInput send MUST go through `onEndEditing` to accept iOS auto-correct — never call `onSend()` directly from the send button when input is focused
