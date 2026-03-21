@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { View, Text, Pressable, Keyboard, ActivityIndicator } from 'react-native';
 import { useRouter, Stack } from 'expo-router';
 import Animated from 'react-native-reanimated';
@@ -14,6 +14,7 @@ import { useColors } from '@/hooks/useColors';
 import { Spacing, FontSize, FontWeight, BorderRadius } from '@/constants/theme';
 import { setPendingSend } from '@/services/pendingSend';
 import { enterFade, enterSlideUp } from '@/constants/animations';
+import { useNavSource } from '@/services/navigationSource';
 
 export default function NewConversationScreen() {
   const Colors = useColors();
@@ -23,9 +24,17 @@ export default function NewConversationScreen() {
   const { data: profilesData } = useProfiles();
   const pid = activeProfile?.id ?? '';
 
+  const pendingMode = useNavSource((s) => s.pendingMode);
   const [input, setInput] = useState('');
   const [mode, setMode] = useState<ConversationMode>('chat');
   const [pendingAttachment, setPendingAttachment] = useState<Attachment | null>(null);
+
+  useEffect(() => {
+    if (pendingMode) {
+      setMode(pendingMode);
+      useNavSource.getState().setPendingMode(null);
+    }
+  }, [pendingMode]);
 
   const handleAttach = useAttachMenu((attachment) => setPendingAttachment(attachment));
 

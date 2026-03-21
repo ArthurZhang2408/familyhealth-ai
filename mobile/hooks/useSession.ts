@@ -9,10 +9,16 @@ export function useDeleteSession(type: SessionType, pid: string) {
     mutationFn: (id: string) =>
       type === 'chat' ? chatApi.delete(pid, id) : diagnosisApi.delete(pid, id),
     onSuccess: (_data, id) => {
-      // Remove the deleted conversation/session from cache so stale
-      // mounted screens (Drawer keeps them alive) don't refetch a 404.
-      qc.removeQueries({ queryKey: [type, pid, id] });
-      qc.invalidateQueries({ queryKey: [type, pid] });
+      // Set deleted item's data to null instead of removeQueries.
+      // removeQueries forces mounted screens (Drawer keeps them alive)
+      // to re-create the query and refetch → 404 spam.
+      // setQueryData(null) keeps the query in cache with null data so
+      // React Query won't refetch, and the screen shows loading state.
+      qc.cancelQueries({ queryKey: [type, pid, id] });
+      qc.setQueryData([type, pid, id], null);
+      // exact: true → only invalidate the list query, not individual
+      // conversation queries for other mounted screens.
+      qc.invalidateQueries({ queryKey: [type, pid], exact: true });
     },
   });
 }
@@ -24,6 +30,6 @@ export function useRenameSession(type: SessionType, pid: string) {
       if (type === 'chat') await chatApi.rename(pid, id, title);
       else await diagnosisApi.rename(pid, id, title);
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: [type, pid] }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: [type, pid], exact: true }),
   });
 }

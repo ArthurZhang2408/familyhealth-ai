@@ -1,20 +1,20 @@
-import { useCallback, useRef, useState } from 'react';
-import { View, Text, Pressable, ScrollView, ActivityIndicator, Alert, Modal, StyleSheet, useWindowDimensions } from 'react-native';
+import { useCallback, useRef } from 'react';
+import { View, Text, Pressable, ScrollView, ActivityIndicator, Alert, useWindowDimensions } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
-import { BlurView } from 'expo-blur';
 import { Icon, IconName } from '@/components/Icon';
+import { ContextMenuOverlay } from '@/components/ContextMenuOverlay';
 import { useRouter, usePathname } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { DrawerContentComponentProps } from '@react-navigation/drawer';
 import Animated from 'react-native-reanimated';
-import { enterSlideDown, enterSlideUp, enterFade, staggerDelay } from '@/constants/animations';
+import { enterSlideDown, staggerDelay } from '@/constants/animations';
 import * as Haptics from 'expo-haptics';
 import { useProfileStore } from '@/stores/profile';
 import { useAuthStore } from '@/stores/auth';
 import { useChatConversations } from '@/hooks/useChat';
 import { useDiagnosisSessions } from '@/hooks/useDiagnosis';
-import { useDeleteSession, useRenameSession } from '@/hooks/useSession';
 import { useReports, useUploadReport } from '@/hooks/useReports';
+import { useSessionContextMenu } from '@/hooks/useSessionContextMenu';
 import { useNavSource } from '@/services/navigationSource';
 import { useColors } from '@/hooks/useColors';
 
@@ -22,37 +22,17 @@ import { Spacing, FontWeight, BorderRadius } from '@/constants/theme';
 import type { ColorPalette } from '@/constants/colors';
 
 // ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-type MenuAction = { label: string; icon: IconName; destructive?: boolean; onPress: () => void };
-
-interface ContextMenuState {
-  visible: boolean;
-  title: string;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  actions: MenuAction[];
-}
-
-const MENU_INITIAL: ContextMenuState = {
-  visible: false, title: '', x: 0, y: 0, width: 0, height: 0, actions: [],
-};
-
-// ---------------------------------------------------------------------------
 // Hooks
 // ---------------------------------------------------------------------------
 
 function useDynamicFonts() {
-  const { fontScale, width } = useWindowDimensions();
+  const { width } = useWindowDimensions();
   const base = width < 375 ? 14 : 16;
   return {
-    item: base * fontScale,
-    section: (base - 3) * fontScale,
-    label: (base - 2) * fontScale,
-    small: (base - 4) * fontScale,
+    item: base,
+    section: base - 3,
+    label: base - 2,
+    small: base - 4,
   };
 }
 
@@ -74,17 +54,16 @@ export function SidebarContent({ navigation }: DrawerContentComponentProps) {
   const { data: reportData, isLoading: reportLoading } = useReports(pid);
   const uploadReport = useUploadReport(pid);
 
-  const renameChat = useRenameSession('chat', pid);
-  const deleteChat = useDeleteSession('chat', pid);
-  const renameDx = useRenameSession('diagnosis', pid);
-  const deleteDx = useDeleteSession('diagnosis', pid);
-
   const conversations = chatData?.items ?? [];
   const activeSessions = (dxData?.items ?? []).filter((s) => s.status === 'active');
   const reports = reportData?.items ?? [];
 
-  const [menu, setMenu] = useState<ContextMenuState>(MENU_INITIAL);
-  const dismissMenu = useCallback(() => setMenu(MENU_INITIAL), []);
+  const { menu, openMenu: openSessionMenu, dismissMenu } = useSessionContextMenu(pid, {
+    onDelete: (type, id) => {
+      const routeSegment = type === 'chat' ? 'chat' : 'diagnosis';
+      if (pathname.includes(`/${routeSegment}/${id}`)) router.navigate('/(main)' as never);
+    },
+  });
 
   const close = () => navigation.closeDrawer();
 
@@ -102,56 +81,6 @@ export function SidebarContent({ navigation }: DrawerContentComponentProps) {
         router.push(path as never);
       }
     }, 150);
-  };
-
-  // ── Context menu openers ────────────────────────────────────────────────
-
-  const openSessionMenu = (
-    type: 'chat' | 'diagnosis',
-    id: string,
-    title: string,
-    x: number, y: number, w: number, h: number,
-  ) => {
-    if (process.env.EXPO_OS === 'ios') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    const rename = type === 'chat' ? renameChat : renameDx;
-    const del = type === 'chat' ? deleteChat : deleteDx;
-    const routeSegment = type === 'chat' ? 'chat' : 'diagnosis';
-    const typeLabel = type === 'chat' ? 'Conversation' : 'Session';
-
-    setMenu({
-      visible: true, title, x, y, width: w, height: h,
-      actions: [
-        {
-          label: 'Rename', icon: 'pencil',
-          onPress: () => {
-            dismissMenu();
-            setTimeout(() => {
-              Alert.prompt(`Rename ${typeLabel}`, undefined, (t) => {
-                if (t?.trim()) rename.mutate({ id, title: t.trim() });
-              }, 'plain-text', title);
-            }, 150);
-          },
-        },
-        {
-          label: 'Delete', icon: 'trash', destructive: true,
-          onPress: () => {
-            dismissMenu();
-            setTimeout(() => {
-              Alert.alert(`Delete ${typeLabel}`, 'This will also remove memories from this session.', [
-                { text: 'Cancel', style: 'cancel' },
-                {
-                  text: 'Delete', style: 'destructive',
-                  onPress: () => {
-                    del.mutate(id);
-                    if (pathname.includes(`/${routeSegment}/${id}`)) router.navigate('/(main)' as never);
-                  },
-                },
-              ]);
-            }, 150);
-          },
-        },
-      ],
-    });
   };
 
   // ── Upload handler ──────────────────────────────────────────────────────
@@ -298,137 +227,11 @@ export function SidebarContent({ navigation }: DrawerContentComponentProps) {
         <ContextMenuOverlay
           menu={menu}
           colors={Colors}
-          fonts={fonts}
+          titleFontSize={fonts.item}
           onDismiss={dismissMenu}
         />
       )}
     </View>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Context menu overlay (iOS context menu style)
-// ---------------------------------------------------------------------------
-
-// iOS context menu constants (reverse-engineered from iOS 17/18)
-const MENU_ROW_HEIGHT = 44;
-const MENU_RADIUS = 13;
-const MENU_WIDTH = 250;
-const MENU_GAP = 8;
-const HIGHLIGHT_RADIUS = 12;
-
-function ContextMenuOverlay({
-  menu,
-  colors: Colors,
-  fonts,
-  onDismiss,
-}: {
-  menu: ContextMenuState;
-  colors: ColorPalette;
-  fonts: ReturnType<typeof useDynamicFonts>;
-  onDismiss: () => void;
-}) {
-  const { height: screenHeight } = useWindowDimensions();
-  const menuCardHeight = menu.actions.length * MENU_ROW_HEIGHT + StyleSheet.hairlineWidth * (menu.actions.length - 1);
-  const belowY = menu.y + menu.height + MENU_GAP;
-  const aboveY = menu.y - MENU_GAP - menuCardHeight;
-  // Flip above if menu would go off-screen
-  const menuTop = belowY + menuCardHeight > screenHeight - 20 ? aboveY : belowY;
-
-  return (
-    <Modal transparent statusBarTranslucent animationType="none">
-      <View style={StyleSheet.absoluteFill}>
-        {/* Dim scrim */}
-        <Animated.View entering={enterFade()} style={StyleSheet.absoluteFill}>
-          <Pressable onPress={onDismiss} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)' }} />
-        </Animated.View>
-
-        {/* Highlighted item — floating card at measured position */}
-        <Animated.View
-          entering={enterFade()}
-          style={{
-            position: 'absolute',
-            top: menu.y,
-            left: menu.x,
-            width: menu.width,
-            height: menu.height,
-            borderRadius: HIGHLIGHT_RADIUS,
-            borderCurve: 'continuous',
-            overflow: 'hidden',
-          }}
-        >
-          <BlurView
-            intensity={60}
-            tint="systemChromeMaterialDark"
-            style={{
-              flex: 1,
-              justifyContent: 'center',
-              paddingHorizontal: Spacing.sm,
-            }}
-          >
-            <Text
-              style={{ fontSize: fonts.item, color: Colors.text, fontWeight: FontWeight.semibold }}
-              numberOfLines={1}
-            >
-              {menu.title}
-            </Text>
-          </BlurView>
-        </Animated.View>
-
-        {/* Menu card — iOS-style rounded blur card */}
-        <Animated.View
-          entering={enterSlideUp()}
-          style={{
-            position: 'absolute',
-            top: menuTop,
-            left: menu.x,
-            width: MENU_WIDTH,
-            borderRadius: MENU_RADIUS,
-            borderCurve: 'continuous',
-            overflow: 'hidden',
-          }}
-        >
-          <BlurView intensity={80} tint="systemThickMaterialDark">
-            {menu.actions.map((action, i) => (
-              <View key={action.label}>
-                {i > 0 && (
-                  <View style={{
-                    height: StyleSheet.hairlineWidth,
-                    backgroundColor: 'rgba(255,255,255,0.12)',
-                  }} />
-                )}
-                <Pressable
-                  onPress={action.onPress}
-                  style={({ pressed }) => ({
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    height: MENU_ROW_HEIGHT,
-                    paddingHorizontal: 16,
-                    backgroundColor: pressed ? 'rgba(255,255,255,0.08)' : 'transparent',
-                  })}
-                >
-                  <Icon
-                    name={action.icon}
-                    size={18}
-                    color={action.destructive ? Colors.error : Colors.text}
-                  />
-                  <Text
-                    style={{
-                      flex: 1,
-                      fontSize: 17,
-                      marginLeft: 12,
-                      color: action.destructive ? Colors.error : Colors.text,
-                    }}
-                  >
-                    {action.label}
-                  </Text>
-                </Pressable>
-              </View>
-            ))}
-          </BlurView>
-        </Animated.View>
-      </View>
-    </Modal>
   );
 }
 
