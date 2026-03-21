@@ -1,24 +1,21 @@
 # Backlog
 
-## Mobile — Next Milestone
+## Mobile — Next
 
-- **Session management for Diagnosis + Chat**
-  - Session list screen per feature (list past sessions, tap to resume)
-  - Load conversation history from API on mount (`GET /profiles/:pid/diagnosis/:sid`, `GET /profiles/:pid/chat/:cid`)
-  - Resume existing sessions instead of always creating new ones
-  - Remove hardcoded first reply in diagnosis.tsx — use actual API response
-- **Real-time message UX**
-  - Optimistic updates for sent messages
-  - Scroll-to-bottom on new messages
-  - React Query cache for conversation persistence across navigation
+- **Title generation unification**
+  - Consolidate `_auto_generate_topic` (chat) and `_auto_generate_title` (diagnosis) into shared utility
+  - Prefer diagnosis's approach (more structured)
+- **Screen-to-screen navigation transitions**
+  - Stack/Drawer defaults are unanimated. Add spring-based slide transitions
 - **Report upload flow**
   - Progress indicator during upload
   - Poll for analysis completion (`status: processing → complete`)
-- **Profile editing**
-  - Edit profile screen (allergies, medications, conditions, emergency contacts)
-- **Error states**
-  - Network error banners, retry buttons, offline detection
+- **Prod observability**
+  - Build `/debug/status` endpoint for prod LLM + search health metrics
+- **Search optimization**
+  - Shared httpx client for search providers at scale
 
 ## Backend
 
-*(All items completed — see chore/backend-cleanup branch)*
+- **Assessment warnings robustness**
+  - LLM sometimes returns warnings as dicts — coerced to strings in PR #38, but could add schema-level handling
