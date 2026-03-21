@@ -59,8 +59,14 @@ export function ChatInput({
     );
     // Blur to accept pending iOS auto-correct. The actual send happens in
     // onEndEditing after iOS commits the corrected text.
+    // If input is already blurred (keyboard dismissed), send directly —
+    // .blur() is a no-op on unfocused input and onEndEditing won't fire.
+    if (!inputRef.current?.isFocused()) {
+      onSend();
+      return;
+    }
     pendingSendRef.current = true;
-    inputRef.current?.blur();
+    inputRef.current.blur();
   };
 
   const handleEndEditing = (e: { nativeEvent: { text: string } }) => {
