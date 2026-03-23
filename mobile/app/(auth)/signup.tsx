@@ -13,6 +13,7 @@ import { useColors } from '@/hooks/useColors';
 import { useShadow } from '@/hooks/useShadow';
 import { Spacing, FontSize, FontWeight, BorderRadius } from '@/constants/theme';
 import { signUpWithEmail } from '@/services/auth';
+import { Copy } from '@/constants/branding';
 
 export default function SignupScreen() {
   const Colors = useColors();
@@ -59,10 +60,10 @@ export default function SignupScreen() {
         {/* Header */}
         <View style={{ marginBottom: Spacing.lg }}>
           <Text style={{ fontSize: FontSize.xxxl, fontWeight: FontWeight.bold, color: Colors.text }}>
-            Create account
+            {Copy.signup.title}
           </Text>
           <Text style={{ fontSize: FontSize.md, color: Colors.textSecondary, marginTop: Spacing.xs }}>
-            Start managing your family's health
+            {Copy.signup.subtitle}
           </Text>
         </View>
 

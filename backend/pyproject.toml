@@ -1,7 +1,7 @@
 [project]
-name = "familyhealth-backend"
+name = "salk-backend"
 version = "0.1.0"
-description = "FamilyHealth AI — backend API"
+description = "Salk — backend API"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115,<1",

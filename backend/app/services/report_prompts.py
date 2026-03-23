@@ -2,15 +2,7 @@
 
 from __future__ import annotations
 
-# ---------------------------------------------------------------------------
-# Medical disclaimer — injected by backend into every response
-# ---------------------------------------------------------------------------
-
-REPORT_DISCLAIMER = (
-    "This analysis is for informational purposes only. It is NOT a substitute "
-    "for professional medical interpretation. Please consult your healthcare "
-    "provider for medical decisions."
-)
+from app.core.branding import REPORT_DISCLAIMER  # noqa: F401 — re-exported for existing imports
 
 # ---------------------------------------------------------------------------
 # Report analysis system prompt — passed to ContextBuilder as template

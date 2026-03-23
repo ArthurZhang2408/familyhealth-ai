@@ -1,4 +1,4 @@
-# FamilyHealth AI — Architecture
+# Salk — Architecture
 
 ## Table of Contents
 

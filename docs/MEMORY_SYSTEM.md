@@ -1,4 +1,4 @@
-# FamilyHealth AI — Memory System Design
+# Salk — Memory System Design
 
 The memory system is the core differentiator of this platform. It gives the AI longitudinal awareness of each family member's health — not just what was said in the current conversation, but the accumulated medical context built over months and years of interactions.
 

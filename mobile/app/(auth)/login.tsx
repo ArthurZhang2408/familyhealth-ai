@@ -5,14 +5,15 @@ import {
   TextInput,
   Pressable,
   KeyboardAvoidingView,
-  ScrollView,
   Alert,
 } from 'react-native';
 import { Link, useRouter } from 'expo-router';
+import { Image } from 'expo-image';
 import { useColors } from '@/hooks/useColors';
 import { useShadow } from '@/hooks/useShadow';
 import { Spacing, FontSize, FontWeight, BorderRadius } from '@/constants/theme';
 import { signInWithEmail, signInWithGoogle, signInWithApple } from '@/services/auth';
+import { AppName, AppTagline, LoginIcon } from '@/constants/branding';
 
 export default function LoginScreen() {
   const Colors = useColors();
@@ -57,10 +58,9 @@ export default function LoginScreen() {
       style={{ flex: 1, backgroundColor: Colors.background }}
       behavior={process.env.EXPO_OS === 'ios' ? 'padding' : undefined}
     >
-      <ScrollView
-        contentInsetAdjustmentBehavior="automatic"
-        contentContainerStyle={{
-          flexGrow: 1,
+      <View
+        style={{
+          flex: 1,
           justifyContent: 'center',
           padding: Spacing.xl,
           gap: Spacing.md,
@@ -68,20 +68,15 @@ export default function LoginScreen() {
       >
         {/* Header */}
         <View style={{ alignItems: 'center', marginBottom: Spacing.lg }}>
-          <View
+          <Image
+            source={require('@/assets/salk-logo.png')}
             style={{
-              width: 64,
-              height: 64,
+              width: LoginIcon.containerSize,
+              height: LoginIcon.containerSize,
               borderRadius: BorderRadius.lg,
-              backgroundColor: Colors.primary,
-              alignItems: 'center',
-              justifyContent: 'center',
               marginBottom: Spacing.md,
-              ...Shadow.md,
             }}
-          >
-            <Text style={{ fontSize: 28, color: Colors.textInverse }}>♥</Text>
-          </View>
+          />
           <Text
             style={{
               fontSize: FontSize.xxxl,
@@ -89,7 +84,7 @@ export default function LoginScreen() {
               color: Colors.text,
             }}
           >
-            FamilyHealth AI
+            {AppName}
           </Text>
           <Text
             style={{
@@ -99,7 +94,7 @@ export default function LoginScreen() {
               textAlign: 'center',
             }}
           >
-            Your family's health companion
+            {AppTagline}
           </Text>
         </View>
 
@@ -226,7 +221,7 @@ export default function LoginScreen() {
             </Pressable>
           </Link>
         </View>
-      </ScrollView>
+      </View>
     </KeyboardAvoidingView>
   );
 }

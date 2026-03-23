@@ -1,9 +1,9 @@
-# FamilyHealth AI — Design System
+# Salk — Design System
 
 ## Intent
 A caretaker managing family health — stressed, sometimes scared, often checking at night.
 The interface must feel calm and trustworthy, like talking to a knowledgeable friend.
-Not clinical-cold, not startup-playful. Warm paper, not cool glass.
+Vibrant and confident, like a well-made Apple app. Not clinical-cold, not startup-playful.
 
 ## Design Philosophy
 - **Claude/ChatGPT-inspired**: sidebar-first, content-focused, no bottom tabs
@@ -51,16 +51,16 @@ Bidirectional compile-time check: adding a key to either palette forces the othe
 Opacity suffixes permitted for tints (e.g. `Colors.primary + '20'`).
 
 ### Light
-- Surfaces: `#f0f9ff` (bg) → `#ffffff` (surface) → `#f8fafc` (surfaceSecondary)
-- Primary: `#0891b2` (teal-600)
-- Text: `#0f172a` / `#64748b` / `#94a3b8`
+- Surfaces: `#f8fafc` (bg) → `#ffffff` (surface) → `#f1f5f9` (surfaceSecondary)
+- Primary: `#2563EB` (blue-600), accent: `#10b981` (emerald-500)
+- Text: `#0f172a` / `#475569` / `#94a3b8`
 - Borders: `#e2e8f0` (solid)
 
 ### Dark
-- Surfaces: `#0c1220` (bg) → `#151f30` (surface) → `#1c2940` (surfaceSecondary)
-- Primary: `#22d3ee` (cyan-400, lighter for dark backgrounds)
-- Text: `#edf2f7` / `#94a3b8` / `#64748b`
-- Borders: `rgba(255, 255, 255, 0.08)` (glow, not line)
+- Surfaces: `#111827` (bg) → `#1e293b` (surface) → `#334155` (surfaceSecondary)
+- Primary: `#60a5fa` (blue-400), accent: `#34d399` (emerald-400)
+- Text: `#f8fafc` / `#94a3b8` / `#64748b`
+- Borders: `rgba(255, 255, 255, 0.10)` (glow, not line)
 - Status colors desaturated one step (red-400, amber-400, emerald-400)
 
 ## Shadows

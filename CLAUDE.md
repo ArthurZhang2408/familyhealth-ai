@@ -1,4 +1,4 @@
-# FamilyHealth AI
+# Salk
 
 ## Project Overview
 A family health management platform where one account manages multiple health profiles

@@ -2,16 +2,10 @@
 
 from __future__ import annotations
 
-# ---------------------------------------------------------------------------
-# Medical disclaimer — same as diagnosis (injected by backend)
-# ---------------------------------------------------------------------------
+from app.core.branding import MEDICAL_DISCLAIMER
 
-CHAT_DISCLAIMER = (
-    "This is AI-generated health information, not a medical diagnosis. "
-    "Always consult a qualified healthcare professional for medical advice, "
-    "diagnosis, or treatment. If you are experiencing a medical emergency, "
-    "call your local emergency number immediately."
-)
+# Re-export as CHAT_DISCLAIMER for backward compatibility with existing imports.
+CHAT_DISCLAIMER = MEDICAL_DISCLAIMER
 
 # ---------------------------------------------------------------------------
 # Chat system prompt — passed to ContextBuilder as template

@@ -1,4 +1,4 @@
-# FamilyHealth AI — Diagnosis Agent Design
+# Salk — Diagnosis Agent Design
 
 The diagnosis agent is the most safety-critical feature in the platform. It conducts structured multi-turn symptom assessments, generates differential diagnoses, detects emergencies, and produces actionable health guidance — all while operating under strict guardrails that prevent it from overstepping into medical practice.
 

@@ -1,24 +1,24 @@
 const light = {
-  // Brand
-  primary: '#0891b2',
-  primaryDark: '#0e7490',
-  primaryLight: '#cffafe',
-  accent: '#14b8a6',
+  // Brand — vibrant blue from icon gradient
+  primary: '#2563EB',
+  primaryDark: '#1d4ed8',
+  primaryLight: '#dbeafe',
+  accent: '#10b981',
 
-  // Backgrounds
-  background: '#f0f9ff',
+  // Backgrounds — crisp, barely-tinted white
+  background: '#f8fafc',
   surface: '#ffffff',
-  surfaceSecondary: '#f8fafc',
+  surfaceSecondary: '#f1f5f9',
 
   // Text
   text: '#0f172a',
-  textSecondary: '#64748b',
+  textSecondary: '#475569',
   textMuted: '#94a3b8',
   textInverse: '#ffffff',
 
   // Borders
   border: '#e2e8f0',
-  borderFocus: '#0891b2',
+  borderFocus: '#2563EB',
 
   // Status
   error: '#ef4444',
@@ -38,7 +38,7 @@ const light = {
 
   // Relationship badges
   relationshipSelf: '#8b5cf6',
-  relationshipParent: '#0891b2',
+  relationshipParent: '#3b82f6',
   relationshipSpouse: '#ec4899',
   relationshipChild: '#f59e0b',
   relationshipSibling: '#10b981',
@@ -46,28 +46,28 @@ const light = {
 } as const;
 
 const dark = {
-  // Brand — slightly desaturated for dark surfaces
-  primary: '#22d3ee',       // cyan-400, lighter teal pops on dark without glaring
-  primaryDark: '#06b6d4',   // cyan-500
-  primaryLight: '#164e63',  // cyan-900, muted tint for disabled states
-  accent: '#2dd4bf',        // teal-400
+  // Brand — bright blue that pops on dark, emerald accent
+  primary: '#60a5fa',       // blue-400, vivid on dark
+  primaryDark: '#3b82f6',   // blue-500
+  primaryLight: '#1e3a5f',  // blue-900, muted tint for disabled states
+  accent: '#34d399',        // emerald-400
 
-  // Backgrounds — 3-tier slate-blue, each step a whisper
-  background: '#0c1220',    // near-black with blue undertone
-  surface: '#151f30',       // elevated — cards, sidebar, input capsule
-  surfaceSecondary: '#1c2940', // highest — dropdowns, hover states
+  // Backgrounds — breathable dark with soft blue warmth, visible tier steps
+  background: '#111827',    // soft charcoal, hint of blue
+  surface: '#1e293b',       // clear lift — cards, sidebar, inputs
+  surfaceSecondary: '#334155', // obvious step — dropdowns, hover, selected
 
-  // Text — warm whites, never pure #fff
-  text: '#edf2f7',          // slate-100, easy on the eyes
-  textSecondary: '#94a3b8', // slate-400, same as light — reads well on both
-  textMuted: '#64748b',     // slate-500, dimmer in dark context
-  textInverse: '#0c1220',   // dark text on bright buttons
+  // Text — clean whites with enough warmth
+  text: '#f8fafc',          // near-white, crisp
+  textSecondary: '#94a3b8', // slate-400
+  textMuted: '#64748b',     // slate-500
+  textInverse: '#111827',   // dark text on bright buttons
 
-  // Borders — rgba white glow, not solid lines
-  border: 'rgba(255, 255, 255, 0.08)',
-  borderFocus: '#22d3ee',
+  // Borders — slightly more visible for definition
+  border: 'rgba(255, 255, 255, 0.10)',
+  borderFocus: '#60a5fa',
 
-  // Status — desaturated to avoid screaming in the dark
+  // Status
   error: '#f87171',         // red-400
   errorLight: '#7f1d1d',    // red-900
   warning: '#fbbf24',       // amber-400
@@ -83,9 +83,9 @@ const dark = {
   urgencyHigh: '#fb923c',
   urgencyEmergency: '#f87171',
 
-  // Relationship badges — same hues, lighter for dark bg
+  // Relationship badges
   relationshipSelf: '#a78bfa',
-  relationshipParent: '#22d3ee',
+  relationshipParent: '#60a5fa',
   relationshipSpouse: '#f472b6',
   relationshipChild: '#fbbf24',
   relationshipSibling: '#34d399',
