@@ -5,7 +5,6 @@ import {
   TextInput,
   Pressable,
   KeyboardAvoidingView,
-  ScrollView,
   Alert,
 } from 'react-native';
 import { Link, useRouter } from 'expo-router';
