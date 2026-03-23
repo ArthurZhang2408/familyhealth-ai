@@ -2,16 +2,7 @@
 
 from __future__ import annotations
 
-# ---------------------------------------------------------------------------
-# Medical disclaimer — injected by backend into every response
-# ---------------------------------------------------------------------------
-
-MEDICAL_DISCLAIMER = (
-    "This is AI-generated health information, not a medical diagnosis. "
-    "Always consult a qualified healthcare professional for medical advice, "
-    "diagnosis, or treatment. If you are experiencing a medical emergency, "
-    "call your local emergency number immediately."
-)
+from app.core.branding import MEDICAL_DISCLAIMER  # noqa: F401 — re-exported for existing imports
 
 # ---------------------------------------------------------------------------
 # Diagnosis system prompt — passed to ContextBuilder as template

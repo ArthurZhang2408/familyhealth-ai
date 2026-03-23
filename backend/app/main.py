@@ -10,6 +10,7 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
 from app.api import action_log, auth, chat, debug, diagnosis, memory, profiles, reports
+from app.core.branding import APP_DESCRIPTION, APP_NAME, APP_VERSION, LOG_FILE, LOG_SHUTDOWN_MSG, LOG_STARTUP_MSG
 from app.core.config import settings
 from app.core.database import engine
 from app.core.exceptions import AppError, app_error_handler
@@ -49,7 +50,7 @@ def _setup_logging() -> None:
         log_dir = settings.log_dir
         os.makedirs(log_dir, exist_ok=True)
         file_handler = RotatingFileHandler(
-            os.path.join(log_dir, "familyhealth.log"),
+            os.path.join(log_dir, LOG_FILE),
             maxBytes=10 * 1024 * 1024,  # 10 MB
             backupCount=5,
             encoding="utf-8",
@@ -91,18 +92,18 @@ async def _purge_old_traces() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    logger.info("FamilyHealth AI backend starting up (env=%s)", settings.app_env)
+    logger.info(LOG_STARTUP_MSG, settings.app_env)
     settings.validate_prod_secrets()
     await _purge_old_traces()
     yield
     await engine.dispose()
-    logger.info("FamilyHealth AI backend shut down")
+    logger.info(LOG_SHUTDOWN_MSG)
 
 
 app = FastAPI(
-    title="FamilyHealth AI",
-    description="Family health management platform API",
-    version="0.1.0",
+    title=APP_NAME,
+    description=APP_DESCRIPTION,
+    version=APP_VERSION,
     lifespan=lifespan,
 )
 

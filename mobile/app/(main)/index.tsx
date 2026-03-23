@@ -15,6 +15,7 @@ import { Spacing, FontSize, FontWeight, BorderRadius } from '@/constants/theme';
 import { setPendingSend } from '@/services/pendingSend';
 import { enterFade, enterSlideUp } from '@/constants/animations';
 import { useNavSource } from '@/services/navigationSource';
+import { Copy, BrandIcon, BrandIconSize, BrandIconContainerSize } from '@/constants/branding';
 
 export default function NewConversationScreen() {
   const Colors = useColors();
@@ -80,8 +81,8 @@ export default function NewConversationScreen() {
             <Animated.View entering={enterFade()} style={{ alignItems: 'center' }}>
               <View
                 style={{
-                  width: 56,
-                  height: 56,
+                  width: BrandIconContainerSize,
+                  height: BrandIconContainerSize,
                   borderRadius: BorderRadius.lg,
                   borderCurve: 'continuous',
                   backgroundColor: Colors.primary + '12',
@@ -90,7 +91,7 @@ export default function NewConversationScreen() {
                   marginBottom: Spacing.md,
                 }}
               >
-                <Icon name="heart-clipboard" size={28} color={Colors.primary} />
+                <Icon name={BrandIcon} size={BrandIconSize} color={Colors.primary} />
               </View>
             </Animated.View>
             <Animated.Text
@@ -102,7 +103,7 @@ export default function NewConversationScreen() {
                 textAlign: 'center',
               }}
             >
-              Welcome
+              {Copy.welcome.title}
             </Animated.Text>
             <Animated.Text
               entering={enterSlideUp(240)}
@@ -115,7 +116,7 @@ export default function NewConversationScreen() {
                 maxWidth: 280,
               }}
             >
-              Your AI health companion for the whole family. Create a profile to get started.
+              {Copy.welcome.subtitle}
             </Animated.Text>
             <Animated.View entering={enterSlideUp(400)}>
               <Pressable
@@ -134,7 +135,7 @@ export default function NewConversationScreen() {
                 })}
               >
                 <Text style={{ fontSize: FontSize.md, fontWeight: FontWeight.semibold, color: Colors.textInverse }}>
-                  Get started
+                  {Copy.welcome.cta}
                 </Text>
               </Pressable>
             </Animated.View>
@@ -173,8 +174,8 @@ export default function NewConversationScreen() {
           <Animated.View entering={enterFade()} style={{ alignItems: 'center' }}>
             <View
               style={{
-                width: 56,
-                height: 56,
+                width: BrandIconContainerSize,
+                height: BrandIconContainerSize,
                 borderRadius: BorderRadius.lg,
                 borderCurve: 'continuous',
                 backgroundColor: Colors.primary + '12',
@@ -183,7 +184,7 @@ export default function NewConversationScreen() {
                 marginBottom: Spacing.md,
               }}
             >
-              <Icon name="heart-clipboard" size={28} color={Colors.primary} />
+              <Icon name={BrandIcon} size={BrandIconSize} color={Colors.primary} />
             </View>
           </Animated.View>
           <Animated.Text
@@ -195,7 +196,7 @@ export default function NewConversationScreen() {
               textAlign: 'center',
             }}
           >
-            {mode === 'chat' ? 'Health Chat' : 'AI Diagnosis'}
+            {mode === 'chat' ? Copy.home.chat.title : Copy.home.diagnosis.title}
           </Animated.Text>
           <Animated.Text
             entering={enterSlideUp(240)}
@@ -208,9 +209,7 @@ export default function NewConversationScreen() {
               maxWidth: 300,
             }}
           >
-            {mode === 'chat'
-              ? 'Ask any health question about medications, conditions, or test results.'
-              : 'Describe symptoms for a structured AI-assisted assessment.'}
+            {mode === 'chat' ? Copy.home.chat.subtitle : Copy.home.diagnosis.subtitle}
           </Animated.Text>
           <View style={{ flex: 2 }} />
         </Pressable>
@@ -225,8 +224,8 @@ export default function NewConversationScreen() {
           onRemoveAttachment={() => setPendingAttachment(null)}
           placeholder={
             mode === 'chat'
-              ? 'Ask a health question…'
-              : 'Describe your symptoms…'
+              ? Copy.home.chat.placeholder
+              : Copy.home.diagnosis.placeholder
           }
         />
       </KeyboardAvoidingView>
