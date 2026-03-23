@@ -22,6 +22,7 @@ dependencies = [
     "tiktoken>=0.8,<1",
     "slowapi>=0.1,<1",
     "sentry-sdk[fastapi]>=2,<3",
+    "jinja2>=3,<4",
 ]
 
 [project.optional-dependencies]
