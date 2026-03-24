@@ -1,5 +1,3 @@
-import type { IconName } from '@/components/Icon';
-
 /**
  * Centralized branding constants.
  *
@@ -12,6 +10,7 @@ export const AppName = 'Salk';
 export const AppTagline = "Your family's health companion";
 
 // ── Screen copy ─────────────────────────────────────────────────────
+// Prompt suggestions are now generated dynamically by services/suggestions.ts
 export const Copy = {
   signup: {
     title: 'Create account',
@@ -38,11 +37,6 @@ export const Copy = {
     },
   },
 } as const;
-
-// ── Brand icon ──────────────────────────────────────────────────────
-export const BrandIcon: IconName = 'heart-clipboard';
-export const BrandIconSize = 28;
-export const BrandIconContainerSize = 56;
 
 /** Login screen logo — rendered as an image, not an icon. */
 export const LoginIcon = {

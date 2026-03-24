@@ -10,6 +10,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useColors } from '@/hooks/useColors';
 import { useHapticPress } from '@/hooks/useHapticPress';
+import { ScaleSlider } from '@/components/ScaleSlider';
 import { Spacing, FontSize, FontWeight, BorderRadius } from '@/constants/theme';
 import { Springs, Timings } from '@/constants/animations';
 import type { MessagePart } from '@/types/api';
@@ -172,17 +173,6 @@ function ScaleInput({
   };
   const [value, setValue] = useState<number | null>(null);
   const displayValue = selected != null ? Number(selected) : value;
-  const step = range.step ?? 1;
-  const steps: number[] = [];
-  for (let i = range.min; i <= range.max; i += step) steps.push(i);
-
-  const handleSelect = useCallback(
-    (v: number) => {
-      if (!interactive) return;
-      setValue(v);
-    },
-    [interactive],
-  );
 
   const handleSubmit = useHapticPress(
     useCallback(() => {
@@ -200,47 +190,12 @@ function ScaleInput({
       <Text style={{ fontSize: FontSize.sm, fontWeight: FontWeight.semibold, color: Colors.text }}>
         {part.prompt}
       </Text>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.xs }}>
-        {steps.map((n) => {
-          const isSelected = displayValue === n;
-          return (
-            <Pressable
-              key={n}
-              onPress={() => handleSelect(n)}
-              disabled={!interactive}
-              style={({ pressed }) => ({
-                width: 36,
-                height: 36,
-                borderRadius: 18,
-                borderWidth: 1.5,
-                borderColor: isSelected ? Colors.primary : Colors.border,
-                backgroundColor: isSelected ? Colors.primary : Colors.surface,
-                alignItems: 'center',
-                justifyContent: 'center',
-                opacity: pressed ? 0.85 : !interactive && !isSelected ? 0.5 : 1,
-              })}
-            >
-              <Text
-                style={{
-                  fontSize: FontSize.sm,
-                  fontWeight: isSelected ? FontWeight.bold : FontWeight.regular,
-                  color: isSelected ? Colors.textInverse : Colors.text,
-                }}
-              >
-                {n}
-              </Text>
-            </Pressable>
-          );
-        })}
-      </View>
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-        <Text style={{ fontSize: FontSize.xs, color: Colors.textMuted }}>
-          {range.labels?.min ?? `${range.min}`}
-        </Text>
-        <Text style={{ fontSize: FontSize.xs, color: Colors.textMuted }}>
-          {range.labels?.max ?? `${range.max}`}
-        </Text>
-      </View>
+      <ScaleSlider
+        range={range}
+        value={displayValue}
+        onValueChange={setValue}
+        interactive={interactive}
+      />
       {interactive && value != null && (
         <SubmitButton label={`Submit: ${value}`} onPress={handleSubmit} />
       )}
