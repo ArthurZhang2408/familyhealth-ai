@@ -21,7 +21,8 @@ export interface ScaleSliderProps {
 }
 
 const TRACK_HEIGHT = 8;
-const THUMB_SIZE = 36;
+const THUMB_SIZE = 44;
+const GHOST_THUMB_SIZE = 28;
 const TRACK_PAD = THUMB_SIZE / 2;
 
 function fireHaptic(step: number) {
@@ -153,8 +154,8 @@ export function ScaleSlider({ range, value, onValueChange, interactive }: ScaleS
               pointerEvents="none"
             >
               <View style={[{
-                width: THUMB_SIZE, height: THUMB_SIZE,
-                borderRadius: THUMB_SIZE / 2, borderCurve: 'continuous',
+                width: GHOST_THUMB_SIZE, height: GHOST_THUMB_SIZE,
+                borderRadius: GHOST_THUMB_SIZE / 2, borderCurve: 'continuous',
                 backgroundColor: Colors.surface, borderWidth: 2, borderColor: Colors.border,
               }, shadow.md]} />
             </Animated.View>
