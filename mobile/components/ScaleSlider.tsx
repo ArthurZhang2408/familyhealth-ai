@@ -102,7 +102,7 @@ export function ScaleSlider({ range, value, onValueChange, interactive }: ScaleS
   const colors3 = [Colors.success, Colors.warning, Colors.error] as const;
 
   const filledTrackStyle = useAnimatedStyle(() => ({
-    width: thumbX.value + TRACK_PAD,
+    width: thumbX.value,
     opacity: thumbOpacity.value,
     backgroundColor: interpolateColor(normalizedPos.value, [0, 0.5, 1], [...colors3]),
   }));
@@ -143,7 +143,7 @@ export function ScaleSlider({ range, value, onValueChange, interactive }: ScaleS
             borderRadius: BorderRadius.full, borderCurve: 'continuous', backgroundColor: Colors.surfaceSecondary,
           }} />
           <Animated.View style={[{
-            position: 'absolute', left: 0, height: TRACK_HEIGHT,
+            position: 'absolute', left: TRACK_PAD, height: TRACK_HEIGHT,
             borderRadius: BorderRadius.full, borderCurve: 'continuous',
             top: (THUMB_SIZE - TRACK_HEIGHT) / 2,
           }, filledTrackStyle]} />
