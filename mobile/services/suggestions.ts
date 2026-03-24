@@ -106,7 +106,7 @@ export function buildSuggestions(
 
   // 2. Recent completed diagnoses (max 1)
   const completed = diagnosisSessions
-    .filter((s) => s.diagnosis_state?.phase === 'complete' && isWithinDays(s.updated_at, 14))
+    .filter((s) => s.diagnosis_state?.phase === 'complete' && s.status !== 'abandoned' && isWithinDays(s.updated_at, 14))
     .slice(0, 1);
   for (const s of completed) {
     if (result.length >= MAX_SUGGESTIONS) break;

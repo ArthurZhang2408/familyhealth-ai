@@ -101,6 +101,7 @@ export function ScaleSlider({ range, value, onValueChange, interactive }: ScaleS
 
   const filledTrackStyle = useAnimatedStyle(() => ({
     width: thumbX.value + TRACK_PAD,
+    opacity: thumbOpacity.value,
     backgroundColor: interpolateColor(normalizedPos.value, [0, 0.5, 1], [...colors3]),
   }));
 

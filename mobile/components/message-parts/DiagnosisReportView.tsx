@@ -12,7 +12,7 @@ import type { MessagePart, AssessmentCondition, AssessmentMedication, Assessment
 type AssessmentPart = Extract<MessagePart, { type: 'assessment' }>;
 
 // ── Confidence styling ──────────────────────────────────────────────────
-// Left-border accent conveys likelihood at a glance without noisy badges.
+// Animated ring conveys likelihood at a glance; text label beside the name.
 
 const CONFIDENCE_META: Record<string, { label: string; rank: string }> = {
   most_likely: { label: 'Most likely', rank: '1' },
@@ -126,7 +126,7 @@ function ConditionCard({
 
   const bodyStyle = useAnimatedStyle(() => ({
     opacity: bodyOpacity.value,
-    maxHeight: bodyHeight.value * 300,
+    maxHeight: bodyHeight.value * 600,
     overflow: 'hidden' as const,
   }));
 

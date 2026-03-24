@@ -1,4 +1,4 @@
-import { useRef, useCallback, useEffect, type RefObject } from 'react';
+import { useRef, useCallback, useEffect } from 'react';
 import { View, Text, Pressable, ScrollView } from 'react-native';
 import Animated, { useSharedValue, useAnimatedStyle, withSpring, withTiming, withSequence } from 'react-native-reanimated';
 import { Icon } from '@/components/Icon';
