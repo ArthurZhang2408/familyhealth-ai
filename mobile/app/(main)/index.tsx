@@ -208,6 +208,10 @@ export default function NewConversationScreen() {
       >
         <Pressable style={{ flex: 1, alignItems: 'center', padding: Spacing.xl }} onPress={Keyboard.dismiss}>
           <View style={{ flex: 1 }} />
+          <Image
+            source={require('@/assets/icon.png')}
+            style={{ width: 56, height: 56, borderRadius: 14, marginBottom: Spacing.md }}
+          />
           <Animated.Text
             entering={enterSlideUp(120)}
             style={{
