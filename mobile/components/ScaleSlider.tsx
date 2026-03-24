@@ -112,6 +112,11 @@ export function ScaleSlider({ range, value, onValueChange, interactive }: ScaleS
     borderColor: interpolateColor(normalizedPos.value, [0, 0.5, 1], [...colors3]),
   }));
 
+  // Ghost thumb: visible at center before first interaction, fades when real thumb appears
+  const ghostStyle = useAnimatedStyle(() => ({
+    opacity: 1 - thumbOpacity.value,
+  }));
+
   const colorTextStyle = useAnimatedStyle(() => ({
     color: interpolateColor(normalizedPos.value, [0, 0.5, 1], [...colors3]),
   }));
@@ -141,6 +146,20 @@ export function ScaleSlider({ range, value, onValueChange, interactive }: ScaleS
             borderRadius: BorderRadius.full, borderCurve: 'continuous',
             top: (THUMB_SIZE - TRACK_HEIGHT) / 2,
           }, filledTrackStyle]} />
+          {/* Ghost thumb — centered affordance hint before first interaction */}
+          {interactive && (
+            <Animated.View
+              style={[{ position: 'absolute', left: TRACK_PAD, right: TRACK_PAD, height: THUMB_SIZE, justifyContent: 'center', alignItems: 'center' }, ghostStyle]}
+              pointerEvents="none"
+            >
+              <View style={[{
+                width: THUMB_SIZE, height: THUMB_SIZE,
+                borderRadius: THUMB_SIZE / 2, borderCurve: 'continuous',
+                backgroundColor: Colors.surface, borderWidth: 2, borderColor: Colors.border,
+              }, shadow.md]} />
+            </Animated.View>
+          )}
+          {/* Real thumb — appears on first tap/drag */}
           <Animated.View style={[{
             position: 'absolute', width: THUMB_SIZE, height: THUMB_SIZE,
             borderRadius: THUMB_SIZE / 2, borderCurve: 'continuous',
