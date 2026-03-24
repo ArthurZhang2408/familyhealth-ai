@@ -21,7 +21,7 @@ export interface ScaleSliderProps {
 }
 
 const TRACK_HEIGHT = 8;
-const THUMB_SIZE = 44;
+const THUMB_SIZE = 36;
 const TRACK_PAD = THUMB_SIZE / 2;
 
 function fireHaptic(step: number) {
