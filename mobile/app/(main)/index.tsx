@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { View, Text, Pressable, Keyboard, ActivityIndicator } from 'react-native';
 import { useRouter, Stack } from 'expo-router';
 import Animated from 'react-native-reanimated';
@@ -75,15 +75,17 @@ export default function NewConversationScreen() {
 
   const handleAttach = useAttachMenu((attachment) => setPendingAttachment(attachment));
 
+  const busyRef = useRef(false);
   const [isBusy, setIsBusy] = useState(false);
 
-  // Reset isBusy when screen regains focus (navigated back from session)
-  useFocusEffect(useCallback(() => { setIsBusy(false); }, []));
+  // Reset busy guard when screen regains focus (navigated back from session)
+  useFocusEffect(useCallback(() => { busyRef.current = false; setIsBusy(false); }, []));
 
   const { suggestions, isLoading: suggestionsLoading } = usePromptSuggestions(mode);
 
   const doSend = useCallback((text: string, files?: Attachment[]) => {
-    if ((!text && !files) || isBusy || !pid) return;
+    if ((!text && !files) || busyRef.current || !pid) return;
+    busyRef.current = true;
     setIsBusy(true);
     Keyboard.dismiss();
     setPendingSend(text || ' ', files);
@@ -93,7 +95,7 @@ export default function NewConversationScreen() {
     } else {
       router.navigate({ pathname: '/(main)/diagnosis/[sid]', params: { sid: `new-${ts}` } } as never);
     }
-  }, [isBusy, pid, mode, router]);
+  }, [pid, mode, router]);
 
   const handleSend = useCallback(() => {
     const text = input.trim();
@@ -182,6 +184,11 @@ export default function NewConversationScreen() {
     );
   }
 
+  const greet = activeProfile
+    ? greeting(activeProfile.name, activeProfile.relationship, mode)
+    : { title: mode === 'chat' ? Copy.home.chat.title : Copy.home.diagnosis.title,
+        subtitle: mode === 'chat' ? Copy.home.chat.subtitle : Copy.home.diagnosis.subtitle };
+
   return (
     <>
       <Stack.Screen
@@ -201,40 +208,30 @@ export default function NewConversationScreen() {
       >
         <Pressable style={{ flex: 1, alignItems: 'center', padding: Spacing.xl }} onPress={Keyboard.dismiss}>
           <View style={{ flex: 1 }} />
-          {(() => {
-            const g = activeProfile
-              ? greeting(activeProfile.name, activeProfile.relationship, mode)
-              : { title: mode === 'chat' ? Copy.home.chat.title : Copy.home.diagnosis.title,
-                  subtitle: mode === 'chat' ? Copy.home.chat.subtitle : Copy.home.diagnosis.subtitle };
-            return (
-              <>
-                <Animated.Text
-                  entering={enterSlideUp(120)}
-                  style={{
-                    fontSize: FontSize.xxl,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.text,
-                    textAlign: 'center',
-                  }}
-                >
-                  {g.title}
-                </Animated.Text>
-                <Animated.Text
-                  entering={enterSlideUp(240)}
-                  style={{
-                    fontSize: FontSize.md,
-                    color: Colors.textSecondary,
-                    textAlign: 'center',
-                    marginTop: Spacing.sm,
-                    lineHeight: 22,
-                    maxWidth: 300,
-                  }}
-                >
-                  {g.subtitle}
-                </Animated.Text>
-              </>
-            );
-          })()}
+          <Animated.Text
+            entering={enterSlideUp(120)}
+            style={{
+              fontSize: FontSize.xxl,
+              fontWeight: FontWeight.bold,
+              color: Colors.text,
+              textAlign: 'center',
+            }}
+          >
+            {greet.title}
+          </Animated.Text>
+          <Animated.Text
+            entering={enterSlideUp(240)}
+            style={{
+              fontSize: FontSize.md,
+              color: Colors.textSecondary,
+              textAlign: 'center',
+              marginTop: Spacing.sm,
+              lineHeight: 22,
+              maxWidth: 300,
+            }}
+          >
+            {greet.subtitle}
+          </Animated.Text>
           <View style={{ flex: 2 }} />
         </Pressable>
 

@@ -82,7 +82,7 @@ export function ScaleSlider({ range, value, onValueChange, interactive }: ScaleS
     if (tw === 0) return null;
     const clamped = Math.max(TRACK_PAD, Math.min(x, TRACK_PAD + tw));
     return Math.max(min, Math.min(max, Math.round(((clamped - TRACK_PAD) / tw) * span + min)));
-  }, [min, max]);
+  }, [min, max, span]);
 
   const handleGesture = useCallback((x: number) => {
     const step = computeStep(x);

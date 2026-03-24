@@ -48,6 +48,7 @@ export function ConfidenceRing({ confidence, color, delay }: ConfidenceRingProps
       }, delay ?? 0);
     }
     return () => clearTimeout(timerRef.current);
+  // Fire once on mount — assessments are immutable, confidence never changes after delivery
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const animatedProps = useAnimatedProps(() => ({

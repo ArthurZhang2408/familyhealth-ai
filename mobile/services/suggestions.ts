@@ -12,6 +12,8 @@ export interface Suggestion {
   sessionType?: 'chat' | 'diagnosis';
 }
 
+// Module-level cache: persists across navigation, cleared on app restart.
+// Intentionally never invalidated mid-session — user requirement.
 const cache = new Map<string, Suggestion[]>();
 
 export function getCachedSuggestions(key: string): Suggestion[] | undefined {
