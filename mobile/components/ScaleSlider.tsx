@@ -20,7 +20,7 @@ export interface ScaleSliderProps {
   interactive: boolean;
 }
 
-const TRACK_HEIGHT = 6;
+const TRACK_HEIGHT = 8;
 const THUMB_SIZE = 44;
 const TRACK_PAD = THUMB_SIZE / 2;
 
@@ -90,6 +90,7 @@ export function ScaleSlider({ range, value, onValueChange, interactive }: ScaleS
 
   const pan = Gesture.Pan()
     .enabled(interactive)
+    .runOnJS(true)
     .onBegin((e) => handleGesture(e.x))
     .onUpdate((e) => handleGesture(e.x));
 
@@ -133,7 +134,7 @@ export function ScaleSlider({ range, value, onValueChange, interactive }: ScaleS
         <View onLayout={onLayout} style={{ height: THUMB_SIZE, justifyContent: 'center' }}>
           <View style={{
             marginHorizontal: TRACK_PAD, height: TRACK_HEIGHT,
-            borderRadius: BorderRadius.full, borderCurve: 'continuous', backgroundColor: Colors.border,
+            borderRadius: BorderRadius.full, borderCurve: 'continuous', backgroundColor: Colors.surfaceSecondary,
           }} />
           <Animated.View style={[{
             position: 'absolute', left: 0, height: TRACK_HEIGHT,
