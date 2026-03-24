@@ -150,7 +150,7 @@ export function ScaleSlider({ range, value, onValueChange, interactive }: ScaleS
           {/* Ghost thumb — centered affordance hint before first interaction */}
           {interactive && (
             <Animated.View
-              style={[{ position: 'absolute', left: TRACK_PAD, right: TRACK_PAD, height: THUMB_SIZE, justifyContent: 'center', alignItems: 'center' }, ghostStyle]}
+              style={[{ position: 'absolute', left: TRACK_PAD, height: THUMB_SIZE, justifyContent: 'center', alignItems: 'center' }, ghostStyle]}
               pointerEvents="none"
             >
               <View style={[{
