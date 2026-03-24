@@ -44,28 +44,30 @@ export function ScaleSlider({ range, value, onValueChange, interactive }: ScaleS
   const thumbOpacity = useSharedValue(0);
   const normalizedPos = useSharedValue(0);
 
+  const span = max - min || 1; // guard against degenerate range (min === max)
+
   const stepToX = useCallback(
-    (s: number) => ((s - min) / (max - min)) * trackWidthRef.current,
-    [min, max],
+    (s: number) => ((s - min) / span) * trackWidthRef.current,
+    [min, span],
   );
 
   const animateToStep = useCallback((step: number) => {
     const x = stepToX(step);
-    const norm = (step - min) / (max - min);
+    const norm = (step - min) / span;
     const reduce = isReduceMotion();
     thumbX.value = reduce ? x : withSpring(x, Springs.snappy);
     normalizedPos.value = reduce ? norm : withSpring(norm, Springs.snappy);
     thumbOpacity.value = 1;
-  }, [stepToX, min, max, thumbX, normalizedPos, thumbOpacity]);
+  }, [stepToX, min, span, thumbX, normalizedPos, thumbOpacity]);
 
   useEffect(() => {
     if (!interactive && value !== null && trackWidthRef.current > 0) {
       thumbX.value = stepToX(value);
-      normalizedPos.value = (value - min) / (max - min);
+      normalizedPos.value = (value - min) / span;
       thumbOpacity.value = 1;
       lastStepRef.current = value;
     }
-  }, [interactive, value, min, max, stepToX, thumbX, normalizedPos, thumbOpacity]);
+  }, [interactive, value, min, span, stepToX, thumbX, normalizedPos, thumbOpacity]);
 
   const handleStep = useCallback((step: number) => {
     if (step !== lastStepRef.current) {
@@ -79,7 +81,7 @@ export function ScaleSlider({ range, value, onValueChange, interactive }: ScaleS
     const tw = trackWidthRef.current;
     if (tw === 0) return null;
     const clamped = Math.max(TRACK_PAD, Math.min(x, TRACK_PAD + tw));
-    return Math.max(min, Math.min(max, Math.round(((clamped - TRACK_PAD) / tw) * (max - min) + min)));
+    return Math.max(min, Math.min(max, Math.round(((clamped - TRACK_PAD) / tw) * span + min)));
   }, [min, max]);
 
   const handleGesture = useCallback((x: number) => {
@@ -97,7 +99,13 @@ export function ScaleSlider({ range, value, onValueChange, interactive }: ScaleS
 
   const onLayout = useCallback((e: LayoutChangeEvent) => {
     trackWidthRef.current = e.nativeEvent.layout.width - TRACK_PAD * 2;
-  }, []);
+    // For completed state: position thumb now that we have the track width
+    if (!interactive && value !== null) {
+      thumbX.value = stepToX(value);
+      normalizedPos.value = (value - min) / span;
+      thumbOpacity.value = 1;
+    }
+  }, [interactive, value, min, span, stepToX, thumbX, normalizedPos, thumbOpacity]);
 
   const colors3 = [Colors.success, Colors.warning, Colors.error] as const;
 

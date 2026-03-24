@@ -1,5 +1,3 @@
-import type { IconName } from '@/components/Icon';
-
 /**
  * Centralized branding constants.
  *
@@ -39,11 +37,6 @@ export const Copy = {
     },
   },
 } as const;
-
-// ── Brand icon ──────────────────────────────────────────────────────
-export const BrandIcon: IconName = 'heart-clipboard';
-export const BrandIconSize = 28;
-export const BrandIconContainerSize = 56;
 
 /** Login screen logo — rendered as an image, not an icon. */
 export const LoginIcon = {
