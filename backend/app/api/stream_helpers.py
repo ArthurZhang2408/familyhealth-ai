@@ -45,7 +45,7 @@ async def sse_event_stream(
                 break
             last_event_type = item.type.value
             payload = {"type": item.type.value, **item.data}
-            yield f"data: {json.dumps(payload)}\n\n"
+            yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
             events_sent += 1
     except asyncio.CancelledError:
         client_disconnected = True

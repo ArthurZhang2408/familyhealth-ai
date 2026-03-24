@@ -12,6 +12,7 @@ export const AppName = 'Salk';
 export const AppTagline = "Your family's health companion";
 
 // ── Screen copy ─────────────────────────────────────────────────────
+// Prompt suggestions are now generated dynamically by services/suggestions.ts
 export const Copy = {
   signup: {
     title: 'Create account',
