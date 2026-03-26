@@ -8,8 +8,8 @@ import {
   Alert,
 } from 'react-native';
 import { Link, useRouter } from 'expo-router';
-import { Image } from 'expo-image';
 import { useColors } from '@/hooks/useColors';
+import { AnimatedSalkIcon } from '@/components/AnimatedSalkIcon';
 import { useShadow } from '@/hooks/useShadow';
 import { Spacing, FontSize, FontWeight, BorderRadius } from '@/constants/theme';
 import { signInWithEmail, signInWithGoogle, signInWithApple } from '@/services/auth';
@@ -68,15 +68,7 @@ export default function LoginScreen() {
       >
         {/* Header */}
         <View style={{ alignItems: 'center', marginBottom: Spacing.lg }}>
-          <Image
-            source={require('@/assets/salk-logo.png')}
-            style={{
-              width: LoginIcon.containerSize,
-              height: LoginIcon.containerSize,
-              borderRadius: BorderRadius.lg,
-              marginBottom: Spacing.md,
-            }}
-          />
+          <AnimatedSalkIcon size={LoginIcon.containerSize} />
           <Text
             style={{
               fontSize: FontSize.xxxl,

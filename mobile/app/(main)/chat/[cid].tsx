@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useWindowDimensions } from 'react-native';
+import { Pressable, useWindowDimensions } from 'react-native';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { Stack } from 'expo-router';
 import { useQueryClient } from '@tanstack/react-query';
 import Animated, { useSharedValue, useAnimatedStyle, withTiming, Easing } from 'react-native-reanimated';
 import { ConversationView } from '@/components/ConversationView';
 import { HeaderIconButton } from '@/components/HeaderIconButton';
+import { AnimatedSalkIcon } from '@/components/AnimatedSalkIcon';
+import { useHeaderScale } from '@/hooks/useHeaderScale';
 import { useProfileStore } from '@/stores/profile';
 import { useChatConversation } from '@/hooks/useChat';
 import { useConversation, type LocalMessage } from '@/hooks/useConversation';
@@ -40,6 +42,7 @@ export default function ChatScreen() {
 }
 
 function ChatScreenInner() {
+  const header = useHeaderScale();
   const router = useRouter();
   const qc = useQueryClient();
   const { cid } = useLocalSearchParams<{ cid: string }>();
@@ -235,7 +238,9 @@ function ChatScreenInner() {
             ? () => <HeaderIconButton icon="chevron-back" onPress={handleBack} />
             : undefined,
           headerRight: () => (
-            <HeaderIconButton icon="pen-square" onPress={() => router.navigate('/(main)' as never)} />
+            <Pressable onPress={() => router.navigate('/(main)' as never)} style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}>
+              <AnimatedSalkIcon size={header.buttonSize} showBackground={false} />
+            </Pressable>
           ),
         }}
       />

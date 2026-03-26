@@ -4,21 +4,20 @@ import Animated, {
   useSharedValue,
   useAnimatedStyle,
   withTiming,
-  withRepeat,
   Easing,
 } from 'react-native-reanimated';
 import { useColors } from '@/hooks/useColors';
 import { Spacing, FontSize, FontWeight } from '@/constants/theme';
 import { isReduceMotion } from '@/constants/animations';
+import { AnimatedSalkIcon } from './AnimatedSalkIcon';
 
 interface StatusWordCyclerProps {
   words: string[];
   intervalMs?: number;
-  slowPulse?: boolean;
 }
 
 const FADE_MS = 120;
-const DOT_SIZE = 6;
+const ICON_SIZE = 28;
 
 /**
  * Single-text fade: fade out → swap text → fade in.
@@ -27,13 +26,11 @@ const DOT_SIZE = 6;
 export function StatusWordCycler({
   words,
   intervalMs = 1800,
-  slowPulse = false,
 }: StatusWordCyclerProps) {
   const colors = useColors();
   const reduced = isReduceMotion();
   const [text, setText] = useState(words[0] ?? '');
   const textOpacity = useSharedValue(1);
-  const dotOpacity = useSharedValue(reduced ? 0.8 : 0.3);
   const aliveRef = useRef(true);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -84,22 +81,7 @@ export function StatusWordCycler({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wordsKey, intervalMs, reduced]);
 
-  // Dot pulse
-  useEffect(() => {
-    if (reduced) {
-      dotOpacity.value = 0.8;
-      return;
-    }
-    dotOpacity.value = 0.3;
-    dotOpacity.value = withRepeat(
-      withTiming(0.8, { duration: slowPulse ? 3000 : 1000 }),
-      -1,
-      true,
-    );
-  }, [slowPulse, reduced, dotOpacity]);
-
   const textStyle = useAnimatedStyle(() => ({ opacity: textOpacity.value }));
-  const dotStyle = useAnimatedStyle(() => ({ opacity: dotOpacity.value }));
 
   if (words.length === 0) return null;
 
@@ -109,17 +91,7 @@ export function StatusWordCycler({
       accessibilityLabel="AI is processing your request"
       accessibilityRole="text"
     >
-      <Animated.View
-        style={[
-          {
-            width: DOT_SIZE,
-            height: DOT_SIZE,
-            borderRadius: DOT_SIZE / 2,
-            backgroundColor: colors.primary,
-          },
-          dotStyle,
-        ]}
-      />
+      <AnimatedSalkIcon size={ICON_SIZE} showBackground={false} loop />
       <Animated.Text
         style={[
           { color: colors.textSecondary, fontSize: FontSize.sm, fontWeight: FontWeight.medium },

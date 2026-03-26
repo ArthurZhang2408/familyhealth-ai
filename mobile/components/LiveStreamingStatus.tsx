@@ -217,7 +217,7 @@ export function LiveStreamingStatus({
         paddingVertical: Spacing.sm,
       }}
     >
-      <StatusWordCycler words={words} slowPulse={capped} />
+      <StatusWordCycler words={words} />
       {elapsed >= 1 && !capped && (
         <Animated.Text
           entering={FadeIn.duration(200)}

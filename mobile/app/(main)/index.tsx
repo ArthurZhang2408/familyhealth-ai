@@ -2,13 +2,14 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { View, Text, Pressable, Keyboard, ActivityIndicator } from 'react-native';
 import { useRouter, Stack } from 'expo-router';
 import Animated from 'react-native-reanimated';
-import { Image } from 'expo-image';
+
 import * as Haptics from 'expo-haptics';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { useFocusEffect } from '@react-navigation/native';
 import { ChatInput } from '@/components/ChatInput';
 import { ModeToggle, type ConversationMode } from '@/components/ModeToggle';
 import { PromptSuggestions } from '@/components/PromptSuggestions';
+import { AnimatedSalkIcon } from '@/components/AnimatedSalkIcon';
 import { usePromptSuggestions } from '@/hooks/usePromptSuggestions';
 import { useProfileStore } from '@/stores/profile';
 import { useProfiles } from '@/hooks/useProfiles';
@@ -122,10 +123,9 @@ export default function NewConversationScreen() {
           <Stack.Screen options={{}} />
           <View style={{ flex: 1, alignItems: 'center', backgroundColor: Colors.background, padding: Spacing.xl }}>
             <View style={{ flex: 1 }} />
-            <Image
-              source={require('@/assets/icon.png')}
-              style={{ width: 64, height: 64, borderRadius: 16, marginBottom: Spacing.md }}
-            />
+            <View style={{ marginBottom: Spacing.md }}>
+              <AnimatedSalkIcon size={64} />
+            </View>
             <Animated.Text
               entering={enterSlideUp(120)}
               style={{
@@ -208,10 +208,9 @@ export default function NewConversationScreen() {
       >
         <Pressable style={{ flex: 1, alignItems: 'center', padding: Spacing.xl }} onPress={Keyboard.dismiss}>
           <View style={{ flex: 1 }} />
-          <Image
-            source={require('@/assets/icon.png')}
-            style={{ width: 56, height: 56, borderRadius: 14, marginBottom: Spacing.md }}
-          />
+          <View style={{ marginBottom: Spacing.md }}>
+            <AnimatedSalkIcon size={56} key={`${pid}-${mode}`} />
+          </View>
           <Animated.Text
             entering={enterSlideUp(120)}
             style={{
