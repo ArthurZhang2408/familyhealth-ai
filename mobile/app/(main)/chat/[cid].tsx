@@ -210,7 +210,6 @@ function ChatScreenInner() {
     streamSendFn,
     dedupMode: 'id',
     onSendComplete,
-    sessionId: cid,
   });
 
 

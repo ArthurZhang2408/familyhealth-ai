@@ -34,10 +34,6 @@ function toolMessage(name: string): string {
   return `${TOOL_LABELS[name] ?? `Using ${name.replace(/_/g, ' ')}`}...`;
 }
 
-/** Module-level cache for medical disclaimers — survives navigation.
- *  Keyed by session/conversation ID. Cleared on sign-out via settings.tsx. */
-export const disclaimerCache = new Map<string, string>();
-
 export type StreamSendFn = (
   text: string,
   onEvent: (event: StreamEvent) => void,
@@ -52,16 +48,12 @@ interface UseConversationConfig {
   dedupMode: 'id' | 'count';
   /** Called after a send completes (success or error). Use to invalidate query cache. */
   onSendComplete?: (done?: DoneEvent) => void;
-  /** Session/conversation ID for disclaimer caching across navigation. */
-  sessionId?: string;
 }
 
-export function useConversation({ serverMessages, streamSendFn, dedupMode, onSendComplete, sessionId }: UseConversationConfig) {
+export function useConversation({ serverMessages, streamSendFn, dedupMode, onSendComplete }: UseConversationConfig) {
   const [pendingMessages, setPendingMessages] = useState<LocalMessage[]>([]);
   const [input, setInput] = useState('');
-  const [disclaimer, setDisclaimer] = useState<string | null>(
-    sessionId ? disclaimerCache.get(sessionId) ?? null : null,
-  );
+  const [disclaimer, setDisclaimer] = useState<string | null>(null);
   const [pendingAttachment, setPendingAttachment] = useState<Attachment | null>(null);
   const [isSending, setIsSending] = useState(false);
   const [sendErrorCount, setSendErrorCount] = useState(0);
@@ -295,9 +287,7 @@ export function useConversation({ serverMessages, streamSendFn, dedupMode, onSen
         activeAbortRef.current = null;
         doneEvent = done;
 
-        const disc = done.disclaimer ?? null;
-        setDisclaimer(disc);
-        if (sessionId && disc) disclaimerCache.set(sessionId, disc);
+        setDisclaimer(done.disclaimer ?? null);
 
         const serverUserId = done.user_message_id;
         // Build contentParts from accumulated agent steps so they render

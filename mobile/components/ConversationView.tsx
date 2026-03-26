@@ -19,6 +19,7 @@ import { useColors } from '@/hooks/useColors';
 import { useNetworkStatus } from '@/hooks/useNetworkStatus';
 import { isDevMode } from '@/constants/config';
 import { Spacing, FontSize, FontWeight, BorderRadius } from '@/constants/theme';
+import { MEDICAL_DISCLAIMER } from '@/constants/disclaimer';
 import { enterSlideUp, enterSlideDown, enterFade, Springs } from '@/constants/animations';
 import type { LocalMessage, SendError } from '@/hooks/useConversation';
 import type { AgentStep } from '@/types/api';
@@ -31,7 +32,6 @@ interface ConversationViewProps {
   onChangeText: (text: string) => void;
   onSend: () => void;
   isBusy: boolean;
-  disclaimer: string | null;
   flatListRef: RefObject<FlatList | null>;
   placeholder?: string;
   onAttach?: () => void;
@@ -64,7 +64,6 @@ export function ConversationView({
   onChangeText,
   onSend,
   isBusy,
-  disclaimer,
   flatListRef,
   placeholder,
   onAttach,
@@ -239,19 +238,19 @@ export function ConversationView({
                   <ChatBubble content={streamingContent} isUser={false} />
                 )}
 
-                {/* Disclaimer after response */}
-                {disclaimer && !isBusy && (
-                  <Animated.Text
-                    entering={enterFade(300)}
+                {/* Medical disclaimer — always visible once there are messages */}
+                {allMessages.length > 0 && !isBusy && (
+                  <Text
                     style={{
                       fontSize: FontSize.xs,
                       color: Colors.textMuted,
                       textAlign: 'center',
                       marginTop: Spacing.md,
+                      paddingHorizontal: Spacing.md,
                     }}
                   >
-                    {disclaimer}
-                  </Animated.Text>
+                    {MEDICAL_DISCLAIMER}
+                  </Text>
                 )}
               </>
             ) : null

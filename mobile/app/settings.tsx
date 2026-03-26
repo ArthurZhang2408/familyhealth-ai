@@ -5,7 +5,6 @@ import Constants from 'expo-constants';
 import { useAuthStore } from '@/stores/auth';
 import { signOut } from '@/services/auth';
 import { accountApi } from '@/services/api';
-import { disclaimerCache } from '@/hooks/useConversation';
 import { useColors } from '@/hooks/useColors';
 import { useShadow } from '@/hooks/useShadow';
 import { Spacing, FontSize, FontWeight, BorderRadius } from '@/constants/theme';
@@ -94,7 +93,6 @@ export default function SettingsScreen() {
         text: 'Sign out',
         style: 'destructive',
         onPress: async () => {
-          disclaimerCache.clear();
           await signOut();
           router.replace('/(auth)/login');
         },
@@ -115,8 +113,7 @@ export default function SettingsScreen() {
             setIsDeleting(true);
             try {
               await accountApi.delete();
-              disclaimerCache.clear();
-              await signOut();
+                  await signOut();
               router.replace('/(auth)/login');
             } catch {
               Alert.alert('Error', 'Account deletion failed. Please try again.');
@@ -145,9 +142,9 @@ export default function SettingsScreen() {
       </Section>
 
       <Section title="Legal" colors={Colors} shadow={Shadow}>
-        <SettingsRow label="Privacy Policy" onPress={() => Linking.openURL('https://salk.ai/privacy')} colors={Colors} />
+        <SettingsRow label="Privacy Policy" onPress={() => Linking.openURL('https://salk.health/privacy')} colors={Colors} />
         <View style={{ height: 1, backgroundColor: Colors.border, marginLeft: Spacing.md }} />
-        <SettingsRow label="Terms of Service" onPress={() => Linking.openURL('https://salk.ai/terms')} colors={Colors} />
+        <SettingsRow label="Terms of Service" onPress={() => Linking.openURL('https://salk.health/terms')} colors={Colors} />
       </Section>
 
       <Section title="Danger zone" colors={Colors} shadow={Shadow}>

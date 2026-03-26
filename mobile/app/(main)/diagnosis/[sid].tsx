@@ -198,7 +198,6 @@ function DiagnosisScreenInner() {
     streamSendFn,
     dedupMode: 'count',
     onSendComplete,
-    sessionId: sid,
   });
 
 
