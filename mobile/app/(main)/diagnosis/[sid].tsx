@@ -8,6 +8,7 @@ import { ConversationView } from '@/components/ConversationView';
 import { HeaderIconButton } from '@/components/HeaderIconButton';
 import { AnimatedSalkIcon } from '@/components/AnimatedSalkIcon';
 import { useHeaderScale } from '@/hooks/useHeaderScale';
+import { useHapticPress } from '@/hooks/useHapticPress';
 import { useProfileStore } from '@/stores/profile';
 import { useDiagnosisSession } from '@/hooks/useDiagnosis';
 import { useConversation, type LocalMessage } from '@/hooks/useConversation';
@@ -40,6 +41,7 @@ function DiagnosisScreenInner() {
   const header = useHeaderScale();
   const Colors = useColors();
   const router = useRouter();
+  const handleNewSession = useHapticPress(() => router.navigate('/(main)' as never));
   const qc = useQueryClient();
   const { sid } = useLocalSearchParams<{ sid: string }>();
   const pid = useProfileStore((s) => s.activeProfile?.id) ?? '';
@@ -248,7 +250,7 @@ function DiagnosisScreenInner() {
                   </Text>
                 </View>
               )}
-              <Pressable onPress={() => router.navigate('/(main)' as never)} style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}>
+              <Pressable onPress={handleNewSession} style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}>
                 <AnimatedSalkIcon size={header.buttonSize} showBackground={false} />
               </Pressable>
             </View>

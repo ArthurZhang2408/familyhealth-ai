@@ -68,7 +68,9 @@ export default function LoginScreen() {
       >
         {/* Header */}
         <View style={{ alignItems: 'center', marginBottom: Spacing.lg }}>
-          <AnimatedSalkIcon size={LoginIcon.containerSize} />
+          <View style={{ marginBottom: Spacing.md }}>
+            <AnimatedSalkIcon size={LoginIcon.containerSize} />
+          </View>
           <Text
             style={{
               fontSize: FontSize.xxxl,

@@ -9,7 +9,6 @@ import { DrawerContentComponentProps } from '@react-navigation/drawer';
 import Animated from 'react-native-reanimated';
 import { enterSlideDown, staggerDelay } from '@/constants/animations';
 import { isDevMode } from '@/constants/config';
-import { AnimatedSalkIcon } from '@/components/AnimatedSalkIcon';
 import { AppName } from '@/constants/branding';
 import * as Haptics from 'expo-haptics';
 import { useProfileStore } from '@/stores/profile';

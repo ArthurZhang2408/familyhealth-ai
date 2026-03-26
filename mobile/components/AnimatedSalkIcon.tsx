@@ -8,7 +8,7 @@
  * via staggered `interpolate` ranges. Center circle has multi-point spring curves
  * for both scale and position. Entrance uses withSpring; loop uses timing-based cycle.
  */
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useId } from 'react';
 import Svg, { Defs, LinearGradient, Stop, Rect, Circle, Path } from 'react-native-svg';
 import Animated, {
   useSharedValue,
@@ -88,6 +88,9 @@ interface AnimatedSalkIconProps {
 
 export function AnimatedSalkIcon({ size = 56, showBackground = true, loop = false, static: isStatic = false }: AnimatedSalkIconProps) {
   const Colors = useColors();
+  const uid = useId();
+  const bgId = `salkBg-${uid}`;
+  const bgLightId = `salkBgLight-${uid}`;
   const circleFill = showBackground ? 'white' : Colors.primary;
   const crossFill = showBackground ? '#2563EB' : Colors.background;
 
@@ -95,7 +98,7 @@ export function AnimatedSalkIcon({ size = 56, showBackground = true, loop = fals
   const bgProgress = useSharedValue(0);
 
   useEffect(() => {
-    if (isStatic || isReduceMotion()) return;
+    if (isStatic || !showBackground || isReduceMotion()) return;
     bgProgress.value = withRepeat(
       withTiming(1, { duration: BG_CYCLE_MS, easing: Easing.linear }),
       -1,
@@ -216,7 +219,7 @@ export function AnimatedSalkIcon({ size = 56, showBackground = true, loop = fals
         <>
           <Defs>
             <AnimatedLinearGradient
-              id="salkBg"
+              id={bgId}
               gradientUnits="userSpaceOnUse"
               animatedProps={bgAP}
             >
@@ -224,13 +227,13 @@ export function AnimatedSalkIcon({ size = 56, showBackground = true, loop = fals
               <Stop offset="50%" stopColor="#2563EB" />
               <Stop offset="100%" stopColor="#10B981" />
             </AnimatedLinearGradient>
-            <LinearGradient id="salkBgLight" x1="0" y1="0" x2="120" y2="120" gradientUnits="userSpaceOnUse">
+            <LinearGradient id={bgLightId} x1="0" y1="0" x2="120" y2="120" gradientUnits="userSpaceOnUse">
               <Stop offset="0%" stopColor="#ffffff" stopOpacity={0.3} />
               <Stop offset="100%" stopColor="#ffffff" stopOpacity={0.1} />
             </LinearGradient>
           </Defs>
-          <Rect width={120} height={120} rx={26} fill="url(#salkBg)" />
-          <Rect width={120} height={120} rx={26} fill="url(#salkBgLight)" />
+          <Rect width={120} height={120} rx={26} fill={`url(#${bgId})`} />
+          <Rect width={120} height={120} rx={26} fill={`url(#${bgLightId})`} />
           <Path
             d="M26 0 H94 C108.359 0 120 11.641 120 26 V30 C120 15.641 108.359 4 94 4 H26 C11.641 4 0 15.641 0 30 V26 C0 11.641 11.641 0 26 0 Z"
             fill="white"
