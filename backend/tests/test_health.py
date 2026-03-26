@@ -21,7 +21,7 @@ async def test_health_check_db_failure(client: AsyncClient) -> None:
     mock_session.__aexit__ = AsyncMock(return_value=False)
     mock_session.execute = AsyncMock(side_effect=RuntimeError("DB down"))
 
-    with patch("app.main.async_session_factory", return_value=mock_session):
+    with patch("app.core.database.async_session_factory", return_value=mock_session):
         response = await client.get("/health")
 
     assert response.status_code == 200
