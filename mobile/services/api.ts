@@ -85,6 +85,12 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   }
 }
 
+// ── Account ───────────────────────────────────────────────────────────────────
+
+export const accountApi = {
+  delete: () => request<void>('/auth/account', { method: 'DELETE' }),
+};
+
 // ── Profiles ──────────────────────────────────────────────────────────────────
 
 export const profilesApi = {
