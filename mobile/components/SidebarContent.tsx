@@ -8,6 +8,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { DrawerContentComponentProps } from '@react-navigation/drawer';
 import Animated from 'react-native-reanimated';
 import { enterSlideDown, staggerDelay } from '@/constants/animations';
+import { isDevMode } from '@/constants/config';
+import { AppName } from '@/constants/branding';
 import * as Haptics from 'expo-haptics';
 import { useProfileStore } from '@/stores/profile';
 import { useAuthStore } from '@/stores/auth';
@@ -18,10 +20,13 @@ import { useSessionContextMenu } from '@/hooks/useSessionContextMenu';
 import { useNavSource } from '@/services/navigationSource';
 import { useColors } from '@/hooks/useColors';
 
-import { Spacing, FontWeight, BorderRadius } from '@/constants/theme';
+import { Spacing, FontSize, FontWeight, BorderRadius } from '@/constants/theme';
 import type { ColorPalette } from '@/constants/colors';
 
 // ---------------------------------------------------------------------------
+const AVATAR_SIZE = 34;
+const CAPSULE_HEIGHT = 48;
+
 // Hooks
 // ---------------------------------------------------------------------------
 
@@ -110,6 +115,11 @@ export function SidebarContent({ navigation }: DrawerContentComponentProps) {
 
   return (
     <View style={{ flex: 1, backgroundColor: Colors.surface, paddingTop: insets.top + Spacing.sm }}>
+      {/* Branding header */}
+      <View style={{ paddingHorizontal: Spacing.md, paddingBottom: Spacing.lg }}>
+        <Text style={{ fontSize: FontSize.xxl, fontWeight: FontWeight.bold, color: Colors.text }}>{AppName}</Text>
+      </View>
+
       <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={{ paddingHorizontal: Spacing.md, gap: Spacing.lg, paddingBottom: Spacing.lg }}
@@ -178,25 +188,27 @@ export function SidebarContent({ navigation }: DrawerContentComponentProps) {
               </Pressable>
             </SidebarSection>
 
-            <SidebarSection title="Reports" iconName="doc-search" loading={reportLoading} colors={Colors} fonts={fonts} onAction={handleUpload}>
-              {reports.length === 0 ? (
-                <Text style={{ fontSize: fonts.label, color: Colors.textMuted, paddingVertical: Spacing.xs }}>
-                  No reports uploaded
-                </Text>
-              ) : (
-                reports.slice(0, 20).map((r, i) => (
-                  <Animated.View key={r.id} entering={enterSlideDown(staggerDelay(i))}>
-                    <SidebarItem
-                      title={r.original_filename}
-                      active={pathname.includes(`/report/${r.id}`)}
-                      onPress={() => navigateTo(`/(main)/report/${r.id}`)}
-                      colors={Colors}
-                      fontSize={fonts.item}
-                    />
-                  </Animated.View>
-                ))
-              )}
-            </SidebarSection>
+            {isDevMode && (
+              <SidebarSection title="Reports" iconName="doc-search" loading={reportLoading} colors={Colors} fonts={fonts} onAction={handleUpload}>
+                {reports.length === 0 ? (
+                  <Text style={{ fontSize: fonts.label, color: Colors.textMuted, paddingVertical: Spacing.xs }}>
+                    No reports uploaded
+                  </Text>
+                ) : (
+                  reports.slice(0, 20).map((r, i) => (
+                    <Animated.View key={r.id} entering={enterSlideDown(staggerDelay(i))}>
+                      <SidebarItem
+                        title={r.original_filename}
+                        active={pathname.includes(`/report/${r.id}`)}
+                        onPress={() => navigateTo(`/(main)/report/${r.id}`)}
+                        colors={Colors}
+                        fontSize={fonts.item}
+                      />
+                    </Animated.View>
+                  ))
+                )}
+              </SidebarSection>
+            )}
           </>
         )}
       </ScrollView>
@@ -213,12 +225,12 @@ export function SidebarContent({ navigation }: DrawerContentComponentProps) {
         <Pressable
           onPress={() => navigateTo('/(main)')}
           style={({ pressed }) => ({
-            width: 48, height: 48, borderRadius: BorderRadius.full,
+            width: CAPSULE_HEIGHT, height: CAPSULE_HEIGHT, borderRadius: BorderRadius.full,
             backgroundColor: Colors.primary, alignItems: 'center', justifyContent: 'center',
             borderCurve: 'continuous', opacity: pressed ? 0.85 : 1,
           })}
         >
-          <Icon name="plus" size={24} color={Colors.textInverse} />
+          <Icon name="plus" size={28} color={Colors.textInverse} />
         </Pressable>
       </View>
 
@@ -336,7 +348,7 @@ function UserCapsule({ onPress, fontSize }: { onPress: () => void; fontSize: num
     <Pressable
       onPress={onPress}
       style={({ pressed }) => ({
-        flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, height: 48,
+        flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, height: CAPSULE_HEIGHT,
         paddingLeft: Spacing.sm, paddingRight: Spacing.md,
         borderRadius: BorderRadius.full, borderCurve: 'continuous',
         backgroundColor: pressed ? Colors.surfaceSecondary : Colors.surface,
@@ -345,7 +357,7 @@ function UserCapsule({ onPress, fontSize }: { onPress: () => void; fontSize: num
     >
       <View
         style={{
-          width: 34, height: 34, borderRadius: BorderRadius.full,
+          width: AVATAR_SIZE, height: AVATAR_SIZE, borderRadius: BorderRadius.full,
           backgroundColor: Colors.primary + '20', alignItems: 'center', justifyContent: 'center',
         }}
       >
