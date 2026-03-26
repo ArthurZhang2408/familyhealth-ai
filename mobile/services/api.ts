@@ -48,7 +48,10 @@ export class RateLimitError extends Error {
   }
 }
 
-async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+// Coalesce concurrent token refresh attempts into a single promise
+let refreshPromise: Promise<void> | null = null;
+
+async function request<T>(path: string, options: RequestInit = {}, _isRetry = false): Promise<T> {
   const method = (options.method ?? 'GET').toUpperCase();
   const start = Date.now();
   let status = 0;
@@ -64,6 +67,24 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
       const error = await response.json().catch(() => ({ detail: 'Request failed' }));
       const msg = extractErrorMessage(error, response.status);
       logger.error('api', `${method} ${path} ${status}`, { duration_ms: Date.now() - start, rid, error: msg });
+
+      // 401 retry: refresh token once, then retry the request
+      if (response.status === 401 && !_isRetry) {
+        logger.info('api', '401 received — attempting token refresh');
+        if (!refreshPromise) {
+          refreshPromise = supabase.auth.refreshSession().then(() => {}).finally(() => { refreshPromise = null; });
+        }
+        await refreshPromise;
+        return request<T>(path, options, true);
+      }
+
+      // 401 after retry: session is truly expired — sign out
+      if (response.status === 401 && _isRetry) {
+        logger.warn('api', '401 after refresh — signing out');
+        await supabase.auth.signOut();
+        throw new Error(msg);
+      }
+
       if (response.status === 429) {
         const retryAfter = parseInt(response.headers.get('Retry-After') ?? '', 10) || undefined;
         throw new RateLimitError(msg, retryAfter);

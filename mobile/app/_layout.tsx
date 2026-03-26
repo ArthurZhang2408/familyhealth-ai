@@ -2,11 +2,16 @@ import { useEffect } from 'react';
 import { AppState, Platform, useColorScheme } from 'react-native';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import * as SplashScreen from 'expo-splash-screen';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { focusManager, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/useAuth';
 import { useColors } from '@/hooks/useColors';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
+
+// Keep splash screen visible until auth state is determined
+SplashScreen.preventAutoHideAsync();
 
 // Refetch active queries when app comes back from background.
 // This ensures server-persisted data (from interrupted streams) shows up.
@@ -36,6 +41,9 @@ function AuthGuard() {
   useEffect(() => {
     if (loading) return;
 
+    // Auth state determined — hide splash screen
+    SplashScreen.hideAsync();
+
     const inAuthGroup = segments[0] === '(auth)';
 
     if (!isAuthenticated && !inAuthGroup) {
@@ -59,6 +67,7 @@ export default function RootLayout() {
         <QueryClientProvider client={queryClient}>
           <AuthGuard />
           <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
+          <ErrorBoundary>
           <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: Colors.background } }}>
             <Stack.Screen name="(auth)" />
             <Stack.Screen name="(main)" />
@@ -88,6 +97,7 @@ export default function RootLayout() {
               }}
             />
           </Stack>
+          </ErrorBoundary>
         </QueryClientProvider>
       </KeyboardProvider>
     </GestureHandlerRootView>

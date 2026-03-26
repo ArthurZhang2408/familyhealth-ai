@@ -16,6 +16,7 @@ import { LiveStreamingStatus } from '@/components/LiveStreamingStatus';
 import { LoadingSpinner } from '@/components/LoadingSpinner';
 import { Icon, type IconName } from '@/components/Icon';
 import { useColors } from '@/hooks/useColors';
+import { useNetworkStatus } from '@/hooks/useNetworkStatus';
 import { isDevMode } from '@/constants/config';
 import { Spacing, FontSize, FontWeight, BorderRadius } from '@/constants/theme';
 import { enterSlideUp, enterSlideDown, enterFade, Springs } from '@/constants/animations';
@@ -86,6 +87,7 @@ export function ConversationView({
   onDismissError,
 }: ConversationViewProps) {
   const Colors = useColors();
+  const { isConnected } = useNetworkStatus();
 
   // Inverted FlatList: data newest-first, list renders from the bottom.
   const reversedMessages = useMemo(() => [...allMessages].reverse(), [allMessages]);
@@ -260,15 +262,28 @@ export function ConversationView({
           <ErrorBanner error={sendError} onDismiss={onDismissError} />
         )}
 
+        {isConnected === false && (
+          <View style={{
+            backgroundColor: Colors.warning,
+            paddingVertical: Spacing.xs,
+            paddingHorizontal: Spacing.md,
+            alignItems: 'center',
+          }}>
+            <Text style={{ fontSize: FontSize.xs, color: Colors.warningLight }}>
+              You're offline — check your connection
+            </Text>
+          </View>
+        )}
+
         <ChatInput
           value={input}
           onChangeText={onChangeText}
           onSend={onSend}
-          isBusy={isBusy}
+          isBusy={isBusy || isConnected === false}
           onAttach={onAttach}
           attachment={pendingAttachment}
           onRemoveAttachment={onRemoveAttachment}
-          placeholder={placeholder}
+          placeholder={isConnected === false ? 'No connection' : placeholder}
         />
     </KeyboardAvoidingView>
   );
