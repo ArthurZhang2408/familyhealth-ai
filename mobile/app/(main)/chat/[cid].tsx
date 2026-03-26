@@ -240,7 +240,7 @@ function ChatScreenInner() {
             ? () => <HeaderIconButton icon="chevron-back" onPress={handleBack} />
             : undefined,
           headerRight: () => (
-            <Pressable onPress={handleNewSession} style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}>
+            <Pressable onPress={handleNewSession} hitSlop={8} style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}>
               <AnimatedSalkIcon size={header.buttonSize} showBackground={false} />
             </Pressable>
           ),

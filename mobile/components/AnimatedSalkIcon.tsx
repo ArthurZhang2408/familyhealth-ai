@@ -8,7 +8,7 @@
  * via staggered `interpolate` ranges. Center circle has multi-point spring curves
  * for both scale and position. Entrance uses withSpring; loop uses timing-based cycle.
  */
-import { useCallback, useEffect, useId } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import Svg, { Defs, LinearGradient, Stop, Rect, Circle, Path } from 'react-native-svg';
 import Animated, {
   useSharedValue,
@@ -30,6 +30,8 @@ import { useColors } from '@/hooks/useColors';
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 const AnimatedRect = Animated.createAnimatedComponent(Rect);
 const AnimatedLinearGradient = Animated.createAnimatedComponent(LinearGradient);
+
+let _nextId = 0;
 
 // ── ViewBox 120×120 ──────────────────────────────────────────────────
 const CX = 60;        // center circle final x
@@ -88,9 +90,9 @@ interface AnimatedSalkIconProps {
 
 export function AnimatedSalkIcon({ size = 56, showBackground = true, loop = false, static: isStatic = false }: AnimatedSalkIconProps) {
   const Colors = useColors();
-  const uid = useId();
-  const bgId = `salkBg-${uid}`;
-  const bgLightId = `salkBgLight-${uid}`;
+  const idRef = useRef(`salk-${_nextId++}`);
+  const bgId = `${idRef.current}-bg`;
+  const bgLightId = `${idRef.current}-bgl`;
   const circleFill = showBackground ? 'white' : Colors.primary;
   const crossFill = showBackground ? '#2563EB' : Colors.background;
 
@@ -213,8 +215,11 @@ export function AnimatedSalkIcon({ size = 56, showBackground = true, loop = fals
     };
   });
 
+  // Full viewBox for background, tight crop on static plus circle, animated headroom otherwise
+  const viewBox = showBackground ? '0 0 120 120' : isStatic ? '30 30 60 60' : '26 24 68 68';
+
   return (
-    <Svg width={size} height={size} viewBox={showBackground ? '0 0 120 120' : isStatic ? '30 30 60 60' : '26 24 68 68'}>
+    <Svg width={size} height={size} viewBox={viewBox}>
       {showBackground && (
         <>
           <Defs>
