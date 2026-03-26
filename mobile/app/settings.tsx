@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { View, Text, Pressable, Alert, ScrollView, Linking, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
+import Constants from 'expo-constants';
 import { useAuthStore } from '@/stores/auth';
 import { signOut } from '@/services/auth';
 import { accountApi } from '@/services/api';
@@ -140,7 +141,7 @@ export default function SettingsScreen() {
       <Section title="App" colors={Colors} shadow={Shadow}>
         <SettingsRow label="Notifications" value="Off" colors={Colors} />
         <View style={{ height: 1, backgroundColor: Colors.border, marginLeft: Spacing.md }} />
-        <SettingsRow label="App version" value="1.0.0" colors={Colors} />
+        <SettingsRow label="App version" value={Constants.expoConfig?.version ?? '1.0.0'} colors={Colors} />
       </Section>
 
       <Section title="Legal" colors={Colors} shadow={Shadow}>
