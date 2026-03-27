@@ -45,3 +45,15 @@
 **Depends on:** Would need a per-chunk deadline or an overall stream timeout wrapper (e.g., `asyncio.timeout()` context manager around the entire iteration loop).
 
 **Effort:** M (human) / S (CC)
+
+---
+
+## P2 — Doctor visit summary export
+
+**What:** After a diagnosis assessment, offer to generate a 1-page summary the user can bring to their doctor appointment. Content: chief complaint, AI-assessed conditions with confidence levels, recommended tests, current medications from profile, questions to ask the doctor.
+
+**Why:** Maps directly to the design doc's "Approach C: Doctor Visit Prep Tool" — a concrete, shareable artifact that bridges the gap between AI assessment and real-world medical visit. High-value for sandwich-generation beta users who coordinate appointments for multiple family members.
+
+**Depends on:** Nothing — standalone feature. Could use the existing assessment data from `content_parts` + profile medications. Needs a share sheet integration (React Native Share API) or PDF export.
+
+**Effort:** M (human) / S (CC)

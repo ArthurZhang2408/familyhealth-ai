@@ -391,8 +391,8 @@ class TestDiagnosisServiceSendMessage:
         assert turn.disclaimer == MEDICAL_DISCLAIMER
 
     @pytest.mark.asyncio
-    async def test_send_message_to_resolved_session(self, db_session: Any) -> None:
-        """Cannot send messages to a resolved session."""
+    async def test_send_message_auto_reopens_resolved_session(self, db_session: Any) -> None:
+        """Sending a message to a resolved session auto-reopens it."""
         profile = _make_profile()
         svc = DiagnosisService(
             db=db_session,
@@ -417,6 +417,42 @@ class TestDiagnosisServiceSendMessage:
 
         session, _ = await svc.create_session(profile, "mild cough")
         await svc.close_session(session, profile, "Got better")
+        assert session.status == "resolved"
+
+        # Sending a message should auto-reopen, not raise
+        turn = await svc.send_message(session, profile, "Another question")
+        assert turn.message.role == "assistant"
+        assert session.status == "active"
+        assert session.resolved_at is None
+
+    @pytest.mark.asyncio
+    async def test_send_message_to_abandoned_session_rejects(self, db_session: Any) -> None:
+        """Sending a message to an abandoned session still raises 400."""
+        profile = _make_profile()
+        svc = DiagnosisService(
+            db=db_session,
+            agent_core=AgentCore(
+                llm_router=_mock_llm_router(),
+                tool_registry=ToolRegistry(),
+            ),
+            context_builder=_mock_context_builder(),
+            memory_extractor=_mock_memory_extractor(),
+        )
+
+        from app.models.profile import Profile as ProfileModel
+
+        real_profile = ProfileModel(
+            id=profile.id,
+            account_id=profile.account_id,
+            name=profile.name,
+            relationship=profile.relationship,
+        )
+        db_session.add(real_profile)
+        await db_session.flush()
+
+        session, _ = await svc.create_session(profile, "mild cough")
+        session.status = "abandoned"
+        await db_session.flush()
 
         from app.core.exceptions import AppError
 
@@ -807,7 +843,7 @@ class TestDiagnosisRoutes:
 
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("_override_diagnosis_deps")
-    async def test_send_message_to_closed_session(self, client: AsyncClient) -> None:
+    async def test_send_message_auto_reopens_resolved_session_route(self, client: AsyncClient) -> None:
         pid = await _create_profile(client)
         create_resp = await client.post(
             f"/api/v1/profiles/{pid}/diagnosis",
@@ -815,13 +851,40 @@ class TestDiagnosisRoutes:
         )
         session_id = create_resp.json()["message"]["session_id"]
 
-        # Close session
+        # Resolve session
         await client.patch(
             f"/api/v1/profiles/{pid}/diagnosis/{session_id}",
             json={"status": "resolved"},
         )
 
-        # Try to send message
+        # Sending a message should auto-reopen (200, not 400)
+        resp = await client.post(
+            f"/api/v1/profiles/{pid}/diagnosis/{session_id}/messages",
+            data={"content": "Follow-up question"},
+        )
+        assert resp.status_code == 201
+
+        # Verify session is back to active
+        get_resp = await client.get(f"/api/v1/profiles/{pid}/diagnosis/{session_id}")
+        assert get_resp.json()["status"] == "active"
+
+    @pytest.mark.asyncio
+    @pytest.mark.usefixtures("_override_diagnosis_deps")
+    async def test_send_message_to_abandoned_session_route(self, client: AsyncClient) -> None:
+        pid = await _create_profile(client)
+        create_resp = await client.post(
+            f"/api/v1/profiles/{pid}/diagnosis",
+            json={"chief_complaint": "knee pain"},
+        )
+        session_id = create_resp.json()["message"]["session_id"]
+
+        # Abandon session
+        await client.patch(
+            f"/api/v1/profiles/{pid}/diagnosis/{session_id}",
+            json={"status": "abandoned"},
+        )
+
+        # Sending a message should still fail with 400
         resp = await client.post(
             f"/api/v1/profiles/{pid}/diagnosis/{session_id}/messages",
             data={"content": "Follow-up question"},
