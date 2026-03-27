@@ -52,12 +52,12 @@ export function ModeToggle({ mode, onToggle }: Props) {
     opacity: expanded.value,
     maxWidth: expanded.value * 80,
     marginLeft: expanded.value * 4,
-    marginRight: expanded.value * 2,
     overflow: 'hidden' as const,
   }));
 
   const containerStyle = useAnimatedStyle(() => ({
     paddingLeft: expanded.value * 8,
+    paddingRight: expanded.value * 10,
   }));
 
   return (
