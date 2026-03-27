@@ -160,9 +160,10 @@ async def health_check() -> dict:
     except Exception as exc:
         db_ok = False
         db_error = str(exc)
+        logger.warning("Health check DB failure: %s", db_error)
 
     status = "ok" if db_ok else "degraded"
     result: dict = {"status": status, "db": db_ok}
-    if db_error:
-        result["error"] = db_error
+    if not db_ok:
+        result["error"] = "database connection failed"
     return result

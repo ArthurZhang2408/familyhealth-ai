@@ -33,3 +33,15 @@
 **Depends on:** Nothing — standalone operational script.
 
 **Effort:** S (human) / S (CC)
+
+---
+
+## P3 — Gemini stream mid-stall timeout
+
+**What:** `asyncio.wait_for` only wraps the initial `generate_content_stream()` call. Once streaming starts, individual chunk iterations (`async for chunk in stream`) have no timeout. A mid-stream Gemini hang blocks the request forever.
+
+**Why:** The 120s timeout catches connection failures but not mid-stream stalls. A slow trickle of chunks that stops indefinitely would block the SSE response.
+
+**Depends on:** Would need a per-chunk deadline or an overall stream timeout wrapper (e.g., `asyncio.timeout()` context manager around the entire iteration loop).
+
+**Effort:** M (human) / S (CC)

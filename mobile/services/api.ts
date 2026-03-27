@@ -72,9 +72,20 @@ async function request<T>(path: string, options: RequestInit = {}, _isRetry = fa
       if (response.status === 401 && !_isRetry) {
         logger.info('api', '401 received — attempting token refresh');
         if (!refreshPromise) {
-          refreshPromise = supabase.auth.refreshSession().then(() => {}).finally(() => { refreshPromise = null; });
+          refreshPromise = supabase.auth.refreshSession()
+            .then(({ error }) => {
+              if (error) throw error;
+            })
+            .finally(() => { refreshPromise = null; });
         }
-        await refreshPromise;
+        try {
+          await refreshPromise;
+        } catch {
+          // Refresh failed — sign out immediately
+          logger.warn('api', 'Token refresh failed — signing out');
+          await supabase.auth.signOut();
+          throw new Error(msg);
+        }
         return request<T>(path, options, true);
       }
 

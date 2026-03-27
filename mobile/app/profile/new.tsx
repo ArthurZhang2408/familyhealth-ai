@@ -570,7 +570,7 @@ function StepDots({ current, total }: { current: number; total: number }) {
               fontWeight: i === current ? FontWeight.semibold : FontWeight.regular,
             }}
           >
-            {STEP_LABELS[i]}
+            {STEP_LABELS[i] ?? ''}
           </Text>
         </View>
       ))}
