@@ -1,5 +1,6 @@
-import { useEffect } from 'react';
-import { Pressable, Text } from 'react-native';
+import { useCallback } from 'react';
+import { Pressable } from 'react-native';
+import { useFocusEffect } from 'expo-router';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -11,7 +12,6 @@ import { useColors } from '@/hooks/useColors';
 import { useHapticPress } from '@/hooks/useHapticPress';
 import { useHeaderScale } from '@/hooks/useHeaderScale';
 import { FontSize, FontWeight, BorderRadius, Spacing } from '@/constants/theme';
-import { Timings } from '@/constants/animations';
 
 export type ConversationMode = 'chat' | 'diagnosis';
 
@@ -39,11 +39,14 @@ export function ModeToggle({ mode, onToggle }: Props) {
   // 1 = expanded (text visible), 0 = collapsed (icon only)
   const expanded = useSharedValue(1);
 
-  useEffect(() => {
-    // On mode change (or first mount): show label, then collapse after 1s
-    expanded.value = 1;
-    expanded.value = withDelay(1000, withTiming(0, { duration: 300 }));
-  }, [mode, expanded]);
+  // useFocusEffect: re-triggers on every screen focus (Drawer keeps screens mounted,
+  // so useEffect deps don't re-fire on navigation back to home).
+  useFocusEffect(
+    useCallback(() => {
+      expanded.value = 1;
+      expanded.value = withDelay(1000, withTiming(0, { duration: 300 }));
+    }, [mode, expanded]),
+  );
 
   const labelStyle = useAnimatedStyle(() => ({
     opacity: expanded.value,
