@@ -11,7 +11,7 @@ import { Icon } from '@/components/Icon';
 import { useColors } from '@/hooks/useColors';
 import { useHapticPress } from '@/hooks/useHapticPress';
 import { useHeaderScale } from '@/hooks/useHeaderScale';
-import { FontSize, FontWeight, BorderRadius, Spacing } from '@/constants/theme';
+import { FontSize, FontWeight, BorderRadius } from '@/constants/theme';
 
 export type ConversationMode = 'chat' | 'diagnosis';
 
@@ -26,8 +26,8 @@ const LABELS: Record<ConversationMode, string> = {
 };
 
 /**
- * Mode toggle with reveal animation: shows text label for ~1s on mode change,
- * then collapses to icon-only. First render also shows the label briefly.
+ * Mode toggle with reveal animation: shows text label for ~1s on focus/mode change,
+ * then collapses to icon-only. Uses useFocusEffect so Drawer re-triggers on navigation.
  */
 export function ModeToggle({ mode, onToggle }: Props) {
   const Colors = useColors();
@@ -39,8 +39,6 @@ export function ModeToggle({ mode, onToggle }: Props) {
   // 1 = expanded (text visible), 0 = collapsed (icon only)
   const expanded = useSharedValue(1);
 
-  // useFocusEffect: re-triggers on every screen focus (Drawer keeps screens mounted,
-  // so useEffect deps don't re-fire on navigation back to home).
   useFocusEffect(
     useCallback(() => {
       expanded.value = 1;
@@ -48,9 +46,10 @@ export function ModeToggle({ mode, onToggle }: Props) {
     }, [mode, expanded]),
   );
 
-  const labelStyle = useAnimatedStyle(() => ({
+  const textStyle = useAnimatedStyle(() => ({
     opacity: expanded.value,
-    maxWidth: expanded.value * 100, // animates from 100 → 0
+    maxWidth: expanded.value * 80,
+    marginLeft: expanded.value * 4,
     overflow: 'hidden' as const,
   }));
 
@@ -60,13 +59,14 @@ export function ModeToggle({ mode, onToggle }: Props) {
       style={({ pressed }) => ({
         flexDirection: 'row',
         alignItems: 'center',
+        justifyContent: 'center',
         height: header.buttonSize,
-        paddingHorizontal: Spacing.sm,
+        minWidth: header.buttonSize,
+        paddingHorizontal: 0,
         borderRadius: BorderRadius.full,
         borderCurve: 'continuous',
         backgroundColor: tint + '15',
         opacity: pressed ? 0.6 : 1,
-        gap: 4,
       })}
     >
       <Icon
@@ -81,7 +81,7 @@ export function ModeToggle({ mode, onToggle }: Props) {
             fontWeight: FontWeight.semibold,
             color: tint,
           },
-          labelStyle,
+          textStyle,
         ]}
         numberOfLines={1}
       >
