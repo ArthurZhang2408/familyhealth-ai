@@ -539,6 +539,8 @@ export default function NewProfileScreen() {
 
 // ── Step Dots ───────────────────────────────────────────────────────────────
 
+const STEP_LABELS = ['Identity', 'Basics', 'Lifestyle', 'Meds', 'Conditions'];
+
 function StepDots({ current, total }: { current: number; total: number }) {
   const Colors = useColors();
   return (
@@ -548,18 +550,29 @@ function StepDots({ current, total }: { current: number; total: number }) {
         justifyContent: 'center',
         gap: Spacing.sm,
         marginBottom: Spacing.lg,
+        alignItems: 'center',
       }}
     >
       {Array.from({ length: total }, (_, i) => (
-        <View
-          key={i}
-          style={{
-            width: 8,
-            height: 8,
-            borderRadius: 4,
-            backgroundColor: i === current ? Colors.primary : Colors.border,
-          }}
-        />
+        <View key={i} style={{ alignItems: 'center', gap: 4 }}>
+          <View
+            style={{
+              width: 8,
+              height: 8,
+              borderRadius: 4,
+              backgroundColor: i === current ? Colors.primary : Colors.border,
+            }}
+          />
+          <Text
+            style={{
+              fontSize: 10,
+              color: i === current ? Colors.primary : Colors.textMuted,
+              fontWeight: i === current ? FontWeight.semibold : FontWeight.regular,
+            }}
+          >
+            {STEP_LABELS[i] ?? ''}
+          </Text>
+        </View>
       ))}
     </View>
   );

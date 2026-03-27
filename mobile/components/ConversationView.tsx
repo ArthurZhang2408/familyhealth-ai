@@ -16,8 +16,10 @@ import { LiveStreamingStatus } from '@/components/LiveStreamingStatus';
 import { LoadingSpinner } from '@/components/LoadingSpinner';
 import { Icon, type IconName } from '@/components/Icon';
 import { useColors } from '@/hooks/useColors';
+import { useNetworkStatus } from '@/hooks/useNetworkStatus';
 import { isDevMode } from '@/constants/config';
 import { Spacing, FontSize, FontWeight, BorderRadius } from '@/constants/theme';
+import { MEDICAL_DISCLAIMER } from '@/constants/disclaimer';
 import { enterSlideUp, enterSlideDown, enterFade, Springs } from '@/constants/animations';
 import type { LocalMessage, SendError } from '@/hooks/useConversation';
 import type { AgentStep } from '@/types/api';
@@ -30,7 +32,6 @@ interface ConversationViewProps {
   onChangeText: (text: string) => void;
   onSend: () => void;
   isBusy: boolean;
-  disclaimer: string | null;
   flatListRef: RefObject<FlatList | null>;
   placeholder?: string;
   onAttach?: () => void;
@@ -63,7 +64,6 @@ export function ConversationView({
   onChangeText,
   onSend,
   isBusy,
-  disclaimer,
   flatListRef,
   placeholder,
   onAttach,
@@ -86,6 +86,7 @@ export function ConversationView({
   onDismissError,
 }: ConversationViewProps) {
   const Colors = useColors();
+  const { isConnected } = useNetworkStatus();
 
   // Inverted FlatList: data newest-first, list renders from the bottom.
   const reversedMessages = useMemo(() => [...allMessages].reverse(), [allMessages]);
@@ -237,19 +238,19 @@ export function ConversationView({
                   <ChatBubble content={streamingContent} isUser={false} />
                 )}
 
-                {/* Disclaimer after response */}
-                {disclaimer && !isBusy && (
-                  <Animated.Text
-                    entering={enterFade(300)}
+                {/* Medical disclaimer — always visible once there are messages */}
+                {allMessages.length > 0 && !isBusy && (
+                  <Text
                     style={{
                       fontSize: FontSize.xs,
                       color: Colors.textMuted,
                       textAlign: 'center',
                       marginTop: Spacing.md,
+                      paddingHorizontal: Spacing.md,
                     }}
                   >
-                    {disclaimer}
-                  </Animated.Text>
+                    {MEDICAL_DISCLAIMER}
+                  </Text>
                 )}
               </>
             ) : null
@@ -260,15 +261,28 @@ export function ConversationView({
           <ErrorBanner error={sendError} onDismiss={onDismissError} />
         )}
 
+        {isConnected === false && (
+          <View style={{
+            backgroundColor: Colors.warning,
+            paddingVertical: Spacing.xs,
+            paddingHorizontal: Spacing.md,
+            alignItems: 'center',
+          }}>
+            <Text style={{ fontSize: FontSize.xs, color: Colors.warningLight }}>
+              You're offline — check your connection
+            </Text>
+          </View>
+        )}
+
         <ChatInput
           value={input}
           onChangeText={onChangeText}
           onSend={onSend}
-          isBusy={isBusy}
+          isBusy={isBusy || isConnected === false}
           onAttach={onAttach}
           attachment={pendingAttachment}
           onRemoveAttachment={onRemoveAttachment}
-          placeholder={placeholder}
+          placeholder={isConnected === false ? 'No connection' : placeholder}
         />
     </KeyboardAvoidingView>
   );

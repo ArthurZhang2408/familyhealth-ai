@@ -10,7 +10,14 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
 from app.api import action_log, auth, chat, debug, diagnosis, memory, profiles, reports
-from app.core.branding import APP_DESCRIPTION, APP_NAME, APP_VERSION, LOG_FILE, LOG_SHUTDOWN_MSG, LOG_STARTUP_MSG
+from app.core.branding import (
+    APP_DESCRIPTION,
+    APP_NAME,
+    APP_VERSION,
+    LOG_FILE,
+    LOG_SHUTDOWN_MSG,
+    LOG_STARTUP_MSG,
+)
 from app.core.config import settings
 from app.core.database import engine
 from app.core.exceptions import AppError, app_error_handler
@@ -141,4 +148,22 @@ app.include_router(debug.router, prefix=API_V1)
 
 @app.get("/health")
 async def health_check() -> dict:
-    return {"status": "ok"}
+    from sqlalchemy import text
+
+    from app.core.database import async_session_factory
+
+    db_ok = True
+    db_error = None
+    try:
+        async with async_session_factory() as session:
+            await session.execute(text("SELECT 1"))
+    except Exception as exc:
+        db_ok = False
+        db_error = str(exc)
+        logger.warning("Health check DB failure: %s", db_error)
+
+    status = "ok" if db_ok else "degraded"
+    result: dict = {"status": status, "db": db_ok}
+    if not db_ok:
+        result["error"] = "database connection failed"
+    return result

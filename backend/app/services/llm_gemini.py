@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from collections.abc import AsyncIterator
 
 from google import genai
 from google.genai import types
+
+_TIMEOUT = 120  # seconds — generous ceiling for complex diagnosis reasoning
 
 logger = logging.getLogger(__name__)
 
@@ -122,11 +125,25 @@ class GeminiProvider(LLMProvider):
 
         config = self._build_config(request)
 
-        response = await self._client.aio.models.generate_content(
-            model=model,
-            contents=contents,
-            config=config,
-        )
+        try:
+            response = await asyncio.wait_for(
+                self._client.aio.models.generate_content(
+                    model=model,
+                    contents=contents,
+                    config=config,
+                ),
+                timeout=_TIMEOUT,
+            )
+        except TimeoutError:
+            logger.error(
+                "Gemini generate timed out after %ds — model=%s task=%s",
+                _TIMEOUT,
+                model,
+                request.task.value,
+            )
+            raise TimeoutError(
+                f"Gemini generate timed out after {_TIMEOUT}s for model={model}"
+            ) from None
 
         usage = {}
         if response.usage_metadata:
@@ -174,11 +191,27 @@ class GeminiProvider(LLMProvider):
 
         config = self._build_config(request)
 
-        async for chunk in await self._client.aio.models.generate_content_stream(
-            model=model,
-            contents=contents,
-            config=config,
-        ):
+        try:
+            stream = await asyncio.wait_for(
+                self._client.aio.models.generate_content_stream(
+                    model=model,
+                    contents=contents,
+                    config=config,
+                ),
+                timeout=_TIMEOUT,
+            )
+        except TimeoutError:
+            logger.error(
+                "Gemini stream timed out after %ds — model=%s task=%s",
+                _TIMEOUT,
+                model,
+                request.task.value,
+            )
+            raise TimeoutError(
+                f"Gemini stream timed out after {_TIMEOUT}s for model={model}"
+            ) from None
+
+        async for chunk in stream:
             if not chunk.candidates:
                 continue
             for part in chunk.candidates[0].content.parts:
