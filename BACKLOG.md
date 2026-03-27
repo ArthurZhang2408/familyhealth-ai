@@ -4,6 +4,10 @@
 
 - **Privacy Policy + Terms of Service pages** — links wired to `salk.health/privacy` and `salk.health/terms` but pages don't exist yet. Prompt file at `docs/landing-page-prompt.md`
 
+## P0 — Before App Store submission
+
+- **ToS/Privacy active consent** — Apple requires active agreement before account creation. Add consent gate on signup screen (checkbox or "By creating an account, you agree to..." passive text with tappable links). Same consent needed before OAuth flows (Google/Apple sign-in). Not required for TestFlight, required for App Store review
+
 ## P2 — Polish for good first impression
 
 - **In-app feedback mechanism**
@@ -45,7 +49,7 @@
 
 ## Shipped (reference)
 
-- 🔄 PR #43 — TestFlight gap fixes: account deletion, ToS/Privacy links, disclaimer, 401 re-auth, splash screen, offline banner, ErrorBoundary, version display, Gemini timeout, /health DB check, ModeToggle animated label, profile wizard step labels, welcome copy
+- ✅ PR #43 — TestFlight gap fixes: account deletion (DELETE /auth/account + cascade), ToS/Privacy links (salk.health), constant medical disclaimer, 401 re-auth retry, expo-splash-screen, offline banner (netinfo), ErrorBoundary, version from expo-constants, Gemini 120s timeout, /health DB check, ModeToggle animated label, profile wizard step labels, welcome copy
 - ✅ PR #42 — Animated Salk icon (entrance + breathing loop + gradient rotation), branding pass (login, sidebar, headers, streaming indicator), reports hidden behind devMode
 - ✅ PR #41 — Prompt suggestions (dynamic, profile-aware), pain slider (gesture-driven), confidence rings (animated SVG), profile-aware greeting, unicode fix
 - ✅ PR #39 — Salk rebrand
