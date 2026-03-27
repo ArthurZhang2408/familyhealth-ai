@@ -53,7 +53,6 @@ interface UseConversationConfig {
 export function useConversation({ serverMessages, streamSendFn, dedupMode, onSendComplete }: UseConversationConfig) {
   const [pendingMessages, setPendingMessages] = useState<LocalMessage[]>([]);
   const [input, setInput] = useState('');
-  const [disclaimer, setDisclaimer] = useState<string | null>(null);
   const [pendingAttachment, setPendingAttachment] = useState<Attachment | null>(null);
   const [isSending, setIsSending] = useState(false);
   const [sendErrorCount, setSendErrorCount] = useState(0);
@@ -287,8 +286,6 @@ export function useConversation({ serverMessages, streamSendFn, dedupMode, onSen
         activeAbortRef.current = null;
         doneEvent = done;
 
-        setDisclaimer(done.disclaimer ?? null);
-
         const serverUserId = done.user_message_id;
         // Build contentParts from accumulated agent steps so they render
         // inline immediately — prevents a flash when footer steps clear
@@ -420,7 +417,6 @@ export function useConversation({ serverMessages, streamSendFn, dedupMode, onSen
     sendMessage,
     onStructuredResponse,
     abort,
-    disclaimer,
     pendingAttachment,
     handleAttach,
     clearAttachment: useCallback(() => setPendingAttachment(null), []),

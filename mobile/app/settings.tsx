@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { View, Text, Pressable, Alert, ScrollView, Linking, ActivityIndicator } from 'react-native';
+import { View, Text, Pressable, Alert, ScrollView, Linking } from 'react-native';
 import { useRouter } from 'expo-router';
 import Constants from 'expo-constants';
 import { useAuthStore } from '@/stores/auth';
@@ -113,7 +113,7 @@ export default function SettingsScreen() {
             setIsDeleting(true);
             try {
               await accountApi.delete();
-                  await signOut();
+              await signOut();
               router.replace('/(auth)/login');
             } catch {
               Alert.alert('Error', 'Account deletion failed. Please try again.');

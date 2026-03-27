@@ -48,7 +48,9 @@ async def test_llm_router_routes_diagnosis_to_gemini() -> None:
 @pytest.mark.asyncio
 async def test_llm_router_routes_chat_to_gemini_by_default() -> None:
     gemini = AsyncMock(spec=LLMProvider)
-    gemini.generate.return_value = LLMResponse(content="hi", model="gemini-2.5-flash-lite", usage={})
+    gemini.generate.return_value = LLMResponse(
+        content="hi", model="gemini-2.5-flash-lite", usage={}
+    )
     qwen = AsyncMock(spec=LLMProvider)
 
     router = _make_router(gemini=gemini, qwen=qwen)
@@ -176,3 +178,33 @@ def test_llm_request_defaults() -> None:
     assert req.temperature == 0.7
     assert req.max_tokens is None
     assert req.response_format is None
+
+
+@pytest.mark.asyncio
+@patch("app.services.llm_gemini.genai.Client")
+async def test_gemini_provider_generate_timeout(mock_client_cls: MagicMock) -> None:
+    """Gemini generate raises TimeoutError when the call exceeds _TIMEOUT."""
+    import asyncio
+
+    async def slow_generate(*args, **kwargs):
+        await asyncio.sleep(999)
+
+    mock_aio = AsyncMock()
+    mock_aio.generate_content = slow_generate
+    mock_client = MagicMock()
+    mock_client.aio.models = mock_aio
+    mock_client_cls.return_value = mock_client
+
+    from app.services.llm_gemini import GeminiProvider
+
+    provider = GeminiProvider(api_key="test-key")
+    request = LLMRequest(
+        task=LLMTask.DIAGNOSIS,
+        system_prompt="You are a doctor.",
+        messages=[LLMMessage(role="user", content="headache")],
+    )
+
+    # Temporarily shorten timeout for test speed
+    with patch("app.services.llm_gemini._TIMEOUT", 0.1):
+        with pytest.raises(TimeoutError, match="timed out"):
+            await provider.generate(request)

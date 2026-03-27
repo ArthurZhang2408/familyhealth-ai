@@ -2,7 +2,7 @@
 
 ## P2 — Disclaimer persistence as backend content_part
 
-**What:** Persist `done.disclaimer` as a `content_part` (`type: 'disclaimer'`) on the assistant message in the backend. Currently using a module-level `Map<string, string>` cache in `useConversation.ts` — survives navigation but not app restart.
+**What:** Persist `done.disclaimer` as a `content_part` (`type: 'disclaimer'`) on the assistant message in the backend. Currently a frontend constant in `constants/disclaimer.ts` rendered in `ConversationView` — always visible but not part of the conversation record.
 
 **Why:** Medical disclaimers should be part of the conversation record, not ephemeral client state. Users who force-quit and reopen should see the disclaimer they already accepted.
 
