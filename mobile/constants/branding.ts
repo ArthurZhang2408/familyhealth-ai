@@ -19,7 +19,7 @@ export const Copy = {
   welcome: {
     title: 'Welcome',
     subtitle:
-      'Create a health profile for yourself or a family member to get started.',
+      'Your AI health companion for the whole family. Create a profile to get started.',
     cta: 'Get started',
   },
   home: {

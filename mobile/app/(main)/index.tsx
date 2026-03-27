@@ -235,6 +235,16 @@ export default function NewConversationScreen() {
           >
             {greet.subtitle}
           </Animated.Text>
+          <Text
+            style={{
+              fontSize: FontSize.xs,
+              color: Colors.textMuted,
+              textAlign: 'center',
+              marginTop: Spacing.xs,
+            }}
+          >
+            {mode === 'chat' ? 'Ask health questions' : 'Get a structured assessment'}
+          </Text>
           <View style={{ flex: 2 }} />
         </Pressable>
 
