@@ -31,6 +31,7 @@ export interface SessionListConfig {
   getId: (item: any) => string;
   getRoute: () => string;
   paramName: string;
+  getStatus?: (item: any) => string;
 }
 
 // ---------------------------------------------------------------------------
@@ -119,6 +120,7 @@ export function SessionListScreen({ config }: { config: SessionListConfig }) {
             items.map((item, i) => {
               const id = config.getId(item);
               const title = config.getTitle(item);
+              const status = config.getStatus?.(item);
               return (
                 <Animated.View key={id} entering={enterSlideDown(staggerDelay(i))}>
                   <View
@@ -158,15 +160,25 @@ export function SessionListScreen({ config }: { config: SessionListConfig }) {
                         >
                           {title}
                         </Text>
-                        <Text
-                          style={{
-                            fontSize: FontSize.sm,
-                            color: Colors.textMuted,
-                            marginTop: Spacing.xs,
-                          }}
-                        >
-                          {relativeTime(item.updated_at || item.created_at)}
-                        </Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: Spacing.xs, gap: Spacing.sm }}>
+                          <Text style={{ fontSize: FontSize.sm, color: Colors.textMuted }}>
+                            {relativeTime(item.updated_at || item.created_at)}
+                          </Text>
+                          {status === 'resolved' && (
+                            <View
+                              style={{
+                                backgroundColor: Colors.success + '18',
+                                paddingHorizontal: Spacing.sm,
+                                paddingVertical: 2,
+                                borderRadius: BorderRadius.full,
+                              }}
+                            >
+                              <Text style={{ fontSize: FontSize.xs, fontWeight: FontWeight.semibold, color: Colors.success }}>
+                                Resolved
+                              </Text>
+                            </View>
+                          )}
+                        </View>
                       </View>
                       <Icon name="chevron-right" size={18} color={Colors.textMuted} />
                     </Pressable>

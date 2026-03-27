@@ -337,14 +337,19 @@ function WarningsCard({
       </View>
 
       <View style={{ paddingHorizontal: Spacing.md, paddingBottom: Spacing.md, gap: Spacing.xs }}>
-        {warnings.map((w, i) => (
-          <View key={i} style={{ flexDirection: 'row', gap: Spacing.sm }}>
-            <Text style={{ fontSize: FontSize.sm, color: Colors.error, lineHeight: 20 }}>•</Text>
-            <Text style={{ fontSize: FontSize.sm, color: Colors.text, flex: 1, lineHeight: 20 }}>
-              {w}
-            </Text>
-          </View>
-        ))}
+        {warnings.map((w, i) => {
+          const text = typeof w === 'string'
+            ? w
+            : (w as unknown as Record<string, unknown>).warning ?? (w as unknown as Record<string, unknown>).text ?? JSON.stringify(w);
+          return (
+            <View key={i} style={{ flexDirection: 'row', gap: Spacing.sm }}>
+              <Text style={{ fontSize: FontSize.sm, color: Colors.error, lineHeight: 20 }}>•</Text>
+              <Text style={{ fontSize: FontSize.sm, color: Colors.text, flex: 1, lineHeight: 20 }}>
+                {String(text)}
+              </Text>
+            </View>
+          );
+        })}
       </View>
     </View>
   );

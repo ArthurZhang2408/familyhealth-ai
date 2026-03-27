@@ -15,6 +15,7 @@ export default function AllSessionsScreen() {
         getId: (s) => s.id,
         getRoute: () => '/(main)/diagnosis/[sid]',
         paramName: 'sid',
+        getStatus: (s) => s.status,
       }}
     />
   );
