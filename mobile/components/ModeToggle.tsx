@@ -13,6 +13,8 @@ import { useHapticPress } from '@/hooks/useHapticPress';
 import { useHeaderScale } from '@/hooks/useHeaderScale';
 import { FontSize, FontWeight, BorderRadius } from '@/constants/theme';
 
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
+
 export type ConversationMode = 'chat' | 'diagnosis';
 
 interface Props {
@@ -50,24 +52,30 @@ export function ModeToggle({ mode, onToggle }: Props) {
     opacity: expanded.value,
     maxWidth: expanded.value * 80,
     marginLeft: expanded.value * 4,
+    marginRight: expanded.value * 2,
     overflow: 'hidden' as const,
   }));
 
+  const containerStyle = useAnimatedStyle(() => ({
+    paddingLeft: expanded.value * 8,
+  }));
+
   return (
-    <Pressable
+    <AnimatedPressable
       onPress={handlePress}
-      style={({ pressed }) => ({
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-        height: header.buttonSize,
-        minWidth: header.buttonSize,
-        paddingHorizontal: 0,
-        borderRadius: BorderRadius.full,
-        borderCurve: 'continuous',
-        backgroundColor: tint + '15',
-        opacity: pressed ? 0.6 : 1,
-      })}
+      style={[
+        {
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'center',
+          height: header.buttonSize,
+          minWidth: header.buttonSize,
+          borderRadius: BorderRadius.full,
+          borderCurve: 'continuous',
+          backgroundColor: tint + '15',
+        },
+        containerStyle,
+      ]}
     >
       <Icon
         name={isChat ? 'chat-fill' : 'stethoscope'}
@@ -87,6 +95,6 @@ export function ModeToggle({ mode, onToggle }: Props) {
       >
         {LABELS[mode]}
       </Animated.Text>
-    </Pressable>
+    </AnimatedPressable>
   );
 }
