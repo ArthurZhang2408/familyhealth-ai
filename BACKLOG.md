@@ -45,7 +45,7 @@
 
 ## Shipped (reference)
 
-- ✅ PR #43 — TestFlight gap fixes: account deletion (DELETE /auth/account + cascade), ToS/Privacy links (salk.health), constant medical disclaimer, 401 re-auth retry, expo-splash-screen, offline banner (netinfo), ErrorBoundary, version from expo-constants, Gemini 120s timeout, /health DB check, ModeToggle animated label, profile wizard step labels, welcome copy
+- 🔄 PR #43 — TestFlight gap fixes: account deletion, ToS/Privacy links, disclaimer, 401 re-auth, splash screen, offline banner, ErrorBoundary, version display, Gemini timeout, /health DB check, ModeToggle animated label, profile wizard step labels, welcome copy
 - ✅ PR #42 — Animated Salk icon (entrance + breathing loop + gradient rotation), branding pass (login, sidebar, headers, streaming indicator), reports hidden behind devMode
 - ✅ PR #41 — Prompt suggestions (dynamic, profile-aware), pain slider (gesture-driven), confidence rings (animated SVG), profile-aware greeting, unicode fix
 - ✅ PR #39 — Salk rebrand
