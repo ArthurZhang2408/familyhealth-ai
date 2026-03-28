@@ -1,15 +1,18 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { View, Text, Pressable, Linking } from 'react-native';
+import Animated, { useSharedValue, useAnimatedStyle, withTiming, withSpring } from 'react-native-reanimated';
 import { useColors } from '@/hooks/useColors';
 import { useShadow } from '@/hooks/useShadow';
 import { Spacing, FontSize, FontWeight, BorderRadius } from '@/constants/theme';
+import { Timings, Springs, enterSlideUp, staggerDelay } from '@/constants/animations';
 import { Icon } from '@/components/Icon';
+import { ConfidenceRing } from '@/components/ConfidenceRing';
 import type { MessagePart, AssessmentCondition, AssessmentMedication, AssessmentAction, AssessmentTest, AssessmentSource } from '@/types/api';
 
 type AssessmentPart = Extract<MessagePart, { type: 'assessment' }>;
 
 // ── Confidence styling ──────────────────────────────────────────────────
-// Left-border accent conveys likelihood at a glance without noisy badges.
+// Animated ring conveys likelihood at a glance; text label beside the name.
 
 const CONFIDENCE_META: Record<string, { label: string; rank: string }> = {
   most_likely: { label: 'Most likely', rank: '1' },
@@ -49,7 +52,9 @@ export function DiagnosisReportView({ part }: { part: AssessmentPart }) {
 
       {/* ── Conditions (expandable) ────────────────────────── */}
       {part.conditions.map((cond, i) => (
-        <ConditionCard key={i} condition={cond} defaultExpanded={i === 0} Colors={Colors} shadow={shadow} />
+        <Animated.View key={i} entering={enterSlideUp(staggerDelay(i))}>
+          <ConditionCard condition={cond} defaultExpanded={i === 0} index={i} Colors={Colors} shadow={shadow} />
+        </Animated.View>
       ))}
 
       {/* ── What You Can Do Now (meds + self-care unified) ── */}
@@ -97,17 +102,33 @@ export function DiagnosisReportView({ part }: { part: AssessmentPart }) {
 function ConditionCard({
   condition,
   defaultExpanded,
+  index,
   Colors,
   shadow,
 }: {
   condition: AssessmentCondition;
   defaultExpanded: boolean;
+  index: number;
   Colors: ReturnType<typeof useColors>;
   shadow: ReturnType<typeof useShadow>;
 }) {
   const [expanded, setExpanded] = useState(defaultExpanded);
   const accentColor = useConfidenceColor(condition.confidence);
   const meta = CONFIDENCE_META[condition.confidence] ?? CONFIDENCE_META.possible;
+
+  const bodyOpacity = useSharedValue(defaultExpanded ? 1 : 0);
+  const bodyHeight = useSharedValue(defaultExpanded ? 1 : 0);
+
+  useEffect(() => {
+    bodyOpacity.value = withTiming(expanded ? 1 : 0, expanded ? Timings.fadeIn : Timings.fadeOut);
+    bodyHeight.value = withSpring(expanded ? 1 : 0, Springs.gentle);
+  }, [expanded]);
+
+  const bodyStyle = useAnimatedStyle(() => ({
+    opacity: bodyOpacity.value,
+    maxHeight: bodyHeight.value * 600,
+    overflow: 'hidden' as const,
+  }));
 
   return (
     <Pressable onPress={() => setExpanded((p) => !p)}>
@@ -122,12 +143,14 @@ function ConditionCard({
           ...shadow,
         }}
       >
-        {/* Colored top accent bar */}
-        <View style={{ height: 3, backgroundColor: accentColor }} />
-
         {/* Header — always visible */}
         <View style={{ padding: Spacing.md, paddingBottom: expanded ? Spacing.sm : Spacing.md }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
+            <ConfidenceRing
+              confidence={condition.confidence}
+              color={accentColor}
+              delay={index * 150}
+            />
             <View style={{ flex: 1, gap: 2 }}>
               <Text style={{ fontSize: FontSize.md, fontWeight: FontWeight.bold, color: Colors.text }}>
                 {condition.name}
@@ -144,8 +167,8 @@ function ConditionCard({
           </View>
         </View>
 
-        {/* Body — expanded only */}
-        {expanded && (
+        {/* Body — animated expand/collapse */}
+        <Animated.View style={bodyStyle}>
           <View style={{
             paddingHorizontal: Spacing.md,
             paddingBottom: Spacing.md,
@@ -171,7 +194,7 @@ function ConditionCard({
               </View>
             )}
           </View>
-        )}
+        </Animated.View>
       </View>
     </Pressable>
   );
@@ -314,14 +337,19 @@ function WarningsCard({
       </View>
 
       <View style={{ paddingHorizontal: Spacing.md, paddingBottom: Spacing.md, gap: Spacing.xs }}>
-        {warnings.map((w, i) => (
-          <View key={i} style={{ flexDirection: 'row', gap: Spacing.sm }}>
-            <Text style={{ fontSize: FontSize.sm, color: Colors.error, lineHeight: 20 }}>•</Text>
-            <Text style={{ fontSize: FontSize.sm, color: Colors.text, flex: 1, lineHeight: 20 }}>
-              {w}
-            </Text>
-          </View>
-        ))}
+        {warnings.map((w, i) => {
+          const text = typeof w === 'string'
+            ? w
+            : (w as unknown as Record<string, unknown>).warning ?? (w as unknown as Record<string, unknown>).text ?? JSON.stringify(w);
+          return (
+            <View key={i} style={{ flexDirection: 'row', gap: Spacing.sm }}>
+              <Text style={{ fontSize: FontSize.sm, color: Colors.error, lineHeight: 20 }}>•</Text>
+              <Text style={{ fontSize: FontSize.sm, color: Colors.text, flex: 1, lineHeight: 20 }}>
+                {String(text)}
+              </Text>
+            </View>
+          );
+        })}
       </View>
     </View>
   );

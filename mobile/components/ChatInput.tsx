@@ -1,9 +1,16 @@
 import { useRef } from 'react';
 import { View, Text, TextInput, Pressable, ActivityIndicator, Image } from 'react-native';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+  withSequence,
+} from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { Icon } from '@/components/Icon';
 import { useColors } from '@/hooks/useColors';
 import { Spacing, FontSize, FontWeight, BorderRadius } from '@/constants/theme';
+import { enterSlideUp, exitFade, Springs } from '@/constants/animations';
 import type { Attachment } from '@/hooks/useAttachMenu';
 
 interface Props {
@@ -34,12 +41,48 @@ export function ChatInput({
   const hasAttachment = !!attachment;
   const canSend = (value.trim().length > 0 || hasAttachment) && !isBusy;
 
+  // Send button scale spring
+  const sendScale = useSharedValue(1);
+  const sendScaleStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: sendScale.value }],
+  }));
+
+  // Flag: send is pending, waiting for auto-correct to commit via onEndEditing
+  const pendingSendRef = useRef(false);
+
+  const handleSendPress = () => {
+    if (!canSend) return;
+    if (process.env.EXPO_OS === 'ios') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    sendScale.value = withSequence(
+      withSpring(0.9, Springs.snappy),
+      withSpring(1, Springs.snappy),
+    );
+    // Blur to accept pending iOS auto-correct. The actual send happens in
+    // onEndEditing after iOS commits the corrected text.
+    // If input is already blurred (keyboard dismissed), send directly —
+    // .blur() is a no-op on unfocused input and onEndEditing won't fire.
+    if (!inputRef.current?.isFocused()) {
+      onSend();
+      return;
+    }
+    pendingSendRef.current = true;
+    inputRef.current.blur();
+  };
+
+  const handleEndEditing = (e: { nativeEvent: { text: string } }) => {
+    if (!pendingSendRef.current) return;
+    pendingSendRef.current = false;
+    // Push the final (auto-corrected) text to parent state, then send next tick
+    onChangeText(e.nativeEvent.text);
+    setTimeout(() => onSend(), 0);
+  };
+
   return (
     <View
       style={{
         paddingHorizontal: Spacing.md,
         paddingTop: Spacing.sm,
-        paddingBottom: Spacing.md,
+        paddingBottom: Spacing.xl,
         backgroundColor: Colors.background,
       }}
     >
@@ -54,7 +97,7 @@ export function ChatInput({
       >
         {/* Attachment thumbnail preview */}
         {attachment && attachment.type.startsWith('image/') && (
-          <View style={{ paddingHorizontal: Spacing.md, paddingTop: Spacing.sm }}>
+          <Animated.View entering={enterSlideUp()} exiting={exitFade()} style={{ paddingHorizontal: Spacing.md, paddingTop: Spacing.sm }}>
             <View style={{ alignSelf: 'flex-start', position: 'relative' }}>
               <Image
                 source={{ uri: attachment.uri }}
@@ -88,12 +131,14 @@ export function ChatInput({
                 </Pressable>
               )}
             </View>
-          </View>
+          </Animated.View>
         )}
 
         {/* PDF attachment indicator */}
         {attachment && !attachment.type.startsWith('image/') && (
-          <View
+          <Animated.View
+            entering={enterSlideUp()}
+            exiting={exitFade()}
             style={{
               flexDirection: 'row',
               alignItems: 'center',
@@ -114,7 +159,7 @@ export function ChatInput({
                 <Icon name="close" size={14} color={Colors.textMuted} />
               </Pressable>
             )}
-          </View>
+          </Animated.View>
         )}
 
         {/* Text input area */}
@@ -122,6 +167,7 @@ export function ChatInput({
           ref={inputRef}
           value={value}
           onChangeText={onChangeText}
+          onEndEditing={handleEndEditing}
           placeholder={hasAttachment ? 'Add a message (optional)…' : placeholder}
           placeholderTextColor={Colors.textMuted}
           multiline
@@ -170,34 +216,29 @@ export function ChatInput({
             )}
           </View>
 
-          {/* Send button */}
-          <Pressable
-            onPress={() => {
-              if (canSend) {
-                if (process.env.EXPO_OS === 'ios') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                onSend();
-                inputRef.current?.clear();
-                inputRef.current?.blur();
-              }
-            }}
-            disabled={!canSend}
-            style={({ pressed }) => ({
-              width: 36,
-              height: 36,
-              borderRadius: BorderRadius.full,
-              backgroundColor: canSend ? Colors.primary : Colors.primaryLight,
-              alignItems: 'center',
-              justifyContent: 'center',
-              borderCurve: 'continuous',
-              opacity: pressed ? 0.85 : 1,
-            })}
-          >
-            {isBusy ? (
-              <ActivityIndicator size="small" color={Colors.textInverse} />
-            ) : (
-              <Icon name="arrow-up" size={18} color={Colors.textInverse} />
-            )}
-          </Pressable>
+          {/* Send button with scale spring */}
+          <Animated.View style={sendScaleStyle}>
+            <Pressable
+              onPress={handleSendPress}
+              disabled={!canSend}
+              style={({ pressed }) => ({
+                width: 36,
+                height: 36,
+                borderRadius: BorderRadius.full,
+                backgroundColor: canSend ? Colors.primary : Colors.primaryLight,
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderCurve: 'continuous',
+                opacity: pressed ? 0.85 : 1,
+              })}
+            >
+              {isBusy ? (
+                <ActivityIndicator size="small" color={Colors.textInverse} />
+              ) : (
+                <Icon name="arrow-up" size={18} color={Colors.textInverse} />
+              )}
+            </Pressable>
+          </Animated.View>
         </View>
       </View>
     </View>

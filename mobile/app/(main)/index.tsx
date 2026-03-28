@@ -1,17 +1,58 @@
-import { useState } from 'react';
-import { View, Text, Pressable, KeyboardAvoidingView, ActivityIndicator } from 'react-native';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { View, Text, Pressable, Keyboard, ActivityIndicator } from 'react-native';
 import { useRouter, Stack } from 'expo-router';
-import Animated, { FadeIn, FadeInUp } from 'react-native-reanimated';
+import Animated from 'react-native-reanimated';
+
 import * as Haptics from 'expo-haptics';
-import { Icon } from '@/components/Icon';
+import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
+import { useFocusEffect } from '@react-navigation/native';
 import { ChatInput } from '@/components/ChatInput';
 import { ModeToggle, type ConversationMode } from '@/components/ModeToggle';
+import { PromptSuggestions } from '@/components/PromptSuggestions';
+import { AnimatedSalkIcon } from '@/components/AnimatedSalkIcon';
+import { usePromptSuggestions } from '@/hooks/usePromptSuggestions';
 import { useProfileStore } from '@/stores/profile';
 import { useProfiles } from '@/hooks/useProfiles';
 import { useAttachMenu, type Attachment } from '@/hooks/useAttachMenu';
 import { useColors } from '@/hooks/useColors';
 import { Spacing, FontSize, FontWeight, BorderRadius } from '@/constants/theme';
 import { setPendingSend } from '@/services/pendingSend';
+import { enterSlideUp } from '@/constants/animations';
+import { useNavSource } from '@/services/navigationSource';
+import { Copy } from '@/constants/branding';
+import type { Relationship } from '@/types/api';
+
+/** Familiar address: "Dad", "Mom", "Grandma" for gendered relations; profile name otherwise */
+function familiarName(name: string, rel: Relationship): string {
+  switch (rel) {
+    case 'father': return 'Dad';
+    case 'mother': return 'Mom';
+    case 'grandfather': return 'Grandpa';
+    case 'grandmother': return 'Grandma';
+    default: return name;
+  }
+}
+
+function greeting(name: string, rel: Relationship, mode: 'chat' | 'diagnosis') {
+  const who = familiarName(name, rel);
+  if (rel === 'self') {
+    return {
+      title: mode === 'chat' ? `What's on your mind, ${name}?` : `What's going on, ${name}?`,
+      subtitle: mode === 'chat'
+        ? 'Ask anything about your health, meds, or results.'
+        : 'Describe what you\'re feeling for an assessment.',
+    };
+  }
+  const isKid = ['child', 'son', 'daughter'].includes(rel);
+  return {
+    title: mode === 'chat'
+      ? isKid ? `How's ${who} feeling?` : `How's ${who} doing?`
+      : `What's going on with ${who}?`,
+    subtitle: mode === 'chat'
+      ? `Ask about ${who}'s health, medications, or conditions.`
+      : `Describe ${who}'s symptoms for an assessment.`,
+  };
+}
 
 export default function NewConversationScreen() {
   const Colors = useColors();
@@ -21,25 +62,33 @@ export default function NewConversationScreen() {
   const { data: profilesData } = useProfiles();
   const pid = activeProfile?.id ?? '';
 
+  const pendingMode = useNavSource((s) => s.pendingMode);
   const [input, setInput] = useState('');
   const [mode, setMode] = useState<ConversationMode>('chat');
   const [pendingAttachment, setPendingAttachment] = useState<Attachment | null>(null);
 
+  useEffect(() => {
+    if (pendingMode) {
+      setMode(pendingMode);
+      useNavSource.getState().setPendingMode(null);
+    }
+  }, [pendingMode]);
+
   const handleAttach = useAttachMenu((attachment) => setPendingAttachment(attachment));
 
-  const isBusy = false;
+  const busyRef = useRef(false);
+  const [isBusy, setIsBusy] = useState(false);
 
-  const handleSend = async () => {
-    const text = input.trim();
-    if ((!text && !pendingAttachment) || isBusy || !pid) return;
-    setInput('');
-    const files = pendingAttachment ? [pendingAttachment] : undefined;
-    setPendingAttachment(null);
+  // Reset busy guard when screen regains focus (navigated back from session)
+  useFocusEffect(useCallback(() => { busyRef.current = false; setIsBusy(false); }, []));
 
-    // Navigate immediately — the target screen handles the streaming send.
-    // Use a unique ID each time (not just "new") so the Drawer navigator
-    // is forced to update useLocalSearchParams — it caches params for
-    // chat/[cid] and won't update if the value is the same as last time.
+  const { suggestions, isLoading: suggestionsLoading } = usePromptSuggestions(mode);
+
+  const doSend = useCallback((text: string, files?: Attachment[]) => {
+    if ((!text && !files) || busyRef.current || !pid) return;
+    busyRef.current = true;
+    setIsBusy(true);
+    Keyboard.dismiss();
     setPendingSend(text || ' ', files);
     const ts = Date.now();
     if (mode === 'chat') {
@@ -47,7 +96,15 @@ export default function NewConversationScreen() {
     } else {
       router.navigate({ pathname: '/(main)/diagnosis/[sid]', params: { sid: `new-${ts}` } } as never);
     }
-  };
+  }, [pid, mode, router]);
+
+  const handleSend = useCallback(() => {
+    const text = input.trim();
+    const files = pendingAttachment ? [pendingAttachment] : undefined;
+    setInput('');
+    setPendingAttachment(null);
+    doSend(text, files);
+  }, [input, pendingAttachment, doSend]);
 
   // New account — no profiles exist yet
   if (!activeProfile) {
@@ -66,24 +123,11 @@ export default function NewConversationScreen() {
           <Stack.Screen options={{}} />
           <View style={{ flex: 1, alignItems: 'center', backgroundColor: Colors.background, padding: Spacing.xl }}>
             <View style={{ flex: 1 }} />
-            <Animated.View entering={FadeIn.duration(500)} style={{ alignItems: 'center' }}>
-              <View
-                style={{
-                  width: 56,
-                  height: 56,
-                  borderRadius: BorderRadius.lg,
-                  borderCurve: 'continuous',
-                  backgroundColor: Colors.primary + '12',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  marginBottom: Spacing.md,
-                }}
-              >
-                <Icon name="heart-clipboard" size={28} color={Colors.primary} />
-              </View>
-            </Animated.View>
+            <View style={{ marginBottom: Spacing.md }}>
+              <AnimatedSalkIcon size={64} />
+            </View>
             <Animated.Text
-              entering={FadeInUp.delay(120).duration(350)}
+              entering={enterSlideUp(120)}
               style={{
                 fontSize: FontSize.xxl,
                 fontWeight: FontWeight.bold,
@@ -91,10 +135,10 @@ export default function NewConversationScreen() {
                 textAlign: 'center',
               }}
             >
-              Welcome
+              {Copy.welcome.title}
             </Animated.Text>
             <Animated.Text
-              entering={FadeInUp.delay(240).duration(350)}
+              entering={enterSlideUp(240)}
               style={{
                 fontSize: FontSize.md,
                 color: Colors.textSecondary,
@@ -104,9 +148,9 @@ export default function NewConversationScreen() {
                 maxWidth: 280,
               }}
             >
-              Your AI health companion for the whole family. Create a profile to get started.
+              {Copy.welcome.subtitle}
             </Animated.Text>
-            <Animated.View entering={FadeInUp.delay(400).duration(350)}>
+            <Animated.View entering={enterSlideUp(400)}>
               <Pressable
                 onPress={() => {
                   if (process.env.EXPO_OS === 'ios') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -123,7 +167,7 @@ export default function NewConversationScreen() {
                 })}
               >
                 <Text style={{ fontSize: FontSize.md, fontWeight: FontWeight.semibold, color: Colors.textInverse }}>
-                  Get started
+                  {Copy.welcome.cta}
                 </Text>
               </Pressable>
             </Animated.View>
@@ -139,6 +183,11 @@ export default function NewConversationScreen() {
       </View>
     );
   }
+
+  const greet = activeProfile
+    ? greeting(activeProfile.name, activeProfile.relationship, mode)
+    : { title: mode === 'chat' ? Copy.home.chat.title : Copy.home.diagnosis.title,
+        subtitle: mode === 'chat' ? Copy.home.chat.subtitle : Copy.home.diagnosis.subtitle };
 
   return (
     <>
@@ -157,26 +206,13 @@ export default function NewConversationScreen() {
         behavior={process.env.EXPO_OS === 'ios' ? 'padding' : undefined}
         keyboardVerticalOffset={90}
       >
-        <View style={{ flex: 1, alignItems: 'center', padding: Spacing.xl }}>
+        <Pressable style={{ flex: 1, alignItems: 'center', padding: Spacing.xl }} onPress={Keyboard.dismiss}>
           <View style={{ flex: 1 }} />
-          <Animated.View entering={FadeIn.duration(400)} style={{ alignItems: 'center' }}>
-            <View
-              style={{
-                width: 56,
-                height: 56,
-                borderRadius: BorderRadius.lg,
-                borderCurve: 'continuous',
-                backgroundColor: Colors.primary + '12',
-                alignItems: 'center',
-                justifyContent: 'center',
-                marginBottom: Spacing.md,
-              }}
-            >
-              <Icon name="heart-clipboard" size={28} color={Colors.primary} />
-            </View>
-          </Animated.View>
+          <View style={{ marginBottom: Spacing.md }}>
+            <AnimatedSalkIcon size={56} key={`${pid}-${mode}`} />
+          </View>
           <Animated.Text
-            entering={FadeInUp.delay(100).duration(300)}
+            entering={enterSlideUp(120)}
             style={{
               fontSize: FontSize.xxl,
               fontWeight: FontWeight.bold,
@@ -184,10 +220,10 @@ export default function NewConversationScreen() {
               textAlign: 'center',
             }}
           >
-            {mode === 'chat' ? 'Health Chat' : 'AI Diagnosis'}
+            {greet.title}
           </Animated.Text>
           <Animated.Text
-            entering={FadeInUp.delay(200).duration(300)}
+            entering={enterSlideUp(240)}
             style={{
               fontSize: FontSize.md,
               color: Colors.textSecondary,
@@ -197,11 +233,27 @@ export default function NewConversationScreen() {
               maxWidth: 300,
             }}
           >
-            {mode === 'chat'
-              ? 'Ask any health question about medications, conditions, or test results.'
-              : 'Describe symptoms for a structured AI-assisted assessment.'}
+            {greet.subtitle}
           </Animated.Text>
           <View style={{ flex: 2 }} />
+        </Pressable>
+
+        <View style={{ marginBottom: Spacing.sm }}>
+          <PromptSuggestions
+            suggestions={suggestions}
+            isLoading={suggestionsLoading}
+            onSelectPrompt={(text) => doSend(text)}
+            onNavigateSession={(sessionId, type) => {
+              setIsBusy(true);
+              Keyboard.dismiss();
+              if (type === 'chat') {
+                router.navigate({ pathname: '/(main)/chat/[cid]', params: { cid: sessionId } } as never);
+              } else {
+                router.navigate({ pathname: '/(main)/diagnosis/[sid]', params: { sid: sessionId } } as never);
+              }
+            }}
+            disabled={isBusy}
+          />
         </View>
 
         <ChatInput
@@ -214,8 +266,8 @@ export default function NewConversationScreen() {
           onRemoveAttachment={() => setPendingAttachment(null)}
           placeholder={
             mode === 'chat'
-              ? 'Ask a health question…'
-              : 'Describe your symptoms…'
+              ? Copy.home.chat.placeholder
+              : Copy.home.diagnosis.placeholder
           }
         />
       </KeyboardAvoidingView>

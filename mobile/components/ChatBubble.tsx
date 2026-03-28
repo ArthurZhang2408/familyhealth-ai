@@ -1,10 +1,20 @@
-import React from 'react';
-import { View, Text } from 'react-native';
-import Animated, { FadeInUp } from 'react-native-reanimated';
+import React, { useEffect } from 'react';
+import { View, Text, Pressable } from 'react-native';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+  withRepeat,
+  withSequence,
+  withTiming,
+  withDelay,
+} from 'react-native-reanimated';
+import * as Haptics from 'expo-haptics';
 import Markdown from '@ronradtke/react-native-markdown-display';
 import { useColors } from '@/hooks/useColors';
 import { useMarkdownStyles } from '@/hooks/useMarkdownStyles';
 import { Spacing, FontSize, FontWeight, BorderRadius } from '@/constants/theme';
+import { enterSlideUp, Springs } from '@/constants/animations';
 import {
   AgentStepsPartView,
   MemoryContextPartView,
@@ -12,9 +22,12 @@ import {
   ToolCallPartView,
   ImagePartView,
   ThinkingPartView,
+  ProdAgentSummary,
 } from '@/components/message-parts';
 import { DiagnosisReportView } from '@/components/message-parts/DiagnosisReportView';
+import { isDevMode } from '@/constants/config';
 import type { MessagePart } from '@/types/api';
+import { stripThinkingTags } from '@/utils/stripThinking';
 
 class PartErrorBoundary extends React.Component<{ fallback: React.ReactNode; children: React.ReactNode }, { hasError: boolean }> {
   state = { hasError: false };
@@ -35,15 +48,32 @@ interface Props {
 export function ChatBubble({ content, contentParts, isUser, animate, onStructuredResponse, isLatestAssistant, sendErrorCount }: Props) {
   const Colors = useColors();
   const markdownStyles = useMarkdownStyles();
+  const scale = useSharedValue(1);
 
   const inner = isUser
     ? <UserBubble content={content} contentParts={contentParts} Colors={Colors} />
     : <AssistantBubble content={content} contentParts={contentParts} Colors={Colors} markdownStyles={markdownStyles} onStructuredResponse={onStructuredResponse} isLatestAssistant={isLatestAssistant} sendErrorCount={sendErrorCount} />;
 
+  // Long-press squeeze — only on static (non-entering, non-streaming) messages
+  const enableSqueeze = !animate;
+  const scaleStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }));
+
+  const handleLongPress = () => {
+    if (!enableSqueeze) return;
+    if (process.env.EXPO_OS === 'ios') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    scale.value = withSpring(0.97, Springs.snappy);
+  };
+  const handlePressOut = () => {
+    if (!enableSqueeze) return;
+    scale.value = withSpring(1, Springs.snappy);
+  };
+
   if (animate) {
     return (
       <Animated.View
-        entering={FadeInUp.duration(250).springify().damping(20)}
+        entering={enterSlideUp()}
         style={{ alignItems: isUser ? 'flex-end' : 'flex-start' }}
       >
         {inner}
@@ -52,9 +82,15 @@ export function ChatBubble({ content, contentParts, isUser, animate, onStructure
   }
 
   return (
-    <View style={{ alignItems: isUser ? 'flex-end' : 'flex-start' }}>
-      {inner}
-    </View>
+    <Pressable
+      onLongPress={handleLongPress}
+      onPressOut={handlePressOut}
+      delayLongPress={300}
+    >
+      <Animated.View style={[{ alignItems: isUser ? 'flex-end' : 'flex-start' }, scaleStyle]}>
+        {inner}
+      </Animated.View>
+    </Pressable>
   );
 }
 
@@ -95,7 +131,7 @@ function AssistantBubble({ content, contentParts, Colors, markdownStyles, onStru
   if (!contentParts || contentParts.length === 0) {
     return (
       <View style={{ width: '100%', paddingVertical: Spacing.xs }}>
-        <Markdown style={markdownStyles}>{content}</Markdown>
+        <Markdown style={markdownStyles}>{stripThinkingTags(content)}</Markdown>
       </View>
     );
   }
@@ -110,11 +146,17 @@ function AssistantBubble({ content, contentParts, Colors, markdownStyles, onStru
   return (
     <PartErrorBoundary fallback={
       <View style={{ width: '100%', paddingVertical: Spacing.xs }}>
-        <Markdown style={markdownStyles}>{content}</Markdown>
+        <Markdown style={markdownStyles}>{stripThinkingTags(content)}</Markdown>
       </View>
     }>
       <View style={{ width: '100%', paddingVertical: Spacing.xs }}>
+        {!isDevMode && <ProdAgentSummary parts={contentParts} />}
         {contentParts.map((part, i) => {
+          // Prod mode: skip dev-facing parts (ProdAgentSummary handles them as pills)
+          if (!isDevMode) {
+            if (part.type === 'thinking' || part.type === 'agent_steps' || part.type === 'memory_context') return null;
+            if (part.type === 'tool_call' || part.type === 'tool_result') return null;
+          }
           switch (part.type) {
             case 'thinking':
               return <ThinkingPartView key={i} part={part} />;
@@ -125,7 +167,6 @@ function AssistantBubble({ content, contentParts, Colors, markdownStyles, onStru
             case 'assessment':
               return <DiagnosisReportView key={i} part={part} />;
             case 'tool_call':
-              // Skip tools that have dedicated UI (structured input, agent steps, assessment)
               if (part.name === 'present_question' || part.name === 'present_assessment' || part.name === 'search_patient_memory') return null;
               return <ToolCallPartView key={i} call={part} result={toolResults.get(part.id)} />;
             case 'tool_result':
@@ -135,7 +176,7 @@ function AssistantBubble({ content, contentParts, Colors, markdownStyles, onStru
             case 'structured_input':
               return <StructuredInputView key={`si-${part.prompt}-${sendErrorCount}`} part={part} onResponse={onStructuredResponse} isLatest={!!isLatestAssistant} />;
             case 'text':
-              return <Markdown key={i} style={markdownStyles}>{part.text}</Markdown>;
+              return <Markdown key={i} style={markdownStyles}>{stripThinkingTags(part.text)}</Markdown>;
             default:
               return null;
           }
@@ -145,12 +186,34 @@ function AssistantBubble({ content, contentParts, Colors, markdownStyles, onStru
   );
 }
 
-/** Animated dots shown while AI is thinking */
+/** Animated dots shown while AI is thinking — pulsing opacity with stagger */
 export function TypingIndicator() {
   const Colors = useColors();
+
+  const dot0 = useSharedValue(0.3);
+  const dot1 = useSharedValue(0.3);
+  const dot2 = useSharedValue(0.3);
+
+  useEffect(() => {
+    dot0.value = withRepeat(withSequence(withTiming(0.8, { duration: 400 }), withTiming(0.3, { duration: 400 })), -1, true);
+    dot1.value = withDelay(150, withRepeat(withSequence(withTiming(0.8, { duration: 400 }), withTiming(0.3, { duration: 400 })), -1, true));
+    dot2.value = withDelay(300, withRepeat(withSequence(withTiming(0.8, { duration: 400 }), withTiming(0.3, { duration: 400 })), -1, true));
+  }, [dot0, dot1, dot2]);
+
+  const style0 = useAnimatedStyle(() => ({ opacity: dot0.value }));
+  const style1 = useAnimatedStyle(() => ({ opacity: dot1.value }));
+  const style2 = useAnimatedStyle(() => ({ opacity: dot2.value }));
+
+  const dotBase = {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: Colors.textMuted,
+  };
+
   return (
     <Animated.View
-      entering={FadeInUp.duration(200)}
+      entering={enterSlideUp()}
       style={{ alignItems: 'flex-start' }}
     >
       <View
@@ -167,18 +230,9 @@ export function TypingIndicator() {
           gap: Spacing.xs,
         }}
       >
-        {[0, 1, 2].map((i) => (
-          <View
-            key={i}
-            style={{
-              width: 7,
-              height: 7,
-              borderRadius: 4,
-              backgroundColor: Colors.textMuted,
-              opacity: 0.4 + i * 0.2,
-            }}
-          />
-        ))}
+        <Animated.View style={[dotBase, style0]} />
+        <Animated.View style={[dotBase, style1]} />
+        <Animated.View style={[dotBase, style2]} />
       </View>
     </Animated.View>
   );

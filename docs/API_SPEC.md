@@ -1,4 +1,4 @@
-# FamilyHealth AI — API Specification
+# Salk — API Specification
 
 **Base URL**: `https://api.familyhealth.app/v1`
 **Protocol**: HTTPS only

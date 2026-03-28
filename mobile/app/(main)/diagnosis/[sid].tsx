@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, useWindowDimensions } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { View, Text, Pressable, useWindowDimensions } from 'react-native';
+import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { Stack } from 'expo-router';
 import { useQueryClient } from '@tanstack/react-query';
-import Animated, { useSharedValue, useAnimatedStyle, withTiming } from 'react-native-reanimated';
+import Animated, { useSharedValue, useAnimatedStyle, withTiming, Easing } from 'react-native-reanimated';
 import { ConversationView } from '@/components/ConversationView';
 import { HeaderIconButton } from '@/components/HeaderIconButton';
+import { AnimatedSalkIcon } from '@/components/AnimatedSalkIcon';
+import { useHeaderScale } from '@/hooks/useHeaderScale';
+import { useHapticPress } from '@/hooks/useHapticPress';
 import { useProfileStore } from '@/stores/profile';
 import { useDiagnosisSession } from '@/hooks/useDiagnosis';
 import { useConversation, type LocalMessage } from '@/hooks/useConversation';
@@ -35,8 +38,10 @@ export default function DiagnosisScreen() {
 }
 
 function DiagnosisScreenInner() {
+  const header = useHeaderScale();
   const Colors = useColors();
   const router = useRouter();
+  const handleNewSession = useHapticPress(() => router.navigate('/(main)' as never));
   const qc = useQueryClient();
   const { sid } = useLocalSearchParams<{ sid: string }>();
   const pid = useProfileStore((s) => s.activeProfile?.id) ?? '';
@@ -47,21 +52,26 @@ function DiagnosisScreenInner() {
 
   // Slide in from right when arriving from list
   const { width: screenWidth } = useWindowDimensions();
-  const slideX = useSharedValue(0);
+  // Initialize off-screen when arriving from list — prevents 1-frame flash
+  const slideX = useSharedValue(fromList ? screenWidth : 0);
   const slideStyle = useAnimatedStyle(() => ({
     flex: 1,
     transform: [{ translateX: slideX.value }],
   }));
-  const prevFromList = useRef(false);
-  useEffect(() => {
-    if (fromList && !prevFromList.current) {
-      slideX.value = screenWidth;
-      slideX.value = withTiming(0, { duration: 250 });
-    } else if (!fromList) {
-      slideX.value = 0;
-    }
-    prevFromList.current = fromList;
-  }, [fromList, slideX, screenWidth]);
+  useFocusEffect(
+    useCallback(() => {
+      if (fromList) {
+        slideX.value = screenWidth;
+        slideX.value = withTiming(0, { duration: 300, easing: Easing.out(Easing.cubic) });
+      } else {
+        slideX.value = 0;
+      }
+      // On blur: move back off-screen so next focus starts from the right
+      return () => {
+        if (fromList) slideX.value = screenWidth;
+      };
+    }, [fromList, slideX, screenWidth]),
+  );
 
   const handleBack = useCallback(() => {
     // fromList stays true — list page reads it for its slide-in animation
@@ -240,7 +250,9 @@ function DiagnosisScreenInner() {
                   </Text>
                 </View>
               )}
-              <HeaderIconButton icon="pen-square" onPress={() => router.navigate('/(main)' as never)} />
+              <Pressable onPress={handleNewSession} hitSlop={8} style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}>
+                <AnimatedSalkIcon size={header.buttonSize} showBackground={false} />
+              </Pressable>
             </View>
           ),
         }}
@@ -258,7 +270,9 @@ function DiagnosisScreenInner() {
           errorIcon="stethoscope"
           errorTitle="Couldn't load session"
           placeholder="Describe your symptoms…"
+          mode="diagnosis"
           onStructuredResponse={conv.onStructuredResponse}
+          onDismissError={conv.clearSendError}
         />
       </Animated.View>
     </>

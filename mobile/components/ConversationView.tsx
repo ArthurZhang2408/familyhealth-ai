@@ -1,14 +1,27 @@
-import { RefObject, useEffect } from 'react';
-import { View, Text, Pressable, FlatList, KeyboardAvoidingView } from 'react-native';
-import Animated, { FadeIn, FadeInUp } from 'react-native-reanimated';
+import { RefObject, useEffect, useCallback, useMemo, useRef, useState } from 'react';
+import { View, Text, Pressable, FlatList } from 'react-native';
+import Animated, {
+  SlideOutUp,
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+  withSequence,
+  withDelay,
+} from 'react-native-reanimated';
+import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { ChatBubble, TypingIndicator } from '@/components/ChatBubble';
 import { ChatInput } from '@/components/ChatInput';
 import { AgentSteps } from '@/components/AgentSteps';
+import { LiveStreamingStatus } from '@/components/LiveStreamingStatus';
 import { LoadingSpinner } from '@/components/LoadingSpinner';
 import { Icon, type IconName } from '@/components/Icon';
 import { useColors } from '@/hooks/useColors';
+import { useNetworkStatus } from '@/hooks/useNetworkStatus';
+import { isDevMode } from '@/constants/config';
 import { Spacing, FontSize, FontWeight, BorderRadius } from '@/constants/theme';
-import type { LocalMessage } from '@/hooks/useConversation';
+import { MEDICAL_DISCLAIMER } from '@/constants/disclaimer';
+import { enterSlideUp, enterSlideDown, enterFade, Springs } from '@/constants/animations';
+import type { LocalMessage, SendError } from '@/hooks/useConversation';
 import type { AgentStep } from '@/types/api';
 import type { Attachment } from '@/hooks/useAttachMenu';
 
@@ -19,7 +32,6 @@ interface ConversationViewProps {
   onChangeText: (text: string) => void;
   onSend: () => void;
   isBusy: boolean;
-  disclaimer: string | null;
   flatListRef: RefObject<FlatList | null>;
   placeholder?: string;
   onAttach?: () => void;
@@ -34,9 +46,15 @@ interface ConversationViewProps {
   thinkingContent?: string;
   agentSteps?: AgentStep[];
   isStreaming?: boolean;
+  sendStartTime?: number | null;
+  mode?: 'chat' | 'diagnosis';
   onStructuredResponse?: (content: string, structuredResponse: Record<string, unknown>) => void;
   /** Incremented on each send error — used to reset StructuredInputView selection. */
   sendErrorCount?: number;
+  /** Active send error to display as a banner above the input. */
+  sendError?: SendError | null;
+  /** Called when the user dismisses the error banner. */
+  onDismissError?: () => void;
 }
 
 export function ConversationView({
@@ -46,7 +64,6 @@ export function ConversationView({
   onChangeText,
   onSend,
   isBusy,
-  disclaimer,
   flatListRef,
   placeholder,
   onAttach,
@@ -61,17 +78,24 @@ export function ConversationView({
   thinkingContent = '',
   agentSteps = [],
   isStreaming = false,
+  sendStartTime = null,
+  mode = 'chat',
   onStructuredResponse,
   sendErrorCount = 0,
+  sendError,
+  onDismissError,
 }: ConversationViewProps) {
   const Colors = useColors();
+  const { isConnected } = useNetworkStatus();
 
-  const lastAssistantIndex = allMessages.findLastIndex((m) => m.role === 'assistant');
+  // Inverted FlatList: data newest-first, list renders from the bottom.
+  const reversedMessages = useMemo(() => [...allMessages].reverse(), [allMessages]);
+  const lastAssistantId = allMessages.findLast((m) => m.role === 'assistant')?.id;
 
-  // Auto-scroll when streaming content updates
+  // Auto-scroll to bottom (offset 0 in inverted list) when streaming
   useEffect(() => {
     if (isStreaming || (isBusy && (agentSteps.length > 0 || thinkingContent.length > 0))) {
-      flatListRef.current?.scrollToEnd({ animated: true });
+      flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
     }
   }, [streamingContent, thinkingContent, agentSteps.length, isStreaming, isBusy, flatListRef]);
 
@@ -143,7 +167,8 @@ export function ConversationView({
       >
         <FlatList
           ref={flatListRef}
-          data={allMessages}
+          inverted
+          data={reversedMessages}
           keyExtractor={(m) => m.id}
           contentContainerStyle={{
             padding: Spacing.md,
@@ -152,8 +177,8 @@ export function ConversationView({
             justifyContent: allMessages.length === 0 ? 'center' : 'flex-start',
           }}
           contentInsetAdjustmentBehavior="automatic"
-          renderItem={({ item, index }) => {
-            const isLatestAssistant = item.role === 'assistant' && index === lastAssistantIndex;
+          renderItem={({ item }) => {
+            const isLatestAssistant = item.role === 'assistant' && item.id === lastAssistantId;
             return (
               <ChatBubble
                 content={item.content}
@@ -181,56 +206,83 @@ export function ConversationView({
               </View>
             ) : null
           }
-          ListFooterComponent={
+          ListHeaderComponent={
             allMessages.length > 0 || isBusy ? (
               <>
-                {/* Agent action steps */}
-                {agentSteps.length > 0 && <AgentSteps steps={agentSteps} />}
-
-                {/* Live thinking — reuses Reasoning card style */}
-                {isBusy && thinkingContent.length > 0 && streamingContent.length === 0 && (
-                  <LiveThinkingCard content={thinkingContent} Colors={Colors} />
+                {isDevMode ? (
+                  <>
+                    {/* Dev mode: detailed agent steps */}
+                    {agentSteps.length > 0 && <AgentSteps steps={agentSteps} />}
+                    {isBusy && thinkingContent.length > 0 && streamingContent.length === 0 && (
+                      <LiveThinkingCard content={thinkingContent} Colors={Colors} />
+                    )}
+                    {isBusy && !isStreaming && thinkingContent.length === 0 && <TypingIndicator />}
+                  </>
+                ) : (
+                  /* Prod mode: polished streaming status */
+                  isBusy && !isStreaming && (
+                    <LiveStreamingStatus
+                      isBusy={isBusy}
+                      isStreaming={isStreaming}
+                      agentSteps={agentSteps}
+                      thinkingContent={thinkingContent}
+                      streamingContent={streamingContent}
+                      sendStartTime={sendStartTime}
+                      mode={mode}
+                    />
+                  )
                 )}
 
-                {/* Streaming AI response */}
+                {/* Streaming AI response (both modes) */}
                 {isStreaming && streamingContent.length > 0 && (
                   <ChatBubble content={streamingContent} isUser={false} />
                 )}
 
-                {/* Typing indicator when busy but not yet streaming */}
-                {isBusy && !isStreaming && thinkingContent.length === 0 && <TypingIndicator />}
-
-                {/* Disclaimer after response */}
-                {disclaimer && !isBusy && (
-                  <Animated.Text
-                    entering={FadeIn.duration(300)}
+                {/* Medical disclaimer — always visible once there are messages */}
+                {allMessages.length > 0 && !isBusy && (
+                  <Text
                     style={{
                       fontSize: FontSize.xs,
                       color: Colors.textMuted,
                       textAlign: 'center',
                       marginTop: Spacing.md,
+                      paddingHorizontal: Spacing.md,
                     }}
                   >
-                    {disclaimer}
-                  </Animated.Text>
+                    {MEDICAL_DISCLAIMER}
+                  </Text>
                 )}
               </>
             ) : null
           }
-          onLayout={() => {
-            if (allMessages.length > 0) flatListRef.current?.scrollToEnd({ animated: false });
-          }}
         />
+
+        {sendError && (
+          <ErrorBanner error={sendError} onDismiss={onDismissError} />
+        )}
+
+        {isConnected === false && (
+          <View style={{
+            backgroundColor: Colors.warning,
+            paddingVertical: Spacing.xs,
+            paddingHorizontal: Spacing.md,
+            alignItems: 'center',
+          }}>
+            <Text style={{ fontSize: FontSize.xs, color: Colors.warningLight }}>
+              You're offline — check your connection
+            </Text>
+          </View>
+        )}
 
         <ChatInput
           value={input}
           onChangeText={onChangeText}
           onSend={onSend}
-          isBusy={isBusy}
+          isBusy={isBusy || isConnected === false}
           onAttach={onAttach}
           attachment={pendingAttachment}
           onRemoveAttachment={onRemoveAttachment}
-          placeholder={placeholder}
+          placeholder={isConnected === false ? 'No connection' : placeholder}
         />
     </KeyboardAvoidingView>
   );
@@ -240,7 +292,7 @@ export function ConversationView({
 function LiveThinkingCard({ content, Colors }: { content: string; Colors: ReturnType<typeof useColors> }) {
   return (
     <Animated.View
-      entering={FadeInUp.duration(200)}
+      entering={enterSlideUp()}
       style={{
         borderWidth: 1,
         borderColor: Colors.border,
@@ -284,6 +336,114 @@ function LiveThinkingCard({ content, Colors }: { content: string; Colors: Return
           {content}
         </Text>
       </View>
+    </Animated.View>
+  );
+}
+
+/** Inline error banner above the input — slide-down + shake entrance, slide-up dismiss. */
+function ErrorBanner({ error, onDismiss }: { error: SendError; onDismiss?: () => void }) {
+  const Colors = useColors();
+  const [countdown, setCountdown] = useState(error.retryAfter ?? 0);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const onDismissRef = useRef(onDismiss);
+  onDismissRef.current = onDismiss;
+
+  // Shake animation on mount
+  const shakeX = useSharedValue(0);
+  useEffect(() => {
+    shakeX.value = withDelay(
+      300,
+      withSequence(
+        withSpring(3, Springs.snappy),
+        withSpring(-3, Springs.snappy),
+        withSpring(0, Springs.snappy),
+      ),
+    );
+  }, [shakeX]);
+  const shakeStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: shakeX.value }],
+  }));
+
+  useEffect(() => {
+    if (!error.retryAfter) return;
+    setCountdown(error.retryAfter);
+    intervalRef.current = setInterval(() => {
+      setCountdown((c) => {
+        if (c <= 1) {
+          if (intervalRef.current) clearInterval(intervalRef.current);
+          return 0;
+        }
+        return c - 1;
+      });
+    }, 1000);
+    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
+  }, [error.retryAfter]);
+
+  // Dismiss when countdown reaches 0
+  useEffect(() => {
+    if (countdown === 0 && error.retryAfter) onDismissRef.current?.();
+  }, [countdown, error.retryAfter]);
+
+  // Auto-dismiss non-countdown errors after 5s
+  useEffect(() => {
+    if (error.retryAfter) return;
+    const t = setTimeout(() => onDismissRef.current?.(), 5000);
+    return () => clearTimeout(t);
+  }, [error.retryAfter]);
+
+  const handleDismiss = useCallback(() => {
+    if (intervalRef.current) clearInterval(intervalRef.current);
+    onDismiss?.();
+  }, [onDismiss]);
+
+  return (
+    <Animated.View
+      entering={enterSlideDown()}
+      exiting={SlideOutUp.springify().damping(20)}
+      style={[
+        shakeStyle,
+        {
+          flexDirection: 'row',
+          alignItems: 'center',
+          marginHorizontal: Spacing.md,
+          marginBottom: Spacing.sm,
+          paddingHorizontal: Spacing.md,
+          paddingVertical: Spacing.sm,
+          backgroundColor: Colors.errorLight,
+          borderRadius: BorderRadius.lg,
+          borderCurve: 'continuous',
+          gap: Spacing.sm,
+        },
+      ]}
+    >
+      <Icon name="alert-circle" size={20} color={Colors.error} />
+      <View style={{ flex: 1 }}>
+        <Text
+          style={{
+            fontSize: FontSize.sm,
+            color: Colors.error,
+            fontWeight: FontWeight.semibold,
+          }}
+        >
+          {error.message}
+        </Text>
+        {countdown > 0 && (
+          <Text
+            style={{
+              fontSize: FontSize.xs,
+              color: Colors.error,
+              marginTop: 2,
+              opacity: 0.8,
+            }}
+          >
+            Try again in {countdown}s
+          </Text>
+        )}
+      </View>
+      <Pressable onPress={handleDismiss} hitSlop={{ top: 14, bottom: 14, left: 14, right: 14 }}>
+        <Icon name="close" size={16} color={Colors.error} />
+      </Pressable>
     </Animated.View>
   );
 }

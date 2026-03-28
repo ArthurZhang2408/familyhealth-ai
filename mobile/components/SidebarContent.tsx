@@ -1,57 +1,43 @@
-import { useCallback, useRef, useState } from 'react';
-import { View, Text, Pressable, ScrollView, ActivityIndicator, Alert, Modal, StyleSheet, useWindowDimensions } from 'react-native';
+import { useCallback, useRef } from 'react';
+import { View, Text, Pressable, ScrollView, ActivityIndicator, Alert, useWindowDimensions } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
-import { BlurView } from 'expo-blur';
 import { Icon, IconName } from '@/components/Icon';
+import { ContextMenuOverlay } from '@/components/ContextMenuOverlay';
 import { useRouter, usePathname } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { DrawerContentComponentProps } from '@react-navigation/drawer';
-import Animated, { FadeIn, FadeInDown, FadeInUp } from 'react-native-reanimated';
+import Animated from 'react-native-reanimated';
+import { enterSlideDown, staggerDelay } from '@/constants/animations';
+import { isDevMode } from '@/constants/config';
+import { AppName } from '@/constants/branding';
 import * as Haptics from 'expo-haptics';
 import { useProfileStore } from '@/stores/profile';
 import { useAuthStore } from '@/stores/auth';
 import { useChatConversations } from '@/hooks/useChat';
 import { useDiagnosisSessions } from '@/hooks/useDiagnosis';
-import { useDeleteSession, useRenameSession } from '@/hooks/useSession';
 import { useReports, useUploadReport } from '@/hooks/useReports';
+import { useSessionContextMenu } from '@/hooks/useSessionContextMenu';
 import { useNavSource } from '@/services/navigationSource';
 import { useColors } from '@/hooks/useColors';
 
-import { Spacing, FontWeight, BorderRadius } from '@/constants/theme';
+import { Spacing, FontSize, FontWeight, BorderRadius } from '@/constants/theme';
 import type { ColorPalette } from '@/constants/colors';
 
 // ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
+const AVATAR_SIZE = 34;
+const CAPSULE_HEIGHT = 48;
 
-type MenuAction = { label: string; icon: IconName; destructive?: boolean; onPress: () => void };
-
-interface ContextMenuState {
-  visible: boolean;
-  title: string;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  actions: MenuAction[];
-}
-
-const MENU_INITIAL: ContextMenuState = {
-  visible: false, title: '', x: 0, y: 0, width: 0, height: 0, actions: [],
-};
-
-// ---------------------------------------------------------------------------
 // Hooks
 // ---------------------------------------------------------------------------
 
 function useDynamicFonts() {
-  const { fontScale, width } = useWindowDimensions();
+  const { width } = useWindowDimensions();
   const base = width < 375 ? 14 : 16;
   return {
-    item: base * fontScale,
-    section: (base - 3) * fontScale,
-    label: (base - 2) * fontScale,
-    small: (base - 4) * fontScale,
+    item: base,
+    section: base - 3,
+    label: base - 2,
+    small: base - 4,
   };
 }
 
@@ -73,17 +59,16 @@ export function SidebarContent({ navigation }: DrawerContentComponentProps) {
   const { data: reportData, isLoading: reportLoading } = useReports(pid);
   const uploadReport = useUploadReport(pid);
 
-  const renameChat = useRenameSession('chat', pid);
-  const deleteChat = useDeleteSession('chat', pid);
-  const renameDx = useRenameSession('diagnosis', pid);
-  const deleteDx = useDeleteSession('diagnosis', pid);
-
   const conversations = chatData?.items ?? [];
   const activeSessions = (dxData?.items ?? []).filter((s) => s.status === 'active');
   const reports = reportData?.items ?? [];
 
-  const [menu, setMenu] = useState<ContextMenuState>(MENU_INITIAL);
-  const dismissMenu = useCallback(() => setMenu(MENU_INITIAL), []);
+  const { menu, openMenu: openSessionMenu, dismissMenu } = useSessionContextMenu(pid, {
+    onDelete: (type, id) => {
+      const routeSegment = type === 'chat' ? 'chat' : 'diagnosis';
+      if (pathname.includes(`/${routeSegment}/${id}`)) router.navigate('/(main)' as never);
+    },
+  });
 
   const close = () => navigation.closeDrawer();
 
@@ -101,56 +86,6 @@ export function SidebarContent({ navigation }: DrawerContentComponentProps) {
         router.push(path as never);
       }
     }, 150);
-  };
-
-  // ── Context menu openers ────────────────────────────────────────────────
-
-  const openSessionMenu = (
-    type: 'chat' | 'diagnosis',
-    id: string,
-    title: string,
-    x: number, y: number, w: number, h: number,
-  ) => {
-    if (process.env.EXPO_OS === 'ios') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    const rename = type === 'chat' ? renameChat : renameDx;
-    const del = type === 'chat' ? deleteChat : deleteDx;
-    const routeSegment = type === 'chat' ? 'chat' : 'diagnosis';
-    const typeLabel = type === 'chat' ? 'Conversation' : 'Session';
-
-    setMenu({
-      visible: true, title, x, y, width: w, height: h,
-      actions: [
-        {
-          label: 'Rename', icon: 'pencil',
-          onPress: () => {
-            dismissMenu();
-            setTimeout(() => {
-              Alert.prompt(`Rename ${typeLabel}`, undefined, (t) => {
-                if (t?.trim()) rename.mutate({ id, title: t.trim() });
-              }, 'plain-text', title);
-            }, 150);
-          },
-        },
-        {
-          label: 'Delete', icon: 'trash', destructive: true,
-          onPress: () => {
-            dismissMenu();
-            setTimeout(() => {
-              Alert.alert(`Delete ${typeLabel}`, 'This will also remove memories from this session.', [
-                { text: 'Cancel', style: 'cancel' },
-                {
-                  text: 'Delete', style: 'destructive',
-                  onPress: () => {
-                    del.mutate(id);
-                    if (pathname.includes(`/${routeSegment}/${id}`)) router.navigate('/(main)' as never);
-                  },
-                },
-              ]);
-            }, 150);
-          },
-        },
-      ],
-    });
   };
 
   // ── Upload handler ──────────────────────────────────────────────────────
@@ -180,6 +115,11 @@ export function SidebarContent({ navigation }: DrawerContentComponentProps) {
 
   return (
     <View style={{ flex: 1, backgroundColor: Colors.surface, paddingTop: insets.top + Spacing.sm }}>
+      {/* Branding header */}
+      <View style={{ paddingHorizontal: Spacing.md, paddingBottom: Spacing.lg }}>
+        <Text style={{ fontSize: FontSize.xxl, fontWeight: FontWeight.bold, color: Colors.text }}>{AppName}</Text>
+      </View>
+
       <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={{ paddingHorizontal: Spacing.md, gap: Spacing.lg, paddingBottom: Spacing.lg }}
@@ -201,7 +141,7 @@ export function SidebarContent({ navigation }: DrawerContentComponentProps) {
                 </Text>
               ) : (
                 conversations.slice(0, 10).map((c, i) => (
-                  <Animated.View key={c.id} entering={FadeInDown.delay(i * 30).duration(200)}>
+                  <Animated.View key={c.id} entering={enterSlideDown(staggerDelay(i))}>
                     <SidebarItem
                       title={c.topic || 'New conversation'}
                       active={pathname.includes(`/chat/${c.id}`)}
@@ -228,7 +168,7 @@ export function SidebarContent({ navigation }: DrawerContentComponentProps) {
                 </Text>
               ) : (
                 activeSessions.slice(0, 10).map((s, i) => (
-                  <Animated.View key={s.id} entering={FadeInDown.delay(i * 30).duration(200)}>
+                  <Animated.View key={s.id} entering={enterSlideDown(staggerDelay(i))}>
                     <SidebarItem
                       title={s.title || s.chief_complaint}
                       active={pathname.includes(`/diagnosis/${s.id}`)}
@@ -248,25 +188,27 @@ export function SidebarContent({ navigation }: DrawerContentComponentProps) {
               </Pressable>
             </SidebarSection>
 
-            <SidebarSection title="Reports" iconName="doc-search" loading={reportLoading} colors={Colors} fonts={fonts} onAction={handleUpload}>
-              {reports.length === 0 ? (
-                <Text style={{ fontSize: fonts.label, color: Colors.textMuted, paddingVertical: Spacing.xs }}>
-                  No reports uploaded
-                </Text>
-              ) : (
-                reports.slice(0, 20).map((r, i) => (
-                  <Animated.View key={r.id} entering={FadeInDown.delay(i * 30).duration(200)}>
-                    <SidebarItem
-                      title={r.original_filename}
-                      active={pathname.includes(`/report/${r.id}`)}
-                      onPress={() => navigateTo(`/(main)/report/${r.id}`)}
-                      colors={Colors}
-                      fontSize={fonts.item}
-                    />
-                  </Animated.View>
-                ))
-              )}
-            </SidebarSection>
+            {isDevMode && (
+              <SidebarSection title="Reports" iconName="doc-search" loading={reportLoading} colors={Colors} fonts={fonts} onAction={handleUpload}>
+                {reports.length === 0 ? (
+                  <Text style={{ fontSize: fonts.label, color: Colors.textMuted, paddingVertical: Spacing.xs }}>
+                    No reports uploaded
+                  </Text>
+                ) : (
+                  reports.slice(0, 20).map((r, i) => (
+                    <Animated.View key={r.id} entering={enterSlideDown(staggerDelay(i))}>
+                      <SidebarItem
+                        title={r.original_filename}
+                        active={pathname.includes(`/report/${r.id}`)}
+                        onPress={() => navigateTo(`/(main)/report/${r.id}`)}
+                        colors={Colors}
+                        fontSize={fonts.item}
+                      />
+                    </Animated.View>
+                  ))
+                )}
+              </SidebarSection>
+            )}
           </>
         )}
       </ScrollView>
@@ -283,12 +225,12 @@ export function SidebarContent({ navigation }: DrawerContentComponentProps) {
         <Pressable
           onPress={() => navigateTo('/(main)')}
           style={({ pressed }) => ({
-            width: 48, height: 48, borderRadius: BorderRadius.full,
+            width: CAPSULE_HEIGHT, height: CAPSULE_HEIGHT, borderRadius: BorderRadius.full,
             backgroundColor: Colors.primary, alignItems: 'center', justifyContent: 'center',
             borderCurve: 'continuous', opacity: pressed ? 0.85 : 1,
           })}
         >
-          <Icon name="plus" size={24} color={Colors.textInverse} />
+          <Icon name="plus" size={28} color={Colors.textInverse} />
         </Pressable>
       </View>
 
@@ -297,137 +239,11 @@ export function SidebarContent({ navigation }: DrawerContentComponentProps) {
         <ContextMenuOverlay
           menu={menu}
           colors={Colors}
-          fonts={fonts}
+          titleFontSize={fonts.item}
           onDismiss={dismissMenu}
         />
       )}
     </View>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Context menu overlay (iOS context menu style)
-// ---------------------------------------------------------------------------
-
-// iOS context menu constants (reverse-engineered from iOS 17/18)
-const MENU_ROW_HEIGHT = 44;
-const MENU_RADIUS = 13;
-const MENU_WIDTH = 250;
-const MENU_GAP = 8;
-const HIGHLIGHT_RADIUS = 12;
-
-function ContextMenuOverlay({
-  menu,
-  colors: Colors,
-  fonts,
-  onDismiss,
-}: {
-  menu: ContextMenuState;
-  colors: ColorPalette;
-  fonts: ReturnType<typeof useDynamicFonts>;
-  onDismiss: () => void;
-}) {
-  const { height: screenHeight } = useWindowDimensions();
-  const menuCardHeight = menu.actions.length * MENU_ROW_HEIGHT + StyleSheet.hairlineWidth * (menu.actions.length - 1);
-  const belowY = menu.y + menu.height + MENU_GAP;
-  const aboveY = menu.y - MENU_GAP - menuCardHeight;
-  // Flip above if menu would go off-screen
-  const menuTop = belowY + menuCardHeight > screenHeight - 20 ? aboveY : belowY;
-
-  return (
-    <Modal transparent statusBarTranslucent animationType="none">
-      <View style={StyleSheet.absoluteFill}>
-        {/* Dim scrim */}
-        <Animated.View entering={FadeIn.duration(200)} style={StyleSheet.absoluteFill}>
-          <Pressable onPress={onDismiss} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)' }} />
-        </Animated.View>
-
-        {/* Highlighted item — floating card at measured position */}
-        <Animated.View
-          entering={FadeIn.duration(200)}
-          style={{
-            position: 'absolute',
-            top: menu.y,
-            left: menu.x,
-            width: menu.width,
-            height: menu.height,
-            borderRadius: HIGHLIGHT_RADIUS,
-            borderCurve: 'continuous',
-            overflow: 'hidden',
-          }}
-        >
-          <BlurView
-            intensity={60}
-            tint="systemChromeMaterialDark"
-            style={{
-              flex: 1,
-              justifyContent: 'center',
-              paddingHorizontal: Spacing.sm,
-            }}
-          >
-            <Text
-              style={{ fontSize: fonts.item, color: Colors.text, fontWeight: FontWeight.semibold }}
-              numberOfLines={1}
-            >
-              {menu.title}
-            </Text>
-          </BlurView>
-        </Animated.View>
-
-        {/* Menu card — iOS-style rounded blur card */}
-        <Animated.View
-          entering={FadeInUp.duration(250).damping(20).stiffness(200)}
-          style={{
-            position: 'absolute',
-            top: menuTop,
-            left: menu.x,
-            width: MENU_WIDTH,
-            borderRadius: MENU_RADIUS,
-            borderCurve: 'continuous',
-            overflow: 'hidden',
-          }}
-        >
-          <BlurView intensity={80} tint="systemThickMaterialDark">
-            {menu.actions.map((action, i) => (
-              <View key={action.label}>
-                {i > 0 && (
-                  <View style={{
-                    height: StyleSheet.hairlineWidth,
-                    backgroundColor: 'rgba(255,255,255,0.12)',
-                  }} />
-                )}
-                <Pressable
-                  onPress={action.onPress}
-                  style={({ pressed }) => ({
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    height: MENU_ROW_HEIGHT,
-                    paddingHorizontal: 16,
-                    backgroundColor: pressed ? 'rgba(255,255,255,0.08)' : 'transparent',
-                  })}
-                >
-                  <Icon
-                    name={action.icon}
-                    size={18}
-                    color={action.destructive ? Colors.error : Colors.text}
-                  />
-                  <Text
-                    style={{
-                      flex: 1,
-                      fontSize: 17,
-                      marginLeft: 12,
-                      color: action.destructive ? Colors.error : Colors.text,
-                    }}
-                  >
-                    {action.label}
-                  </Text>
-                </Pressable>
-              </View>
-            ))}
-          </BlurView>
-        </Animated.View>
-      </View>
-    </Modal>
   );
 }
 
@@ -532,7 +348,7 @@ function UserCapsule({ onPress, fontSize }: { onPress: () => void; fontSize: num
     <Pressable
       onPress={onPress}
       style={({ pressed }) => ({
-        flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, height: 48,
+        flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, height: CAPSULE_HEIGHT,
         paddingLeft: Spacing.sm, paddingRight: Spacing.md,
         borderRadius: BorderRadius.full, borderCurve: 'continuous',
         backgroundColor: pressed ? Colors.surfaceSecondary : Colors.surface,
@@ -541,7 +357,7 @@ function UserCapsule({ onPress, fontSize }: { onPress: () => void; fontSize: num
     >
       <View
         style={{
-          width: 34, height: 34, borderRadius: BorderRadius.full,
+          width: AVATAR_SIZE, height: AVATAR_SIZE, borderRadius: BorderRadius.full,
           backgroundColor: Colors.primary + '20', alignItems: 'center', justifyContent: 'center',
         }}
       >

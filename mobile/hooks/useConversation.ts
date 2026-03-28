@@ -1,9 +1,15 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
-import { Alert, AppState, FlatList } from 'react-native';
+import { AppState, FlatList } from 'react-native';
 import { useAttachMenu, type Attachment } from '@/hooks/useAttachMenu';
 import { logger } from '@/services/logger';
 import type { StreamEvent, AgentStep, MessagePart } from '@/types/api';
+import { RateLimitError } from '@/services/api';
 import type { StreamHandle } from '@/services/api';
+
+export interface SendError {
+  message: string;
+  retryAfter?: number;
+}
 
 export interface LocalMessage {
   id: string;
@@ -47,14 +53,15 @@ interface UseConversationConfig {
 export function useConversation({ serverMessages, streamSendFn, dedupMode, onSendComplete }: UseConversationConfig) {
   const [pendingMessages, setPendingMessages] = useState<LocalMessage[]>([]);
   const [input, setInput] = useState('');
-  const [disclaimer, setDisclaimer] = useState<string | null>(null);
   const [pendingAttachment, setPendingAttachment] = useState<Attachment | null>(null);
   const [isSending, setIsSending] = useState(false);
   const [sendErrorCount, setSendErrorCount] = useState(0);
+  const [sendError, setSendError] = useState<SendError | null>(null);
   const [awaitingServer, setAwaitingServer] = useState(false);
   const [streamingContent, setStreamingContent] = useState('');
   const [thinkingContent, setThinkingContent] = useState('');
   const [agentSteps, setAgentSteps] = useState<AgentStep[]>([]);
+  const [sendStartTime, setSendStartTime] = useState<number | null>(null);
   const flatListRef = useRef<FlatList>(null);
   const isSendingRef = useRef(false);
   const streamingContentRef = useRef('');
@@ -261,6 +268,8 @@ export function useConversation({ serverMessages, streamSendFn, dedupMode, onSen
       setPendingMessages((prev) => [...prev, userMsg]);
 
       setIsSending(true);
+      setSendStartTime(Date.now());
+      setSendError(null);
       setStreamingContent('');
       streamingContentRef.current = '';
       agentStepsRef.current = [];
@@ -276,8 +285,6 @@ export function useConversation({ serverMessages, streamSendFn, dedupMode, onSen
         const done = await handle.promise;
         activeAbortRef.current = null;
         doneEvent = done;
-
-        setDisclaimer(done.disclaimer ?? null);
 
         const serverUserId = done.user_message_id;
         // Build contentParts from accumulated agent steps so they render
@@ -345,15 +352,18 @@ export function useConversation({ serverMessages, streamSendFn, dedupMode, onSen
               { id: (Date.now() + 1).toString(), role: 'assistant', content: partial },
             ]);
           } else {
-            // No content received — show user-friendly error
-            const message = err instanceof Error ? err.message : 'Something went wrong';
-            Alert.alert('Could not send', message);
-            // Remove the pending user message since nothing happened
+            // No content received — show error banner above input, remove pending user message
+            const retryAfter = err instanceof RateLimitError ? err.retryAfter : undefined;
+            const message = err instanceof RateLimitError
+              ? 'You\u2019re sending messages too quickly'
+              : err instanceof Error ? err.message : 'Something went wrong';
+            setSendError({ message, retryAfter });
             setPendingMessages((prev) => prev.filter((m) => m.id !== userMsg.id));
           }
         }
       } finally {
         setIsSending(false);
+        setSendStartTime(null);
         setStreamingContent('');
         streamingContentRef.current = '';
         setThinkingContent('');
@@ -368,7 +378,7 @@ export function useConversation({ serverMessages, streamSendFn, dedupMode, onSen
         onSendComplete?.(doneEvent);
       }
 
-      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
+      setTimeout(() => flatListRef.current?.scrollToOffset({ offset: 0, animated: true }), 100);
     },
     [streamSendFn, handleStreamEvent, onSendComplete],
   );
@@ -407,7 +417,6 @@ export function useConversation({ serverMessages, streamSendFn, dedupMode, onSen
     sendMessage,
     onStructuredResponse,
     abort,
-    disclaimer,
     pendingAttachment,
     handleAttach,
     clearAttachment: useCallback(() => setPendingAttachment(null), []),
@@ -417,6 +426,9 @@ export function useConversation({ serverMessages, streamSendFn, dedupMode, onSen
     thinkingContent,
     agentSteps,
     isStreaming,
+    sendStartTime,
     sendErrorCount,
+    sendError,
+    clearSendError: useCallback(() => setSendError(null), []),
   };
 }

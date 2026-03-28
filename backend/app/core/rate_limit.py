@@ -18,4 +18,9 @@ def _rate_limit_key(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
-limiter = Limiter(key_func=_rate_limit_key, default_limits=["30/minute"])
+limiter = Limiter(
+    key_func=_rate_limit_key,
+    default_limits=["30/minute"],
+    headers_enabled=True,
+    retry_after="delta-seconds",
+)

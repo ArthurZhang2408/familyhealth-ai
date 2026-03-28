@@ -1,24 +1,57 @@
 # Backlog
 
-## Mobile — Next Milestone
+## P0 — Before TestFlight (remaining)
 
-- **Session management for Diagnosis + Chat**
-  - Session list screen per feature (list past sessions, tap to resume)
-  - Load conversation history from API on mount (`GET /profiles/:pid/diagnosis/:sid`, `GET /profiles/:pid/chat/:cid`)
-  - Resume existing sessions instead of always creating new ones
-  - Remove hardcoded first reply in diagnosis.tsx — use actual API response
-- **Real-time message UX**
-  - Optimistic updates for sent messages
-  - Scroll-to-bottom on new messages
-  - React Query cache for conversation persistence across navigation
+- **Privacy Policy + Terms of Service pages** — links wired to `salk.health/privacy` and `salk.health/terms` but pages don't exist yet. Prompt file at `docs/landing-page-prompt.md`
+
+## P0 — Before App Store submission
+
+- **ToS/Privacy active consent** — Apple requires active agreement before account creation. Add consent gate on signup screen (checkbox or "By creating an account, you agree to..." passive text with tappable links). Same consent needed before OAuth flows (Google/Apple sign-in). Not required for TestFlight, required for App Store review
+
+## P2 — Polish for good first impression
+
+- **In-app feedback mechanism**
+  - TestFlight has built-in screenshot feedback but in-app path is better
+  - Options: Settings → "Send Feedback" with email compose/form, shake-to-report using existing `logger.reportToServer()`
+- **Prod health endpoint (full)**
+  - `/health` now checks DB connectivity. Full LLM + search provider health (`/debug/status`) still deferred
+
+## P3 — Nice to have
+
+- **Auto-login after signup** — currently redirects to login screen requiring re-entry
+- **Branded loading states** — home screen hydration shows bare `ActivityIndicator`, could use animated icon or skeleton
+- **Session title generation verification** — Qwen thinking model constraints may cause issues under real load
+
+## Mobile — Feature work
+
+- **Prompt suggestions in chat/diagnosis screens**
+  - `useChatSuggestions(conversationId)` — follow-up suggestions after assistant responds
+  - `useDiagnosisSuggestions(sessionId, phase)` — post-assessment follow-ups
+  - `PromptSuggestions` component already reusable, just need new data hooks
+- **Memory-enhanced suggestions**
+  - Backend endpoint `GET /profiles/{pid}/memory-topics?limit=3` for recent health topics
+  - Add as highest-priority tier in suggestion engine after incomplete sessions
+- **Title generation unification**
+  - Consolidate `_auto_generate_topic` (chat) and `_auto_generate_title` (diagnosis) into shared utility
+  - Prefer diagnosis's approach (more structured)
+- **Screen-to-screen navigation transitions**
+  - Stack/Drawer defaults are unanimated. Add spring-based slide transitions
 - **Report upload flow**
   - Progress indicator during upload
   - Poll for analysis completion (`status: processing → complete`)
-- **Profile editing**
-  - Edit profile screen (allergies, medications, conditions, emergency contacts)
-- **Error states**
-  - Network error banners, retry buttons, offline detection
+- **Search optimization**
+  - Shared httpx client for search providers at scale
 
 ## Backend
 
-*(All items completed — see chore/backend-cleanup branch)*
+- **Assessment warnings robustness**
+  - LLM sometimes returns warnings as dicts — coerced to strings in PR #38, but could add schema-level handling
+
+## Shipped (reference)
+
+- ✅ PR #43 — TestFlight gap fixes: account deletion (DELETE /auth/account + cascade), ToS/Privacy links (salk.health), constant medical disclaimer, 401 re-auth retry, expo-splash-screen, offline banner (netinfo), ErrorBoundary, version from expo-constants, Gemini 120s timeout, /health DB check, ModeToggle animated label, profile wizard step labels, welcome copy
+- ✅ PR #42 — Animated Salk icon (entrance + breathing loop + gradient rotation), branding pass (login, sidebar, headers, streaming indicator), reports hidden behind devMode
+- ✅ PR #41 — Prompt suggestions (dynamic, profile-aware), pain slider (gesture-driven), confidence rings (animated SVG), profile-aware greeting, unicode fix
+- ✅ PR #39 — Salk rebrand
+- ✅ PR #38 — Agent steps UI redesign
+- ✅ PR #37 — Context menu + session list

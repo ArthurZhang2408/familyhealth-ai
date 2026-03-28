@@ -4,3 +4,4 @@ export { StructuredInputView } from './StructuredInputView';
 export { ToolCallPartView } from './ToolCallPartView';
 export { ImagePartView } from './ImagePartView';
 export { ThinkingPartView } from './ThinkingPartView';
+export { ProdAgentSummary } from './ProdAgentSummary';

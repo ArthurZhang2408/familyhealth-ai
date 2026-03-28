@@ -32,10 +32,26 @@ function extractErrorMessage(error: Record<string, unknown>, status: number): st
   if (Array.isArray(detail)) {
     return detail.map((d: { msg?: string }) => d.msg ?? JSON.stringify(d)).join('; ');
   }
+  // slowapi returns { "error": "Rate limit exceeded: ..." }
+  if (typeof error.error === 'string') return error.error;
   return `HTTP ${status}`;
 }
 
-async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+/** Thrown when the server returns HTTP 429. */
+export class RateLimitError extends Error {
+  /** Seconds until the client can retry, from the Retry-After header. */
+  retryAfter: number | undefined;
+  constructor(message: string, retryAfter?: number) {
+    super(message);
+    this.name = 'RateLimitError';
+    this.retryAfter = retryAfter;
+  }
+}
+
+// Coalesce concurrent token refresh attempts into a single promise
+let refreshPromise: Promise<void> | null = null;
+
+async function request<T>(path: string, options: RequestInit = {}, _isRetry = false): Promise<T> {
   const method = (options.method ?? 'GET').toUpperCase();
   const start = Date.now();
   let status = 0;
@@ -51,6 +67,39 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
       const error = await response.json().catch(() => ({ detail: 'Request failed' }));
       const msg = extractErrorMessage(error, response.status);
       logger.error('api', `${method} ${path} ${status}`, { duration_ms: Date.now() - start, rid, error: msg });
+
+      // 401 retry: refresh token once, then retry the request
+      if (response.status === 401 && !_isRetry) {
+        logger.info('api', '401 received — attempting token refresh');
+        if (!refreshPromise) {
+          refreshPromise = supabase.auth.refreshSession()
+            .then(({ error }) => {
+              if (error) throw error;
+            })
+            .finally(() => { refreshPromise = null; });
+        }
+        try {
+          await refreshPromise;
+        } catch {
+          // Refresh failed — sign out immediately
+          logger.warn('api', 'Token refresh failed — signing out');
+          await supabase.auth.signOut();
+          throw new Error(msg);
+        }
+        return request<T>(path, options, true);
+      }
+
+      // 401 after retry: session is truly expired — sign out
+      if (response.status === 401 && _isRetry) {
+        logger.warn('api', '401 after refresh — signing out');
+        await supabase.auth.signOut();
+        throw new Error(msg);
+      }
+
+      if (response.status === 429) {
+        const retryAfter = parseInt(response.headers.get('Retry-After') ?? '', 10) || undefined;
+        throw new RateLimitError(msg, retryAfter);
+      }
       throw new Error(msg);
     }
     logger.info('api', `${method} ${path} ${status}`, { duration_ms: Date.now() - start, rid });
@@ -67,6 +116,12 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     throw err;
   }
 }
+
+// ── Account ───────────────────────────────────────────────────────────────────
+
+export const accountApi = {
+  delete: () => request<void>('/auth/account', { method: 'DELETE' }),
+};
 
 // ── Profiles ──────────────────────────────────────────────────────────────────
 
@@ -301,7 +356,7 @@ function streamMultipartRequest(
             let detail = `HTTP ${status}`;
             try {
               const body = JSON.parse(xhr!.responseText);
-              detail = body.detail || detail;
+              detail = body.detail || body.error || detail;
             } catch { /* ignore parse failure */ }
             logger.error('stream', `CLOSED ${path}`, {
               duration_ms: Date.now() - streamStart,
@@ -311,7 +366,12 @@ function streamMultipartRequest(
               rid,
               error: detail,
             });
-            reject(new Error(detail));
+            if (status === 429) {
+              const retryAfter = parseInt(xhr!.getResponseHeader('Retry-After') ?? '', 10) || undefined;
+              reject(new RateLimitError(detail, retryAfter));
+            } else {
+              reject(new Error(detail));
+            }
           }
         }
       };

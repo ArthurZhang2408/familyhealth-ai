@@ -270,6 +270,22 @@ class DiagnosisService:
 
         return session, turn_response
 
+    async def _reopen_if_resolved(self, session: DiagnosisSession) -> None:
+        """Auto-reopen a resolved session; reject abandoned sessions."""
+        if session.status == "resolved":
+            session.status = "active"
+            session.resolved_at = None
+            await self._db.flush()
+            logger.info("Auto-reopened resolved session %s on new message", session.id)
+        elif session.status != "active":
+            from app.core.exceptions import AppError
+
+            raise AppError(
+                status_code=400,
+                detail=f"Cannot send messages to a {session.status} session",
+                code="SESSION_NOT_ACTIVE",
+            )
+
     async def send_message(
         self,
         session: DiagnosisSession,
@@ -278,14 +294,7 @@ class DiagnosisService:
         image_parts: list[ImagePart] | None = None,
     ) -> DiagnosisTurnResponse:
         """Send a user message and get the agent's response."""
-        if session.status != "active":
-            from app.core.exceptions import AppError
-
-            raise AppError(
-                status_code=400,
-                detail=f"Cannot send messages to a {session.status} session",
-                code="SESSION_NOT_ACTIVE",
-            )
+        await self._reopen_if_resolved(session)
 
         # Red flag pre-check
         profile_age = self._calculate_age(profile)
@@ -390,12 +399,7 @@ class DiagnosisService:
             self._db.add(session)
             await self._db.commit()
 
-        if session.status != "active":
-            raise AppError(
-                status_code=400,
-                detail=f"Cannot send messages to a {session.status} session",
-                code="SESSION_NOT_ACTIVE",
-            )
+        await self._reopen_if_resolved(session)
 
         # Emit session_id immediately so the client can update its URL
         yield AgentEvent(
@@ -669,6 +673,24 @@ class DiagnosisService:
                 except Exception:
                     logger.warning(
                         "Session narrative storage failed for session %s",
+                        session.id,
+                        exc_info=True,
+                    )
+
+                # Auto-resolve: assessment delivery closes the loop.
+                # Set status directly — do NOT call close_session() which
+                # would store a duplicate narrative.
+                try:
+                    session.status = "resolved"
+                    session.resolved_at = func.now()
+                    await self._db.commit()
+                    logger.info(
+                        "Auto-resolved session %s after assessment delivery",
+                        session.id,
+                    )
+                except Exception:
+                    logger.warning(
+                        "Auto-resolve failed for session %s",
                         session.id,
                         exc_info=True,
                     )

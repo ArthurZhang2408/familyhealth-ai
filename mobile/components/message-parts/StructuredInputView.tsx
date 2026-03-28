@@ -1,8 +1,18 @@
 import { useState, useCallback } from 'react';
 import { View, Text, Pressable } from 'react-native';
+import Animated, {
+  FadeIn,
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+  withTiming,
+  withSequence,
+} from 'react-native-reanimated';
 import { useColors } from '@/hooks/useColors';
 import { useHapticPress } from '@/hooks/useHapticPress';
+import { ScaleSlider } from '@/components/ScaleSlider';
 import { Spacing, FontSize, FontWeight, BorderRadius } from '@/constants/theme';
+import { Springs, Timings } from '@/constants/animations';
 import type { MessagePart } from '@/types/api';
 
 type StructuredInputPart = Extract<MessagePart, { type: 'structured_input' }>;
@@ -163,17 +173,6 @@ function ScaleInput({
   };
   const [value, setValue] = useState<number | null>(null);
   const displayValue = selected != null ? Number(selected) : value;
-  const step = range.step ?? 1;
-  const steps: number[] = [];
-  for (let i = range.min; i <= range.max; i += step) steps.push(i);
-
-  const handleSelect = useCallback(
-    (v: number) => {
-      if (!interactive) return;
-      setValue(v);
-    },
-    [interactive],
-  );
 
   const handleSubmit = useHapticPress(
     useCallback(() => {
@@ -191,47 +190,12 @@ function ScaleInput({
       <Text style={{ fontSize: FontSize.sm, fontWeight: FontWeight.semibold, color: Colors.text }}>
         {part.prompt}
       </Text>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.xs }}>
-        {steps.map((n) => {
-          const isSelected = displayValue === n;
-          return (
-            <Pressable
-              key={n}
-              onPress={() => handleSelect(n)}
-              disabled={!interactive}
-              style={({ pressed }) => ({
-                width: 36,
-                height: 36,
-                borderRadius: 18,
-                borderWidth: 1.5,
-                borderColor: isSelected ? Colors.primary : Colors.border,
-                backgroundColor: isSelected ? Colors.primary : Colors.surface,
-                alignItems: 'center',
-                justifyContent: 'center',
-                opacity: pressed ? 0.85 : !interactive && !isSelected ? 0.5 : 1,
-              })}
-            >
-              <Text
-                style={{
-                  fontSize: FontSize.sm,
-                  fontWeight: isSelected ? FontWeight.bold : FontWeight.regular,
-                  color: isSelected ? Colors.textInverse : Colors.text,
-                }}
-              >
-                {n}
-              </Text>
-            </Pressable>
-          );
-        })}
-      </View>
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-        <Text style={{ fontSize: FontSize.xs, color: Colors.textMuted }}>
-          {range.labels?.min ?? `${range.min}`}
-        </Text>
-        <Text style={{ fontSize: FontSize.xs, color: Colors.textMuted }}>
-          {range.labels?.max ?? `${range.max}`}
-        </Text>
-      </View>
+      <ScaleSlider
+        range={range}
+        value={displayValue}
+        onValueChange={setValue}
+        interactive={interactive}
+      />
       {interactive && value != null && (
         <SubmitButton label={`Submit: ${value}`} onPress={handleSubmit} />
       )}
@@ -255,14 +219,27 @@ function MultiSelect({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const completedSelection = effectiveSelected as string[] | null;
 
+  const isNoneValue = useCallback((v: string) => {
+    const opt = options.find((o) => o.value === v);
+    return opt ? opt.label.toLowerCase().includes('none of') || opt.value.toLowerCase().includes('none') : false;
+  }, [options]);
+
   const toggle = useCallback((value: string) => {
     setSelected((prev) => {
+      if (isNoneValue(value)) {
+        // Toggling "None" — deselect everything else
+        return prev.has(value) ? new Set() : new Set([value]);
+      }
+      // Toggling a regular option — remove "None" if it was selected
       const next = new Set(prev);
+      for (const v of prev) {
+        if (isNoneValue(v)) next.delete(v);
+      }
       if (next.has(value)) next.delete(value);
       else next.add(value);
       return next;
     });
-  }, []);
+  }, [isNoneValue]);
 
   const handleSubmit = useHapticPress(
     useCallback(() => {
@@ -294,46 +271,13 @@ function MultiSelect({
           ? selected.has(opt.value)
           : Array.isArray(completedSelection) && completedSelection.includes(opt.value);
         return (
-          <Pressable
+          <MultiSelectItem
             key={opt.value}
-            onPress={interactive ? () => toggle(opt.value) : undefined}
-            disabled={!interactive}
-            style={({ pressed }) => ({
-              flexDirection: 'row',
-              alignItems: 'center',
-              gap: Spacing.sm,
-              paddingVertical: Spacing.sm,
-              paddingHorizontal: Spacing.md,
-              borderRadius: BorderRadius.md,
-              borderCurve: 'continuous',
-              borderWidth: 1,
-              borderColor: isChecked ? Colors.primary : Colors.border,
-              backgroundColor: isChecked ? Colors.primary + '10' : Colors.surface,
-              opacity: pressed ? 0.85 : 1,
-            })}
-          >
-            <View
-              style={{
-                width: 20,
-                height: 20,
-                borderRadius: 4,
-                borderWidth: 2,
-                borderColor: isChecked ? Colors.primary : Colors.textMuted,
-                backgroundColor: isChecked ? Colors.primary : 'transparent',
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-            >
-              {isChecked && (
-                <Text style={{ fontSize: 12, color: Colors.textInverse, fontWeight: FontWeight.bold }}>
-                  ✓
-                </Text>
-              )}
-            </View>
-            <Text style={{ fontSize: FontSize.sm, color: Colors.text, flex: 1 }}>
-              {opt.label}
-            </Text>
-          </Pressable>
+            label={opt.label}
+            checked={isChecked}
+            interactive={interactive}
+            onToggle={() => toggle(opt.value)}
+          />
         );
       })}
       {interactive && selected.size > 0 && (
@@ -360,34 +304,125 @@ function OptionCard({
 }) {
   const Colors = useColors();
   const hapticPress = useHapticPress(onPress);
+  const scale = useSharedValue(1);
+
+  const scaleStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }));
+
+  const handlePress = () => {
+    if (disabled) return;
+    // Scale pop on selection
+    scale.value = withSequence(
+      withSpring(1.03, Springs.snappy),
+      withSpring(1, Springs.snappy),
+    );
+    hapticPress();
+  };
 
   return (
-    <Pressable
-      onPress={disabled ? undefined : hapticPress}
-      disabled={disabled}
-      style={({ pressed }) => ({
-        paddingVertical: Spacing.md,
-        paddingHorizontal: Spacing.md,
-        borderRadius: BorderRadius.md,
-        borderCurve: 'continuous',
-        borderWidth: 1.5,
-        borderColor: selected ? Colors.primary : Colors.border,
-        backgroundColor: selected ? Colors.primary + '10' : Colors.surface,
-        opacity: pressed ? 0.85 : disabled && !selected ? 0.5 : 1,
-        ...(flex ? { flex: 1, alignItems: 'center' as const } : {}),
-      })}
-    >
-      <Text
-        style={{
-          fontSize: FontSize.sm,
-          fontWeight: selected ? FontWeight.semibold : FontWeight.regular,
-          color: selected ? Colors.primary : Colors.text,
-          textAlign: flex ? 'center' : 'left',
-        }}
+    <Animated.View style={[scaleStyle, flex ? { flex: 1 } : undefined]}>
+      <Pressable
+        onPress={handlePress}
+        disabled={disabled}
+        style={({ pressed }) => ({
+          paddingVertical: Spacing.md,
+          paddingHorizontal: Spacing.md,
+          borderRadius: BorderRadius.md,
+          borderCurve: 'continuous',
+          borderWidth: 1.5,
+          borderColor: selected ? Colors.primary : Colors.border,
+          backgroundColor: selected ? Colors.primary + '10' : Colors.surface,
+          opacity: pressed ? 0.85 : disabled && !selected ? 0.5 : 1,
+          ...(flex ? { alignItems: 'center' as const } : {}),
+        })}
       >
-        {label}
-      </Text>
-    </Pressable>
+        <Text
+          style={{
+            fontSize: FontSize.sm,
+            fontWeight: selected ? FontWeight.semibold : FontWeight.regular,
+            color: selected ? Colors.primary : Colors.text,
+            textAlign: flex ? 'center' : 'left',
+          }}
+        >
+          {label}
+        </Text>
+      </Pressable>
+    </Animated.View>
+  );
+}
+
+function MultiSelectItem({
+  label,
+  checked,
+  interactive,
+  onToggle,
+}: {
+  label: string;
+  checked: boolean;
+  interactive: boolean;
+  onToggle: () => void;
+}) {
+  const Colors = useColors();
+  const scale = useSharedValue(1);
+  const scaleStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }));
+
+  const handlePress = () => {
+    if (!interactive) return;
+    scale.value = withSequence(
+      withSpring(1.03, Springs.snappy),
+      withSpring(1, Springs.snappy),
+    );
+    onToggle();
+  };
+
+  return (
+    <Animated.View style={scaleStyle}>
+      <Pressable
+        onPress={handlePress}
+        disabled={!interactive}
+        style={({ pressed }) => ({
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: Spacing.sm,
+          paddingVertical: Spacing.sm,
+          paddingHorizontal: Spacing.md,
+          borderRadius: BorderRadius.md,
+          borderCurve: 'continuous',
+          borderWidth: 1,
+          borderColor: checked ? Colors.primary : Colors.border,
+          backgroundColor: checked ? Colors.primary + '10' : Colors.surface,
+          opacity: pressed ? 0.85 : 1,
+        })}
+      >
+        <View
+          style={{
+            width: 20,
+            height: 20,
+            borderRadius: 4,
+            borderWidth: 2,
+            borderColor: checked ? Colors.primary : Colors.textMuted,
+            backgroundColor: checked ? Colors.primary : 'transparent',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          {checked && (
+            <Animated.Text
+              entering={FadeIn.duration(150)}
+              style={{ fontSize: 12, color: Colors.textInverse, fontWeight: FontWeight.bold }}
+            >
+              ✓
+            </Animated.Text>
+          )}
+        </View>
+        <Text style={{ fontSize: FontSize.sm, color: Colors.text, flex: 1 }}>
+          {label}
+        </Text>
+      </Pressable>
+    </Animated.View>
   );
 }
 

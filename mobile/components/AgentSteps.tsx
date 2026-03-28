@@ -1,7 +1,8 @@
 import { View, Text, ActivityIndicator } from 'react-native';
-import Animated, { FadeInUp } from 'react-native-reanimated';
+import Animated from 'react-native-reanimated';
 import { useColors } from '@/hooks/useColors';
 import { Spacing, FontSize, FontWeight } from '@/constants/theme';
+import { enterSlideUp } from '@/constants/animations';
 import type { AgentStep } from '@/types/api';
 
 interface Props {
@@ -15,7 +16,7 @@ export function AgentSteps({ steps }: Props) {
 
   return (
     <Animated.View
-      entering={FadeInUp.duration(200)}
+      entering={enterSlideUp()}
       style={{ gap: Spacing.xs, marginBottom: Spacing.sm }}
     >
       {steps.map((step, i) => (
